@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "steam-auth-web-session-poc",
+  "outputfilename": "steam-auth-web-session-poc",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "福狼",
+    "email": "faolanthewooolf@gmail.com"
+  }
+}

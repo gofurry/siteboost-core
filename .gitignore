@@ -1,0 +1,62 @@
+# OS and editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials.json
+service-account.json
+
+# Go build/test artifacts
+*.exe
+*.test
+*.out
+coverage.out
+dist/
+
+# Node/Vite/Wails frontend artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package.json.md5
+**/frontend/package.json.md5
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Wails build outputs
+build/bin/
+**/build/bin/
+**/frontend/dist/
+
+# Local application/session data
+data/
+sessions/
+*.session
+*.token
+*.cookie
+*.cookies

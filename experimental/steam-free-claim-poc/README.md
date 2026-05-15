@@ -19,7 +19,7 @@ This Wails2 + Vue + TypeScript experiment validates a narrow SteamScope workflow
 
 ```powershell
 npm install --prefix frontend
-wails dev
+.\dev.ps1
 ```
 
 The app can also be validated with:
@@ -27,6 +27,14 @@ The app can also be validated with:
 ```powershell
 go test ./...
 npm run build --prefix frontend
+```
+
+If `wails dev` stops at `Executing: go mod tidy`, run:
+
+```powershell
+$env:GOPROXY = "direct"
+go mod tidy
+wails dev -m
 ```
 
 ## Notes
