@@ -60,3 +60,4 @@ sessions/
 *.token
 *.cookie
 *.cookies
+!steam-go/.gitkeep
