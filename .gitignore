@@ -30,11 +30,15 @@ credentials.json
 service-account.json
 
 # Go build/test artifacts
+/bin/
+/build/
 *.exe
 *.test
 *.out
 coverage.out
+coverage.html
 dist/
+/vendor/
 
 # Node/Vite/Wails frontend artifacts
 node_modules/
