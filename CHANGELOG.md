@@ -15,17 +15,27 @@ The project has not published a runtime release yet.
 - Steam domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
 - HTTP proxy and HTTPS CONNECT tunnel for Steam rule domains.
 - Configurable non-Steam behavior: `reject` by default, or `direct`.
-- Direct upstream dialing through the system network stack.
+- Configurable resolver modes: system DNS, UDP DNS, TCP DNS, and DoH.
+- DNS cache, resolver timeout, server fallback, and IPv4/IPv6 selection policy.
+- Direct upstream dialing through the configured resolver.
+- HTTP CONNECT upstream and SOCKS5 upstream dialing with optional authentication.
 - Engine lifecycle with status and active connection count.
 - Local runtime state file and token-protected loopback control server.
-- Unit tests for config, rules, proxy, engine, and runtime control.
+- Unit tests for config, rules, resolver, upstream, proxy, engine, and runtime control.
+- Proxy integration tests for direct resolver, HTTP upstream, and SOCKS5 upstream paths.
 - Basic runnable example.
 - Bilingual README files.
 - Chinese canonical roadmap in `ROADMAP.md`.
 - English and Chinese maintenance docs.
 - GitHub Actions workflow for `gofmt`, `go vet`, and `go test`.
 
+### Changed
+
+- Version metadata now reports `v0.2.0-dev`.
+- `non_steam_behavior: direct` still means non-Steam traffic is allowed, but the outbound path is now selected by `upstream.type`.
+
 ### Notes
 
-- v0.1.0 runtime remains internal; no stable public Go integration API is exposed yet.
+- Runtime, resolver, and upstream implementations remain internal; no stable public Go integration API is exposed yet.
+- `github.com/miekg/dns` is used for DNS wire message handling.
 - SteamTools is used as an architecture reference only; no source code is copied or ported.

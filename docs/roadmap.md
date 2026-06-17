@@ -2,7 +2,7 @@
 
 ## Current Position
 
-The v0.1.0 ProxyOnly MVP is implemented. It includes YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, direct upstream dialing, engine lifecycle, local runtime state, a token-protected loopback control server, and `start` / `status` / `stop` CLI commands.
+The v0.2.0 ProxyOnly core is implemented. It includes YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, engine lifecycle, local runtime state, a token-protected loopback control server, and `start` / `status` / `stop` CLI commands.
 
 The runtime remains internal. A stable public Go integration API is deferred until the project approaches v1.
 
@@ -44,20 +44,20 @@ Priority: keep the safe proxy foundation stable before adding modes that modify 
 
 ### v0.2.0 - Resolver, DoH, and Upstream
 
-**Status:** Planned  
+**Status:** Completed
 **Scope:** Stability / User-facing / Performance / Testing  
 **Goal:** Add configurable DNS resolution and outbound proxy support.
 
 #### Tasks
 
-- [ ] Add resolver interface
-- [ ] Add system, UDP, TCP, and DoH resolvers
-- [ ] Add DNS cache, timeout, and fallback behavior
-- [ ] Add IPv4 and IPv6 selection policy
-- [ ] Add HTTP proxy and SOCKS5 upstreams
-- [ ] Keep proxy credentials out of logs
-- [ ] Wire resolver and upstream into proxy dialing
-- [ ] Add resolver and upstream tests
+- [x] Add resolver interface
+- [x] Add system, UDP, TCP, and DoH resolvers
+- [x] Add DNS cache, timeout, and fallback behavior
+- [x] Add IPv4 and IPv6 selection policy
+- [x] Add HTTP proxy and SOCKS5 upstreams
+- [x] Keep proxy credentials out of logs
+- [x] Wire resolver and upstream into proxy dialing
+- [x] Add resolver and upstream tests
 
 ---
 

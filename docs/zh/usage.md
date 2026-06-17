@@ -51,6 +51,21 @@ rules:
   enable_default_steam_rules: true
   custom_domains: []
 
+resolver:
+  mode: "system" # system | udp | tcp | doh
+  servers: []
+  prefer_ipv4: true
+  prefer_ipv6: false
+  disable_ipv6: false
+  cache_ttl: "10m"
+  timeout: "5s"
+
+upstream:
+  type: "direct" # direct | http | socks5
+  address: ""
+  username: ""
+  password: ""
+
 runtime:
   # state_path 默认位于用户 cache 目录。
   control_addr: "127.0.0.1:0"
@@ -72,6 +87,8 @@ go run ./cmd/steam-accelerator start \
   --non-steam reject
 ```
 
+v0.2.0 中 resolver 与 upstream 选项只通过 YAML 配置。CLI 保持简单的生命周期与 ProxyOnly 覆盖参数。
+
 ## 常见示例
 
 浏览器手动代理设置：
@@ -81,7 +98,44 @@ HTTP proxy: 127.0.0.1
 Port: 26501
 ```
 
-默认只允许 Steam 规则域名。非 Steam 流量默认拒绝，除非将 `non_steam_behavior` 设置为 `direct`。
+默认只允许 Steam 规则域名。非 Steam 流量默认拒绝，除非将 `non_steam_behavior` 设置为 `direct`。在 v0.2.0 中，`direct` 表示“允许转发”，实际出口由 `upstream.type` 决定。
+
+使用 DoH 与 Direct 出口：
+
+```yaml
+resolver:
+  mode: "doh"
+  servers:
+    - "https://dns.example/dns-query"
+  prefer_ipv4: true
+  cache_ttl: "10m"
+  timeout: "5s"
+
+upstream:
+  type: "direct"
+```
+
+使用 HTTP upstream：
+
+```yaml
+upstream:
+  type: "http"
+  address: "127.0.0.1:8080"
+  username: "optional-user"
+  password: "optional-password"
+```
+
+使用 SOCKS5 upstream：
+
+```yaml
+upstream:
+  type: "socks5"
+  address: "127.0.0.1:1080"
+  username: "optional-user"
+  password: "optional-password"
+```
+
+UDP 与 TCP DNS 模式必须显式配置 `servers`。DNS server 地址省略端口时默认使用 `53`。
 
 测试时使用隔离状态文件：
 

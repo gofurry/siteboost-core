@@ -18,6 +18,15 @@ func TestDefaultConfigValid(t *testing.T) {
 	if cfg.Proxy.NonSteamBehavior != NonSteamReject {
 		t.Fatalf("non-steam behavior = %q, want %q", cfg.Proxy.NonSteamBehavior, NonSteamReject)
 	}
+	if cfg.Resolver.Mode != ResolverSystem {
+		t.Fatalf("resolver mode = %q, want %q", cfg.Resolver.Mode, ResolverSystem)
+	}
+	if !cfg.Resolver.PreferIPv4 {
+		t.Fatalf("prefer IPv4 should be enabled by default")
+	}
+	if cfg.Upstream.Type != UpstreamDirect {
+		t.Fatalf("upstream type = %q, want %q", cfg.Upstream.Type, UpstreamDirect)
+	}
 }
 
 func TestLoadFileYAML(t *testing.T) {
@@ -31,6 +40,17 @@ proxy:
 rules:
   custom_domains:
     - "example.steam.test"
+resolver:
+  mode: "doh"
+  servers:
+    - "https://dns.example/dns-query"
+  cache_ttl: "1m"
+  timeout: "2s"
+upstream:
+  type: "http"
+  address: "127.0.0.1:18080"
+  username: "user"
+  password: "secret"
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -51,6 +71,15 @@ rules:
 	}
 	if len(cfg.Rules.CustomDomains) != 1 {
 		t.Fatalf("custom domains = %#v", cfg.Rules.CustomDomains)
+	}
+	if cfg.Resolver.Mode != ResolverDoH {
+		t.Fatalf("resolver mode = %q", cfg.Resolver.Mode)
+	}
+	if got := cfg.Resolver.CacheTTL.Std(); got != time.Minute {
+		t.Fatalf("cache ttl = %v", got)
+	}
+	if cfg.Upstream.Type != UpstreamHTTP || cfg.Upstream.Address != "127.0.0.1:18080" {
+		t.Fatalf("upstream = %#v", cfg.Upstream)
 	}
 }
 
@@ -75,6 +104,38 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "non loopback",
 			mutate: func(cfg *Config) {
 				cfg.Proxy.ListenAddr = "0.0.0.0:26501"
+			},
+		},
+		{
+			name: "resolver mode",
+			mutate: func(cfg *Config) {
+				cfg.Resolver.Mode = "bogus"
+			},
+		},
+		{
+			name: "resolver servers",
+			mutate: func(cfg *Config) {
+				cfg.Resolver.Mode = ResolverUDP
+				cfg.Resolver.Servers = nil
+			},
+		},
+		{
+			name: "ip preference conflict",
+			mutate: func(cfg *Config) {
+				cfg.Resolver.PreferIPv4 = true
+				cfg.Resolver.PreferIPv6 = true
+			},
+		},
+		{
+			name: "upstream type",
+			mutate: func(cfg *Config) {
+				cfg.Upstream.Type = "wireguard"
+			},
+		},
+		{
+			name: "upstream address",
+			mutate: func(cfg *Config) {
+				cfg.Upstream.Type = UpstreamSOCKS5
 			},
 		},
 	}

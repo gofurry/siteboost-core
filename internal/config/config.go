@@ -16,6 +16,15 @@ const (
 
 	NonSteamReject = "reject"
 	NonSteamDirect = "direct"
+
+	ResolverSystem = "system"
+	ResolverUDP    = "udp"
+	ResolverTCP    = "tcp"
+	ResolverDoH    = "doh"
+
+	UpstreamDirect = "direct"
+	UpstreamHTTP   = "http"
+	UpstreamSOCKS5 = "socks5"
 )
 
 type Duration time.Duration
@@ -45,10 +54,12 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type Config struct {
-	Mode    string        `yaml:"mode"`
-	Proxy   ProxyConfig   `yaml:"proxy"`
-	Rules   RulesConfig   `yaml:"rules"`
-	Runtime RuntimeConfig `yaml:"runtime"`
+	Mode     string         `yaml:"mode"`
+	Proxy    ProxyConfig    `yaml:"proxy"`
+	Resolver ResolverConfig `yaml:"resolver"`
+	Upstream UpstreamConfig `yaml:"upstream"`
+	Rules    RulesConfig    `yaml:"rules"`
+	Runtime  RuntimeConfig  `yaml:"runtime"`
 }
 
 type ProxyConfig struct {
@@ -64,6 +75,23 @@ type ProxyConfig struct {
 type RulesConfig struct {
 	EnableDefaultSteamRules bool     `yaml:"enable_default_steam_rules"`
 	CustomDomains           []string `yaml:"custom_domains"`
+}
+
+type ResolverConfig struct {
+	Mode        string   `yaml:"mode"`
+	Servers     []string `yaml:"servers"`
+	PreferIPv4  bool     `yaml:"prefer_ipv4"`
+	PreferIPv6  bool     `yaml:"prefer_ipv6"`
+	DisableIPv6 bool     `yaml:"disable_ipv6"`
+	CacheTTL    Duration `yaml:"cache_ttl"`
+	Timeout     Duration `yaml:"timeout"`
+}
+
+type UpstreamConfig struct {
+	Type     string `yaml:"type"`
+	Address  string `yaml:"address"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 type RuntimeConfig struct {
@@ -86,6 +114,15 @@ func Default() Config {
 		},
 		Rules: RulesConfig{
 			EnableDefaultSteamRules: true,
+		},
+		Resolver: ResolverConfig{
+			Mode:       ResolverSystem,
+			PreferIPv4: true,
+			CacheTTL:   Duration(10 * time.Minute),
+			Timeout:    Duration(5 * time.Second),
+		},
+		Upstream: UpstreamConfig{
+			Type: UpstreamDirect,
 		},
 		Runtime: RuntimeConfig{
 			StatePath:   DefaultStatePath(),
@@ -153,6 +190,32 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("runtime state_path is required")
 	}
 
+	c.Resolver.Mode = normalizeResolverMode(c.Resolver.Mode)
+	switch c.Resolver.Mode {
+	case ResolverSystem, ResolverUDP, ResolverTCP, ResolverDoH:
+	default:
+		return fmt.Errorf("unsupported resolver mode %q", c.Resolver.Mode)
+	}
+	c.Resolver.Servers = trimStrings(c.Resolver.Servers)
+	if c.Resolver.Mode != ResolverSystem && len(c.Resolver.Servers) == 0 {
+		return fmt.Errorf("resolver servers are required for mode %q", c.Resolver.Mode)
+	}
+	if c.Resolver.PreferIPv4 && c.Resolver.PreferIPv6 {
+		return fmt.Errorf("resolver prefer_ipv4 and prefer_ipv6 cannot both be true")
+	}
+
+	c.Upstream.Type = normalizeUpstreamType(c.Upstream.Type)
+	switch c.Upstream.Type {
+	case UpstreamDirect, UpstreamHTTP, UpstreamSOCKS5:
+	default:
+		return fmt.Errorf("unsupported upstream type %q", c.Upstream.Type)
+	}
+	if c.Upstream.Type != UpstreamDirect && strings.TrimSpace(c.Upstream.Address) == "" {
+		return fmt.Errorf("upstream address is required for type %q", c.Upstream.Type)
+	}
+	c.Upstream.Address = strings.TrimSpace(c.Upstream.Address)
+	c.Upstream.Username = strings.TrimSpace(c.Upstream.Username)
+
 	if c.Proxy.ReadHeaderTimeout.Std() <= 0 {
 		return fmt.Errorf("proxy read_header_timeout must be positive")
 	}
@@ -164,6 +227,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Proxy.ShutdownTimeout.Std() <= 0 {
 		return fmt.Errorf("proxy shutdown_timeout must be positive")
+	}
+	if c.Resolver.CacheTTL.Std() <= 0 {
+		return fmt.Errorf("resolver cache_ttl must be positive")
+	}
+	if c.Resolver.Timeout.Std() <= 0 {
+		return fmt.Errorf("resolver timeout must be positive")
 	}
 	if c.Runtime.StopTimeout.Std() <= 0 {
 		return fmt.Errorf("runtime stop_timeout must be positive")
@@ -190,6 +259,45 @@ func normalizeNonSteamBehavior(behavior string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(behavior))
 	}
+}
+
+func normalizeResolverMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", ResolverSystem:
+		return ResolverSystem
+	case ResolverUDP:
+		return ResolverUDP
+	case ResolverTCP:
+		return ResolverTCP
+	case ResolverDoH:
+		return ResolverDoH
+	default:
+		return strings.ToLower(strings.TrimSpace(mode))
+	}
+}
+
+func normalizeUpstreamType(upstreamType string) string {
+	switch strings.ToLower(strings.TrimSpace(upstreamType)) {
+	case "", UpstreamDirect:
+		return UpstreamDirect
+	case UpstreamHTTP:
+		return UpstreamHTTP
+	case UpstreamSOCKS5:
+		return UpstreamSOCKS5
+	default:
+		return strings.ToLower(strings.TrimSpace(upstreamType))
+	}
+}
+
+func trimStrings(values []string) []string {
+	trimmed := values[:0]
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			trimmed = append(trimmed, value)
+		}
+	}
+	return trimmed
 }
 
 func validateListenAddr(addr string, allowLAN bool) error {

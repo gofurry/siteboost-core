@@ -2,17 +2,14 @@
 
 ## Short-Term Tasks
 
-- Harden the v0.1.0 ProxyOnly CLI smoke path.
-- Add more proxy edge-case tests for malformed requests and dial failures.
+- Harden the v0.2.0 resolver, upstream, and ProxyOnly CLI smoke paths.
+- Add more proxy edge-case tests for malformed requests, dial failures, and upstream failures.
 - Add a short config sample file once the next docs pass starts.
 - Review whether status output should support JSON format in a patch release.
 - Keep runtime implementation internal until public API design is ready.
 
 ## Medium-Term Tasks
 
-- Add resolver and DoH implementation.
-- Add DNS cache and fallback.
-- Add upstream HTTP and SOCKS5 proxy support.
 - Add PAC generator and PAC server.
 - Add rollback state model.
 - Add Windows and macOS system proxy integrations.
@@ -28,7 +25,7 @@
 
 ## Known Limitations
 
-- Only ProxyOnly runtime is implemented.
+- Only ProxyOnly runtime is implemented; PAC, System Proxy, Hosts, certificates, and reverse proxy are deferred.
 - Linux desktop system proxy handling is deferred.
 - DNSIntercept, VPN / TUN, and JS injection are out of v1.0 scope.
 - Public API is not stable before `v1.0.0`.

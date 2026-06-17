@@ -11,7 +11,7 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
 
-The current v0.1.0 development line includes a runnable ProxyOnly MVP. It supports local HTTP proxying, HTTPS CONNECT tunneling, Steam domain matching, YAML configuration, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
+The current v0.2.0 development line includes a runnable ProxyOnly core. It supports local HTTP proxying, HTTPS CONNECT tunneling, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -22,7 +22,8 @@ Current capabilities:
 - Local HTTP proxy and HTTPS CONNECT proxy.
 - Steam domain rules and safe host matching.
 - YAML configuration with safe defaults.
-- Direct upstream dialing through the system network stack.
+- System DNS, UDP DNS, TCP DNS, DoH, DNS cache, and IPv4/IPv6 policy.
+- Direct, HTTP CONNECT upstream, and SOCKS5 upstream dialing.
 - Foreground `start`, `status`, and `stop` CLI lifecycle.
 - Local runtime state file and token-protected loopback control API.
 
@@ -33,8 +34,6 @@ Planned capabilities:
 - Hosts patching with transaction-style restore.
 - Local root CA and dynamic site certificate support.
 - HTTPS reverse proxy for hosts mode.
-- DNS, DoH, caching, and IPv4 or IPv6 policy.
-- HTTP proxy and SOCKS5 upstream dialing.
 - Restore lifecycle for system-modifying modes.
 
 Current repository foundation:
@@ -88,6 +87,8 @@ Run the basic module example:
 ```bash
 go run ./examples/basic
 ```
+
+Resolver and upstream options are configured through YAML. The defaults remain `resolver.mode: system` and `upstream.type: direct`.
 
 ## Documentation
 

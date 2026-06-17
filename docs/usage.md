@@ -51,6 +51,21 @@ rules:
   enable_default_steam_rules: true
   custom_domains: []
 
+resolver:
+  mode: "system" # system | udp | tcp | doh
+  servers: []
+  prefer_ipv4: true
+  prefer_ipv6: false
+  disable_ipv6: false
+  cache_ttl: "10m"
+  timeout: "5s"
+
+upstream:
+  type: "direct" # direct | http | socks5
+  address: ""
+  username: ""
+  password: ""
+
 runtime:
   # state_path defaults to the user cache directory.
   control_addr: "127.0.0.1:0"
@@ -72,6 +87,8 @@ go run ./cmd/steam-accelerator start \
   --non-steam reject
 ```
 
+Resolver and upstream options are YAML-only in v0.2.0. The CLI keeps only simple lifecycle and ProxyOnly overrides.
+
 ## Common Examples
 
 Use browser manual proxy settings:
@@ -81,7 +98,44 @@ HTTP proxy: 127.0.0.1
 Port: 26501
 ```
 
-Default behavior only allows Steam rule domains. Non-Steam traffic is rejected unless `non_steam_behavior` is set to `direct`.
+Default behavior only allows Steam rule domains. Non-Steam traffic is rejected unless `non_steam_behavior` is set to `direct`. In v0.2.0, `direct` means "allow forwarding"; the actual outbound path is selected by `upstream.type`.
+
+Use DoH with direct outbound dialing:
+
+```yaml
+resolver:
+  mode: "doh"
+  servers:
+    - "https://dns.example/dns-query"
+  prefer_ipv4: true
+  cache_ttl: "10m"
+  timeout: "5s"
+
+upstream:
+  type: "direct"
+```
+
+Use an HTTP upstream proxy:
+
+```yaml
+upstream:
+  type: "http"
+  address: "127.0.0.1:8080"
+  username: "optional-user"
+  password: "optional-password"
+```
+
+Use a SOCKS5 upstream proxy:
+
+```yaml
+upstream:
+  type: "socks5"
+  address: "127.0.0.1:1080"
+  username: "optional-user"
+  password: "optional-password"
+```
+
+UDP and TCP DNS modes require explicit servers. If a DNS server address omits the port, port `53` is used.
 
 Use an isolated state file for testing:
 

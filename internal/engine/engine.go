@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/proxy"
+	"github.com/gofurry/go-steam-core/internal/resolver"
 	"github.com/gofurry/go-steam-core/internal/rules"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
@@ -63,7 +64,14 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("build rules matcher: %w", err)
 	}
 
-	dialer := upstream.NewDirectDialer(e.cfg.Proxy.DialTimeout.Std())
+	dnsResolver, err := resolver.New(resolver.ConfigFromApp(e.cfg))
+	if err != nil {
+		return fmt.Errorf("build resolver: %w", err)
+	}
+	dialer, err := upstream.NewDialer(upstream.ConfigFromApp(e.cfg), dnsResolver)
+	if err != nil {
+		return fmt.Errorf("build upstream dialer: %w", err)
+	}
 	proxyServer := proxy.New(proxy.ConfigFromApp(e.cfg), matcher, dialer, e.logger)
 	if err := proxyServer.Start(); err != nil {
 		return err

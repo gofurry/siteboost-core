@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-当前 `v0.1.0` ProxyOnly MVP 已实现：支持 YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、Direct upstream、Engine 生命周期、本地状态文件、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` CLI。
+当前 `v0.2.0` ProxyOnly 内核已实现：支持 YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Engine 生命周期、本地状态文件、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` CLI。
 
 ## 路线策略
 
@@ -34,16 +34,16 @@
 
 ### v0.2.0 - Resolver / DoH / 上游代理
 
-**状态：** 计划中  
+**状态：** 已完成
 **目标：** 完成 DNS / DoH 与上游出口能力。
 
 任务摘要：
 
-- [ ] 支持 system / udp / tcp / doh resolver。
-- [ ] 支持 DNS 缓存、超时、fallback。
-- [ ] 支持 IPv4 / IPv6 策略。
-- [ ] 支持 HTTP Proxy / SOCKS5 upstream。
-- [ ] 添加 resolver、upstream 测试。
+- [x] 支持 system / udp / tcp / doh resolver。
+- [x] 支持 DNS 缓存、超时、fallback。
+- [x] 支持 IPv4 / IPv6 策略。
+- [x] 支持 HTTP Proxy / SOCKS5 upstream。
+- [x] 添加 resolver、upstream 测试。
 
 验收标准：
 

@@ -1,10 +1,11 @@
 # steam-accelerator-core 中文实施文档与 Roadmap
 
-> 文档版本：v0.1  
+> 文档版本：v0.2
 > 维护语言：中文  
 > 项目定位：Go 版 Steam 网络加速原子能力内核  
 > 目标读者：项目作者、后续贡献者、SteamScope / steam-go 集成开发者  
 > 参考项目：https://github.com/BeyondDimension/SteamTools
+> 当前阶段：v0.2.0 Resolver / DoH / 上游代理已实现
 
 ---
 
@@ -877,17 +878,17 @@ Issue 标签建议：
 
 任务：
 
-- [ ] 建立项目结构。
-- [ ] 实现 Config 加载与默认配置。
-- [ ] 实现 Steam 默认域名规则。
-- [ ] 实现 rules.Matcher。
-- [ ] 实现 HTTP Proxy 基础框架。
-- [ ] 实现 HTTPS CONNECT 隧道。
-- [ ] 实现 Direct upstream。
-- [ ] 实现基础日志。
-- [ ] 实现 Engine Start / Stop / Status。
-- [ ] 提供 CLI：`start --mode proxy-only`、`stop`、`status`。
-- [ ] 添加 rules、proxy、engine 单元测试。
+- [x] 建立项目结构。
+- [x] 实现 Config 加载与默认配置。
+- [x] 实现 Steam 默认域名规则。
+- [x] 实现 rules.Matcher。
+- [x] 实现 HTTP Proxy 基础框架。
+- [x] 实现 HTTPS CONNECT 隧道。
+- [x] 实现 Direct upstream。
+- [x] 实现基础日志。
+- [x] 实现 Engine Start / Stop / Status。
+- [x] 提供 CLI：`start --mode proxy-only`、`stop`、`status`。
+- [x] 添加 rules、proxy、engine 单元测试。
 
 非目标：
 
@@ -912,17 +913,18 @@ Issue 标签建议：
 
 任务：
 
-- [ ] 实现 Resolver 接口。
-- [ ] 实现系统 DNS resolver。
-- [ ] 实现 UDP DNS resolver。
-- [ ] 实现 DoH resolver。
-- [ ] 实现 DNS 缓存。
-- [ ] 实现 IPv4 / IPv6 策略。
-- [ ] 实现 HTTP upstream。
-- [ ] 实现 SOCKS5 upstream。
-- [ ] 实现代理认证配置。
-- [ ] 在 proxy / reverse 的 Dial 链路中接入 resolver + upstream。
-- [ ] 添加 resolver、upstream 单元测试。
+- [x] 实现 Resolver 接口。
+- [x] 实现系统 DNS resolver。
+- [x] 实现 UDP DNS resolver。
+- [x] 实现 TCP DNS resolver。
+- [x] 实现 DoH resolver。
+- [x] 实现 DNS 缓存。
+- [x] 实现 IPv4 / IPv6 策略。
+- [x] 实现 HTTP upstream。
+- [x] 实现 SOCKS5 upstream。
+- [x] 实现代理认证配置。
+- [x] 在 proxy 的 Dial 链路中接入 resolver + upstream。
+- [x] 添加 resolver、upstream 单元测试。
 
 非目标：
 
@@ -932,7 +934,7 @@ Issue 标签建议：
 
 验收标准：
 
-1. 可通过配置切换 system / udp / doh。
+1. 可通过配置切换 system / udp / tcp / doh。
 2. DoH 失败可 fallback。
 3. 支持通过用户配置的 HTTP/SOCKS5 上游转发 Steam 流量。
 4. 日志不输出代理密码。
