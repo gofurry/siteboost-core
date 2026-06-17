@@ -2,13 +2,11 @@
 
 ## 短期任务
 
-- 完成 `v0.1.0` 包边界。
-- 增加配置默认值与校验。
-- 增加 Steam 默认域名规则。
-- 增加 rules matcher 测试。
-- 增加 HTTP Proxy 与 CONNECT 骨架。
-- 增加 Engine 启动、停止、状态。
-- 增加 ProxyOnly CLI 命令。
+- 打磨 `v0.1.0` ProxyOnly CLI 冒烟路径。
+- 增加 malformed request 和 dial failure 等代理边界测试。
+- 在下一轮文档整理时增加配置示例文件。
+- 评估 patch 版本是否给 status 增加 JSON 输出。
+- 在公共 API 设计稳定前，继续保持运行时实现为 internal。
 
 ## 中期任务
 
@@ -30,7 +28,7 @@
 
 ## 已知限制
 
-- 运行时加速能力尚未实现。
+- 当前只实现 ProxyOnly 运行时。
 - Linux 桌面系统代理处理延后。
 - DNSIntercept、VPN / TUN、JS 注入不进入 v1.0 范围。
 - `v1.0.0` 前公共 API 不稳定。

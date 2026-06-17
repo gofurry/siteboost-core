@@ -13,24 +13,33 @@ go run ./cmd/steam-accelerator --version
 go run ./examples/basic
 ```
 
-## Required Commands
+## CLI Runtime Check
 
-- `go mod tidy`: verifies module metadata.
-- `gofmt -w .`: formats Go source files.
-- `go vet ./...`: runs Go static checks.
-- `go test ./...`: runs all tests and builds all packages.
-- `go run ./cmd/steam-accelerator --version`: verifies the CLI entry builds.
-- `go run ./examples/basic`: verifies the basic example builds.
+Start the proxy in one terminal:
+
+```bash
+go run ./cmd/steam-accelerator start --state ./tmp/runtime.json
+```
+
+In another terminal:
+
+```bash
+go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
+```
 
 ## Expected Output
 
-The CLI should print project name, version, and module path.
+The version command should print project name, version, and module path.
 
 The basic example should print the project name and module path.
+
+`status` should show `running: true` while the foreground `start` process is active. `stop` should ask the foreground process to shut down and print `stopped` or `stop requested`.
 
 ## Common Failure Cases
 
 - Go is not installed or is older than the `go.mod` directive.
 - A generated file was not formatted by `gofmt`.
 - A future package introduces a dependency but `go mod tidy` was not run.
-- A command imports an internal package before the package is implemented.
+- Port `127.0.0.1:26501` is already in use.
+- A stale state file points to an old process; `status` or `stop` should remove it.

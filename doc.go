@@ -1,6 +1,6 @@
 // Package steamcore is the Go foundation for steam-accelerator-core.
 //
-// The project is currently a repository scaffold. Runtime acceleration
-// modules such as proxy, PAC, resolver, hosts patching, and reverse proxy
-// will be introduced in versioned milestones.
+// The public package currently exposes project metadata only. The v0.1.0
+// ProxyOnly runtime is intentionally kept under internal packages while the
+// integration API is still evolving.
 package steamcore

@@ -11,29 +11,36 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
 
-The current repository is in the scaffold stage. Runtime acceleration features are planned but not implemented yet.
+The current v0.1.0 development line includes a runnable ProxyOnly MVP. It supports local HTTP proxying, HTTPS CONNECT tunneling, Steam domain matching, YAML configuration, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
 ## Features
 
-Planned capabilities:
+Current capabilities:
 
 - Local HTTP proxy and HTTPS CONNECT proxy.
 - Steam domain rules and safe host matching.
+- YAML configuration with safe defaults.
+- Direct upstream dialing through the system network stack.
+- Foreground `start`, `status`, and `stop` CLI lifecycle.
+- Local runtime state file and token-protected loopback control API.
+
+Planned capabilities:
+
 - PAC generation and local PAC server.
 - System proxy setup and rollback.
 - Hosts patching with transaction-style restore.
 - Local root CA and dynamic site certificate support.
 - HTTPS reverse proxy for hosts mode.
 - DNS, DoH, caching, and IPv4 or IPv6 policy.
-- Direct, HTTP proxy, and SOCKS5 upstream dialing.
-- Start, stop, restore, and status lifecycle.
+- HTTP proxy and SOCKS5 upstream dialing.
+- Restore lifecycle for system-modifying modes.
 
-Current scaffold:
+Current repository foundation:
 
 - Go module at `github.com/gofurry/go-steam-core`.
-- Minimal CLI entry at `cmd/steam-accelerator`.
+- CLI entry at `cmd/steam-accelerator`.
 - Runnable basic example.
 - Bilingual README and documentation layout.
 - GitHub Actions for `gofmt`, `go vet`, and `go test`.
@@ -49,7 +56,7 @@ cd go-steam-core
 go mod download
 ```
 
-Library installation will become useful after the v0.1.0 API appears:
+The CLI can be run from source. A stable public Go library API is not exposed yet:
 
 ```bash
 go get github.com/gofurry/go-steam-core
@@ -57,13 +64,26 @@ go get github.com/gofurry/go-steam-core
 
 ## Quick Start
 
-Run the scaffold CLI:
+Print version information:
 
 ```bash
 go run ./cmd/steam-accelerator --version
 ```
 
-Run the basic example:
+Start ProxyOnly mode in the foreground:
+
+```bash
+go run ./cmd/steam-accelerator start --mode proxy-only
+```
+
+From another terminal:
+
+```bash
+go run ./cmd/steam-accelerator status
+go run ./cmd/steam-accelerator stop
+```
+
+Run the basic module example:
 
 ```bash
 go run ./examples/basic
@@ -92,11 +112,11 @@ Feature examples for ProxyOnly, PAC, System Proxy, and Hosts mode will be added 
 
 ```text
 .
-├── cmd/steam-accelerator/     # CLI entry, currently a scaffold
+├── cmd/steam-accelerator/     # CLI entry
 ├── docs/                      # English maintenance docs
 ├── docs/zh/                   # Chinese maintenance docs
 ├── examples/basic/            # Minimal runnable example
-├── internal/                  # Planned private implementation packages
+├── internal/                  # Private runtime implementation packages
 ├── ROADMAP.md                 # Canonical Chinese roadmap
 ├── README.md
 ├── README_zh.md
@@ -129,7 +149,7 @@ See [ROADMAP.md](./ROADMAP.md) for the canonical Chinese plan.
 
 ## Contributing
 
-The project is early. Keep changes small, testable, and aligned with the roadmap. Do not copy SteamTools implementation code; use independent Go implementations and document any external dependency decisions.
+The project is early. Runtime implementation is intentionally internal until the integration API stabilizes. Keep changes small, testable, and aligned with the roadmap. Do not copy SteamTools implementation code; use independent Go implementations and document any external dependency decisions.
 
 ## License
 

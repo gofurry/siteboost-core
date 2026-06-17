@@ -10,7 +10,15 @@ The project has not published a runtime release yet.
 
 - Repository scaffold for `steam-accelerator-core`.
 - Go module `github.com/gofurry/go-steam-core`.
-- Minimal CLI entry at `cmd/steam-accelerator`.
+- ProxyOnly CLI at `cmd/steam-accelerator` with `start`, `status`, and `stop`.
+- YAML configuration with safe loopback defaults.
+- Steam domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
+- HTTP proxy and HTTPS CONNECT tunnel for Steam rule domains.
+- Configurable non-Steam behavior: `reject` by default, or `direct`.
+- Direct upstream dialing through the system network stack.
+- Engine lifecycle with status and active connection count.
+- Local runtime state file and token-protected loopback control server.
+- Unit tests for config, rules, proxy, engine, and runtime control.
 - Basic runnable example.
 - Bilingual README files.
 - Chinese canonical roadmap in `ROADMAP.md`.
@@ -19,5 +27,5 @@ The project has not published a runtime release yet.
 
 ### Notes
 
-- Runtime acceleration features are not implemented yet.
+- v0.1.0 runtime remains internal; no stable public Go integration API is exposed yet.
 - SteamTools is used as an architecture reference only; no source code is copied or ported.

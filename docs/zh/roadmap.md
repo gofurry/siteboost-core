@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-当前处于仓库脚手架与 `v0.1.0` 开发准备阶段。已完成 Go module、README、CI、basic 示例、文档结构，以及 SteamTools clean-room 参考边界说明。
+当前 `v0.1.0` ProxyOnly MVP 已实现：支持 YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、Direct upstream、Engine 生命周期、本地状态文件、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` CLI。
 
 ## 路线策略
 
@@ -14,22 +14,22 @@
 
 ### v0.1.0 - ProxyOnly 加速内核
 
-**状态：** 开发中  
+**状态：** 已完成  
 **目标：** 完成最小可用的本地代理核心，不修改系统、不安装证书。
 
-任务摘要：
+已完成：
 
 - [x] 建立仓库基础结构。
-- [ ] 实现 Config、rules、HTTP Proxy、HTTPS CONNECT、Direct upstream。
-- [ ] 实现 Engine `Start` / `Stop` / `Status`。
-- [ ] 提供 `start --mode proxy-only`、`stop`、`status`。
-- [ ] 添加 rules、proxy、engine 单元测试。
+- [x] 实现 Config、rules、HTTP Proxy、HTTPS CONNECT、Direct upstream。
+- [x] 实现 Engine `Start` / `Stop` / `Status`。
+- [x] 提供 `start --mode proxy-only`、`stop`、`status`。
+- [x] 添加 config、rules、proxy、engine、runtime/control 单元测试。
 
 验收标准：
 
 - 默认监听 `127.0.0.1:26501`。
 - Steam 规则域名可通过手动代理访问。
-- 非 Steam 域名默认不进入加速链路。
+- 非 Steam 域名默认拒绝，可配置为 direct。
 - `gofmt`、`go vet`、`go test ./...` 通过。
 
 ### v0.2.0 - Resolver / DoH / 上游代理
@@ -42,7 +42,7 @@
 - [ ] 支持 system / udp / tcp / doh resolver。
 - [ ] 支持 DNS 缓存、超时、fallback。
 - [ ] 支持 IPv4 / IPv6 策略。
-- [ ] 支持 Direct / HTTP Proxy / SOCKS5 upstream。
+- [ ] 支持 HTTP Proxy / SOCKS5 upstream。
 - [ ] 添加 resolver、upstream 测试。
 
 验收标准：
@@ -64,12 +64,6 @@
 - [ ] Windows / macOS HTTP / HTTPS 系统代理写入与恢复。
 - [ ] rollback 状态文件与 `restore`。
 
-验收标准：
-
-- PAC 只命中 Steam 域名。
-- 开启和关闭后都能恢复原系统代理。
-- 崩溃后 `restore` 可恢复系统状态。
-
 ### v0.4.0 - Hosts + HTTPS Reverse Proxy
 
 **状态：** 计划中  
@@ -83,12 +77,6 @@
 - [ ] HTTP / HTTPS Reverse Proxy。
 - [ ] 保留原始 Host 与 SNI。
 - [ ] 支持 WebSocket。
-
-验收标准：
-
-- hosts 只修改项目标记区块。
-- 停止后完整移除区块。
-- `restore` 可恢复 hosts 与证书相关状态。
 
 ### v0.5.0 - 稳定性、安全与跨平台打磨
 

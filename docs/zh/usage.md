@@ -10,55 +10,85 @@ cd go-steam-core
 go mod download
 ```
 
-当前项目仍是脚手架。真实加速命令会在 `v0.1.0` 里逐步引入。
-
 ## 基本用法
 
-运行脚手架 CLI：
+查看版本：
 
 ```bash
 go run ./cmd/steam-accelerator --version
 ```
 
-运行 basic 示例：
+以前台方式启动 ProxyOnly：
 
 ```bash
-go run ./examples/basic
+go run ./cmd/steam-accelerator start --mode proxy-only
+```
+
+在另一个终端中：
+
+```bash
+go run ./cmd/steam-accelerator status
+go run ./cmd/steam-accelerator stop
 ```
 
 ## 配置
 
-配置加载计划在 `v0.1.0` 实现。初版配置预计包含：
+ProxyOnly 可以直接使用默认配置，也可以使用 YAML：
 
-- `mode`：`proxy_only`、`pac`、`system`、`hosts`。
-- `proxy.listen_addr`：本地代理监听地址。
-- `resolver`：DNS / DoH 模式、服务器、缓存、超时与 IP 策略。
-- `upstream`：Direct、HTTP Proxy、SOCKS5 Proxy。
-- `hosts`：Hosts 模式下的 HTTP / HTTPS 监听设置。
-- `cert`：本地 Root CA 相关选项。
-- `rules`：默认 Steam 规则与自定义域名。
+```yaml
+mode: proxy_only
+
+proxy:
+  listen_addr: "127.0.0.1:26501"
+  non_steam_behavior: "reject" # reject | direct
+  allow_lan: false
+  read_header_timeout: "10s"
+  idle_timeout: "2m"
+  dial_timeout: "30s"
+  shutdown_timeout: "5s"
+
+rules:
+  enable_default_steam_rules: true
+  custom_domains: []
+
+runtime:
+  # state_path 默认位于用户 cache 目录。
+  control_addr: "127.0.0.1:0"
+  stop_timeout: "5s"
+```
+
+配置优先级：
+
+```text
+内置默认值 < YAML 配置 < CLI flags
+```
+
+CLI 覆盖示例：
+
+```bash
+go run ./cmd/steam-accelerator start \
+  --config config.yaml \
+  --listen 127.0.0.1:26501 \
+  --non-steam reject
+```
 
 ## 常见示例
 
-当前脚手架检查：
+浏览器手动代理设置：
 
-```bash
-go test ./...
-go vet ./...
-go run ./cmd/steam-accelerator --version
-go run ./examples/basic
+```text
+HTTP proxy: 127.0.0.1
+Port: 26501
 ```
 
-未来 `v0.1.0` 目标用法：
+默认只允许 Steam 规则域名。非 Steam 流量默认拒绝，除非将 `non_steam_behavior` 设置为 `direct`。
+
+测试时使用隔离状态文件：
 
 ```bash
-steam-accelerator start --mode proxy-only
-steam-accelerator status
-steam-accelerator stop
+go run ./cmd/steam-accelerator start --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-未来恢复命令目标：
-
-```bash
-steam-accelerator restore
-```
+PAC、System Proxy、Hosts、证书管理和 restore 命令将在后续里程碑实现。

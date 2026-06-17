@@ -13,24 +13,33 @@ go run ./cmd/steam-accelerator --version
 go run ./examples/basic
 ```
 
-## 必要命令
+## CLI 运行时检查
 
-- `go mod tidy`：验证模块元数据。
-- `gofmt -w .`：格式化 Go 源码。
-- `go vet ./...`：运行 Go 静态检查。
-- `go test ./...`：运行全部测试并构建全部包。
-- `go run ./cmd/steam-accelerator --version`：验证 CLI 入口可构建。
-- `go run ./examples/basic`：验证 basic 示例可构建。
+在一个终端启动代理：
+
+```bash
+go run ./cmd/steam-accelerator start --state ./tmp/runtime.json
+```
+
+在另一个终端中：
+
+```bash
+go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
+```
 
 ## 期望输出
 
-CLI 应输出项目名、版本号和模块路径。
+版本命令应输出项目名、版本号和模块路径。
 
 basic 示例应输出项目名和模块路径。
+
+前台 `start` 运行时，`status` 应显示 `running: true`。`stop` 应让前台进程退出，并输出 `stopped` 或 `stop requested`。
 
 ## 常见失败情况
 
 - 未安装 Go，或 Go 版本低于 `go.mod` 声明。
 - 新增 Go 文件未经过 `gofmt`。
 - 新增依赖后未运行 `go mod tidy`。
-- 命令提前导入了尚未实现的内部包。
+- `127.0.0.1:26501` 端口已被占用。
+- 状态文件指向旧进程；`status` 或 `stop` 应自动清理 stale 状态。

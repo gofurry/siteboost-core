@@ -10,55 +10,85 @@ cd go-steam-core
 go mod download
 ```
 
-The project is currently a scaffold. Runtime acceleration commands will be introduced in the v0.1.0 milestone.
-
 ## Basic Usage
 
-Run the scaffold CLI:
+Print version information:
 
 ```bash
 go run ./cmd/steam-accelerator --version
 ```
 
-Run the basic example:
+Start ProxyOnly mode in the foreground:
 
 ```bash
-go run ./examples/basic
+go run ./cmd/steam-accelerator start --mode proxy-only
+```
+
+In another terminal:
+
+```bash
+go run ./cmd/steam-accelerator status
+go run ./cmd/steam-accelerator stop
 ```
 
 ## Configuration
 
-Configuration loading is planned for v0.1.0. The first stable shape is expected to include:
+ProxyOnly can run with defaults, or with a YAML file:
 
-- `mode`: `proxy_only`, `pac`, `system`, or `hosts`.
-- `proxy.listen_addr`: default local proxy address.
-- `resolver`: DNS / DoH mode, servers, cache, timeout, and IP policy.
-- `upstream`: direct, HTTP proxy, or SOCKS5 proxy.
-- `hosts`: hosts-mode HTTP and HTTPS listener settings.
-- `cert`: local root CA options.
-- `rules`: default Steam rules and custom domains.
+```yaml
+mode: proxy_only
+
+proxy:
+  listen_addr: "127.0.0.1:26501"
+  non_steam_behavior: "reject" # reject | direct
+  allow_lan: false
+  read_header_timeout: "10s"
+  idle_timeout: "2m"
+  dial_timeout: "30s"
+  shutdown_timeout: "5s"
+
+rules:
+  enable_default_steam_rules: true
+  custom_domains: []
+
+runtime:
+  # state_path defaults to the user cache directory.
+  control_addr: "127.0.0.1:0"
+  stop_timeout: "5s"
+```
+
+Configuration precedence:
+
+```text
+built-in defaults < YAML config < CLI flags
+```
+
+CLI overrides:
+
+```bash
+go run ./cmd/steam-accelerator start \
+  --config config.yaml \
+  --listen 127.0.0.1:26501 \
+  --non-steam reject
+```
 
 ## Common Examples
 
-Current scaffold checks:
+Use browser manual proxy settings:
 
-```bash
-go test ./...
-go vet ./...
-go run ./cmd/steam-accelerator --version
-go run ./examples/basic
+```text
+HTTP proxy: 127.0.0.1
+Port: 26501
 ```
 
-Future v0.1.0 usage target:
+Default behavior only allows Steam rule domains. Non-Steam traffic is rejected unless `non_steam_behavior` is set to `direct`.
+
+Use an isolated state file for testing:
 
 ```bash
-steam-accelerator start --mode proxy-only
-steam-accelerator status
-steam-accelerator stop
+go run ./cmd/steam-accelerator start --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-Future restore target:
-
-```bash
-steam-accelerator restore
-```
+Future commands for PAC, System Proxy, Hosts, certificate management, and restore are planned in later milestones.

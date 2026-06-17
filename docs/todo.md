@@ -2,13 +2,11 @@
 
 ## Short-Term Tasks
 
-- Finish `v0.1.0` package boundaries.
-- Add config defaults and validation.
-- Add default Steam domain rules.
-- Add rules matcher tests.
-- Add HTTP proxy and CONNECT skeleton.
-- Add Engine start, stop, and status.
-- Add CLI commands for proxy-only mode.
+- Harden the v0.1.0 ProxyOnly CLI smoke path.
+- Add more proxy edge-case tests for malformed requests and dial failures.
+- Add a short config sample file once the next docs pass starts.
+- Review whether status output should support JSON format in a patch release.
+- Keep runtime implementation internal until public API design is ready.
 
 ## Medium-Term Tasks
 
@@ -30,7 +28,7 @@
 
 ## Known Limitations
 
-- Runtime acceleration is not implemented yet.
+- Only ProxyOnly runtime is implemented.
 - Linux desktop system proxy handling is deferred.
 - DNSIntercept, VPN / TUN, and JS injection are out of v1.0 scope.
 - Public API is not stable before `v1.0.0`.
