@@ -21,6 +21,9 @@ The project has not published a runtime release yet.
 - HTTP CONNECT upstream and SOCKS5 upstream dialing with optional authentication.
 - PAC generation and local PAC server.
 - Windows and macOS PAC/System Proxy setup with rollback state.
+- Windows Hosts mode with project-owned hosts marker block and restore support.
+- Local root CA generation, Windows current-user install/uninstall, and dynamic site certificates.
+- Local HTTP/HTTPS reverse proxy for Hosts mode with Host/SNI preservation and WebSocket upgrade support.
 - Engine lifecycle with status and active connection count.
 - Local runtime state file and token-protected loopback control server.
 - Unit tests for config, rules, resolver, upstream, proxy, engine, and runtime control.
@@ -33,11 +36,13 @@ The project has not published a runtime release yet.
 
 ### Changed
 
-- Version metadata now reports `v0.3.0-dev`.
+- Version metadata now reports `v0.4.0-dev`.
 - `non_steam_behavior: direct` still means non-Steam traffic is allowed, but the outbound path is now selected by `upstream.type`.
 
 ### Notes
 
 - Runtime, resolver, upstream, PAC, and system proxy implementations remain internal; no stable public Go integration API is exposed yet.
 - `github.com/miekg/dns` is used for DNS wire message handling.
+- Hosts mode is Windows-first in v0.4.0. macOS/Linux Hosts and certificate-store setup return unsupported.
+- Hosts files cannot express wildcard rules, so Hosts mode writes exact domains only; wildcard coverage is deferred to a future DNSIntercept-style mode.
 - SteamTools is used as an architecture reference only; no source code is copied or ported.

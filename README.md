@@ -11,7 +11,7 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
 
-The current v0.3.0 development line includes a runnable local acceleration core. It supports ProxyOnly, PAC, and System Proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
+The current v0.4.0 development line includes a runnable local acceleration core. It supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -26,14 +26,16 @@ Current capabilities:
 - Direct, HTTP CONNECT upstream, and SOCKS5 upstream dialing.
 - PAC generation and local PAC server.
 - Windows and macOS system PAC/manual proxy setup with rollback.
+- Windows hosts marker block setup and restore.
+- Local root CA generation plus Windows current-user install/uninstall.
+- Local HTTP/HTTPS reverse proxy with dynamic site certificates for Hosts mode.
 - Foreground `start`, `status`, `stop`, and `restore` CLI lifecycle.
 - Local runtime state file and token-protected loopback control API.
 
 Planned capabilities:
 
-- Hosts patching with transaction-style restore.
-- Local root CA and dynamic site certificate support.
-- HTTPS reverse proxy for hosts mode.
+- macOS/Linux Hosts and certificate-store support.
+- DNSIntercept, VPN/TUN, and deeper traffic capture modes.
 - Restore lifecycle for system-modifying modes.
 
 Current repository foundation:
@@ -82,6 +84,13 @@ go run ./cmd/steam-accelerator start --mode pac
 go run ./cmd/steam-accelerator start --mode system
 ```
 
+Windows Hosts mode requires an explicit local root CA install first:
+
+```bash
+go run ./cmd/steam-accelerator cert install
+go run ./cmd/steam-accelerator start --mode hosts
+```
+
 From another terminal:
 
 ```bash
@@ -96,7 +105,7 @@ Run the basic module example:
 go run ./examples/basic
 ```
 
-Resolver, upstream, PAC, and system proxy options are configured through YAML. The defaults remain `resolver.mode: system` and `upstream.type: direct`.
+Resolver, upstream, PAC, system proxy, and Hosts options are configured through YAML. The defaults remain `resolver.mode: system` and `upstream.type: direct`.
 
 ## Documentation
 
@@ -115,7 +124,7 @@ Examples live under `examples/`.
 
 - `examples/basic`: verifies that the module can be imported and executed.
 
-Feature examples for Hosts mode will be added with the corresponding milestone.
+Hosts mode is currently Windows-first. For high-port smoke tests, use `--hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443`.
 
 ## Project Structure
 

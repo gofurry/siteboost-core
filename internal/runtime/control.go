@@ -18,8 +18,10 @@ import (
 type State struct {
 	PID        int       `json:"pid"`
 	Mode       string    `json:"mode"`
-	ProxyAddr  string    `json:"proxy_addr"`
+	ProxyAddr  string    `json:"proxy_addr,omitempty"`
 	PACURL     string    `json:"pac_url,omitempty"`
+	HostsHTTP  string    `json:"hosts_http,omitempty"`
+	HostsHTTPS string    `json:"hosts_https,omitempty"`
 	ControlURL string    `json:"control_url"`
 	Token      string    `json:"token"`
 	StartedAt  time.Time `json:"started_at"`

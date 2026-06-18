@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-当前 `v0.3.0` 本地加速内核已实现：支持 ProxyOnly、PAC、System Proxy、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` CLI。
+当前 `v0.4.0` 本地加速内核已实现：支持 ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与显式安装、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
 
 ## 路线策略
 
@@ -66,17 +66,23 @@
 
 ### v0.4.0 - Hosts + HTTPS Reverse Proxy
 
-**状态：** 计划中  
+**状态：** 已完成
 **目标：** 实现 Hosts 模式下的本地 HTTPS 反代。
 
 任务摘要：
 
-- [ ] hosts patcher、备份、回滚。
-- [ ] Root CA 生成、安装、卸载。
-- [ ] 动态站点证书签发。
-- [ ] HTTP / HTTPS Reverse Proxy。
-- [ ] 保留原始 Host 与 SNI。
-- [ ] 支持 WebSocket。
+- [x] hosts patcher、备份、回滚。
+- [x] Root CA 生成、安装、卸载。
+- [x] 动态站点证书签发。
+- [x] HTTP / HTTPS Reverse Proxy。
+- [x] 保留原始 Host 与 SNI。
+- [x] 支持 WebSocket。
+
+说明：
+
+- v0.4.0 为 Windows-first；macOS / Linux Hosts 与证书安装暂不支持。
+- hosts 文件只写入 exact 域名，通配符完整覆盖留给后续 DNSIntercept。
+- `restore` 只删除 hosts 项目标记区块，Root CA 由 `cert uninstall` 显式卸载。
 
 ### v0.5.0 - 稳定性、安全与跨平台打磨
 

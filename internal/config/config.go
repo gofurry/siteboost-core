@@ -15,6 +15,7 @@ const (
 	ModeProxyOnly = "proxy_only"
 	ModePAC       = "pac"
 	ModeSystem    = "system"
+	ModeHosts     = "hosts"
 
 	NonSteamReject = "reject"
 	NonSteamDirect = "direct"
@@ -59,6 +60,8 @@ type Config struct {
 	Mode     string         `yaml:"mode"`
 	Proxy    ProxyConfig    `yaml:"proxy"`
 	PAC      PACConfig      `yaml:"pac"`
+	Hosts    HostsConfig    `yaml:"hosts"`
+	Cert     CertConfig     `yaml:"cert"`
 	Resolver ResolverConfig `yaml:"resolver"`
 	Upstream UpstreamConfig `yaml:"upstream"`
 	System   SystemConfig   `yaml:"system_proxy"`
@@ -84,6 +87,19 @@ type RulesConfig struct {
 type PACConfig struct {
 	ListenAddr string `yaml:"listen_addr"`
 	AllowLAN   bool   `yaml:"allow_lan"`
+}
+
+type HostsConfig struct {
+	MapIP           string   `yaml:"map_ip"`
+	HTTPListenAddr  string   `yaml:"http_listen_addr"`
+	HTTPSListenAddr string   `yaml:"https_listen_addr"`
+	AllowLAN        bool     `yaml:"allow_lan"`
+	Path            string   `yaml:"path"`
+	ExtraDomains    []string `yaml:"extra_domains"`
+}
+
+type CertConfig struct {
+	Dir string `yaml:"dir"`
 }
 
 type ResolverConfig struct {
@@ -129,6 +145,15 @@ func Default() Config {
 		PAC: PACConfig{
 			ListenAddr: "127.0.0.1:26502",
 		},
+		Hosts: HostsConfig{
+			MapIP:           "127.0.0.1",
+			HTTPListenAddr:  "127.0.0.1:80",
+			HTTPSListenAddr: "127.0.0.1:443",
+			Path:            DefaultHostsPath(),
+		},
+		Cert: CertConfig{
+			Dir: DefaultCertDir(),
+		},
 		Rules: RulesConfig{
 			EnableDefaultSteamRules: true,
 		},
@@ -156,6 +181,29 @@ func DefaultStatePath() string {
 
 func DefaultRollbackPath() string {
 	return filepath.Join(defaultRuntimeDir(), "rollback.json")
+}
+
+func DefaultCertDir() string {
+	base, err := os.UserConfigDir()
+	if err != nil || base == "" {
+		base = defaultRuntimeDir()
+	}
+	return filepath.Join(base, "steam-accelerator-core", "certs")
+}
+
+func DefaultHostsPath() string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = os.Getenv("windir")
+	}
+	if root == "" {
+		if filepath.Separator == '\\' {
+			root = `C:\Windows`
+		} else {
+			return "/etc/hosts"
+		}
+	}
+	return filepath.Join(root, "System32", "drivers", "etc", "hosts")
 }
 
 func defaultRuntimeDir() string {
@@ -188,7 +236,7 @@ func LoadFile(path string) (Config, error) {
 func (c *Config) Validate() error {
 	c.Mode = normalizeMode(c.Mode)
 	switch c.Mode {
-	case ModeProxyOnly, ModePAC, ModeSystem:
+	case ModeProxyOnly, ModePAC, ModeSystem, ModeHosts:
 	default:
 		return fmt.Errorf("unsupported mode %q", c.Mode)
 	}
@@ -212,6 +260,41 @@ func (c *Config) Validate() error {
 	}
 	if err := validateListenAddr(c.PAC.ListenAddr, c.PAC.AllowLAN); err != nil {
 		return fmt.Errorf("invalid pac listen_addr: %w", err)
+	}
+
+	if c.Hosts.MapIP == "" {
+		return fmt.Errorf("hosts map_ip is required")
+	}
+	mapIP := net.ParseIP(c.Hosts.MapIP)
+	if mapIP == nil {
+		return fmt.Errorf("hosts map_ip must be an IP address")
+	}
+	if !c.Hosts.AllowLAN && !mapIP.IsLoopback() {
+		return fmt.Errorf("hosts map_ip %q is not loopback; set hosts.allow_lan to true to map LAN addresses", c.Hosts.MapIP)
+	}
+	if c.Hosts.HTTPListenAddr == "" {
+		return fmt.Errorf("hosts http_listen_addr is required")
+	}
+	if err := validateListenAddr(c.Hosts.HTTPListenAddr, c.Hosts.AllowLAN); err != nil {
+		return fmt.Errorf("invalid hosts http_listen_addr: %w", err)
+	}
+	if c.Hosts.HTTPSListenAddr == "" {
+		return fmt.Errorf("hosts https_listen_addr is required")
+	}
+	if err := validateListenAddr(c.Hosts.HTTPSListenAddr, c.Hosts.AllowLAN); err != nil {
+		return fmt.Errorf("invalid hosts https_listen_addr: %w", err)
+	}
+	if strings.TrimSpace(c.Hosts.Path) == "" {
+		return fmt.Errorf("hosts path is required")
+	}
+	c.Hosts.ExtraDomains = trimStrings(c.Hosts.ExtraDomains)
+	for _, domain := range c.Hosts.ExtraDomains {
+		if strings.Contains(domain, "*") {
+			return fmt.Errorf("hosts extra_domains cannot contain wildcard domain %q", domain)
+		}
+	}
+	if strings.TrimSpace(c.Cert.Dir) == "" {
+		return fmt.Errorf("cert dir is required")
 	}
 
 	if c.Runtime.ControlAddr == "" {
@@ -288,6 +371,8 @@ func normalizeMode(mode string) string {
 		return ModePAC
 	case ModeSystem:
 		return ModeSystem
+	case ModeHosts:
+		return ModeHosts
 	default:
 		return strings.ToLower(strings.TrimSpace(mode))
 	}

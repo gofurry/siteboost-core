@@ -33,6 +33,12 @@ func TestDefaultConfigValid(t *testing.T) {
 	if cfg.Runtime.RollbackPath == "" {
 		t.Fatalf("rollback path is empty")
 	}
+	if cfg.Hosts.HTTPListenAddr != "127.0.0.1:80" || cfg.Hosts.HTTPSListenAddr != "127.0.0.1:443" {
+		t.Fatalf("hosts listen addrs = %q / %q", cfg.Hosts.HTTPListenAddr, cfg.Hosts.HTTPSListenAddr)
+	}
+	if cfg.Cert.Dir == "" {
+		t.Fatalf("cert dir is empty")
+	}
 }
 
 func TestLoadFileYAML(t *testing.T) {
@@ -45,6 +51,15 @@ proxy:
   read_header_timeout: "3s"
 pac:
   listen_addr: "127.0.0.1:28082"
+hosts:
+  map_ip: "127.0.0.1"
+  http_listen_addr: "127.0.0.1:28080"
+  https_listen_addr: "127.0.0.1:28443"
+  path: "hosts.txt"
+  extra_domains:
+    - "login.steampowered.com"
+cert:
+  dir: "certs"
 rules:
   custom_domains:
     - "example.steam.test"
@@ -97,6 +112,15 @@ system_proxy:
 	if cfg.PAC.ListenAddr != "127.0.0.1:28082" {
 		t.Fatalf("pac listen addr = %q", cfg.PAC.ListenAddr)
 	}
+	if cfg.Hosts.HTTPSListenAddr != "127.0.0.1:28443" {
+		t.Fatalf("hosts https listen addr = %q", cfg.Hosts.HTTPSListenAddr)
+	}
+	if len(cfg.Hosts.ExtraDomains) != 1 || cfg.Hosts.ExtraDomains[0] != "login.steampowered.com" {
+		t.Fatalf("hosts extra domains = %#v", cfg.Hosts.ExtraDomains)
+	}
+	if cfg.Cert.Dir != "certs" {
+		t.Fatalf("cert dir = %q", cfg.Cert.Dir)
+	}
 	if cfg.Runtime.RollbackPath != "rollback.json" {
 		t.Fatalf("rollback path = %q", cfg.Runtime.RollbackPath)
 	}
@@ -105,8 +129,8 @@ system_proxy:
 	}
 }
 
-func TestValidateAllowsV03Modes(t *testing.T) {
-	for _, mode := range []string{ModePAC, ModeSystem, "proxy-only"} {
+func TestValidateAllowsKnownModes(t *testing.T) {
+	for _, mode := range []string{ModePAC, ModeSystem, ModeHosts, "proxy-only"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			cfg.Mode = mode
@@ -125,7 +149,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		{
 			name: "mode",
 			mutate: func(cfg *Config) {
-				cfg.Mode = "hosts"
+				cfg.Mode = "bogus"
 			},
 		},
 		{
@@ -182,6 +206,18 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "upstream address",
 			mutate: func(cfg *Config) {
 				cfg.Upstream.Type = UpstreamSOCKS5
+			},
+		},
+		{
+			name: "hosts listen addr",
+			mutate: func(cfg *Config) {
+				cfg.Hosts.HTTPListenAddr = "0.0.0.0:80"
+			},
+		},
+		{
+			name: "hosts wildcard extra",
+			mutate: func(cfg *Config) {
+				cfg.Hosts.ExtraDomains = []string{"*.example.com"}
 			},
 		},
 	}

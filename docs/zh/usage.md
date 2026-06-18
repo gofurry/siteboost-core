@@ -18,12 +18,14 @@ go mod download
 go run ./cmd/steam-accelerator --version
 ```
 
-以前台方式启动 ProxyOnly、PAC 或 System Proxy：
+以前台方式启动 ProxyOnly、PAC、System Proxy 或 Hosts：
 
 ```bash
 go run ./cmd/steam-accelerator start --mode proxy-only
 go run ./cmd/steam-accelerator start --mode pac
 go run ./cmd/steam-accelerator start --mode system
+go run ./cmd/steam-accelerator cert install
+go run ./cmd/steam-accelerator start --mode hosts
 ```
 
 在另一个终端中：
@@ -57,6 +59,16 @@ rules:
 pac:
   listen_addr: "127.0.0.1:26502"
   allow_lan: false
+
+hosts:
+  map_ip: "127.0.0.1"
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+  allow_lan: false
+  path: "C:\\Windows\\System32\\drivers\\etc\\hosts"
+  extra_domains: []
+
+# cert.dir 默认位于用户 config 目录，通常不需要手动配置。
 
 resolver:
   mode: "system" # system | udp | tcp | doh
@@ -97,6 +109,8 @@ go run ./cmd/steam-accelerator start \
   --config config.yaml \
   --listen 127.0.0.1:26501 \
   --pac-listen 127.0.0.1:26502 \
+  --hosts-http 127.0.0.1:28080 \
+  --hosts-https 127.0.0.1:28443 \
   --non-steam reject
 ```
 
@@ -173,6 +187,38 @@ mode: system
 
 System 模式会把系统 HTTP 与 HTTPS 代理写入本地代理地址。非 Steam 流量仍遵循 `proxy.non_steam_behavior`，默认是 `reject`。
 
+启动 Windows Hosts 模式：
+
+```yaml
+mode: hosts
+
+hosts:
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+```
+
+首次使用前必须显式安装本项目 Root CA：
+
+```bash
+go run ./cmd/steam-accelerator cert install
+go run ./cmd/steam-accelerator start --mode hosts
+```
+
+Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。`stop` 或 `restore` 会删除项目标记区块，但不会卸载用户显式安装的 Root CA。卸载证书请执行：
+
+```bash
+go run ./cmd/steam-accelerator cert uninstall
+```
+
+测试时可以使用高端口，避免占用 80 / 443：
+
+```bash
+go run ./cmd/steam-accelerator start --mode hosts \
+  --hosts-http 127.0.0.1:28080 \
+  --hosts-https 127.0.0.1:28443 \
+  --state ./tmp/runtime.json
+```
+
 测试时使用隔离状态文件：
 
 ```bash
@@ -181,4 +227,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-Hosts、证书管理和 HTTPS 反代将在后续里程碑实现。
+macOS / Linux Hosts 与证书安装在 v0.4.0 中明确不支持，会返回 unsupported。

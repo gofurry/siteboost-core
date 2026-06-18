@@ -2,7 +2,7 @@
 
 ## Current Position
 
-The v0.3.0 local acceleration core is implemented. It includes ProxyOnly, PAC, and System Proxy modes, YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, rollback state, a token-protected loopback control server, and `start` / `status` / `stop` / `restore` CLI commands.
+The v0.4.0 local acceleration core is implemented. It includes ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, local root CA generation, dynamic site certificates, rollback state, a token-protected loopback control server, and `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI commands.
 
 The runtime remains internal. A stable public Go integration API is deferred until the project approaches v1.
 
@@ -82,21 +82,27 @@ Priority: keep the safe proxy foundation stable before adding modes that modify 
 
 ### v0.4.0 - Hosts and HTTPS Reverse Proxy
 
-**Status:** Planned  
+**Status:** Completed
 **Scope:** Security/Safety / Architecture / User-facing / Testing  
 **Goal:** Add hosts-mode reverse proxy with explicit certificate and rollback boundaries.
 
 #### Tasks
 
-- [ ] Add hosts patcher with a project-owned marker block
-- [ ] Add hosts backup, rollback, and restore
-- [ ] Add local root CA generation and install/uninstall
-- [ ] Add dynamic certificate issuance and cache
-- [ ] Add local HTTP and HTTPS servers
-- [ ] Add HTTPS reverse proxy
-- [ ] Preserve original Host and TLS SNI
-- [ ] Support WebSocket upgrade
-- [ ] Add hosts, cert, and reverse proxy integration tests
+- [x] Add hosts patcher with a project-owned marker block
+- [x] Add hosts backup, rollback, and restore
+- [x] Add local root CA generation and install/uninstall
+- [x] Add dynamic certificate issuance and cache
+- [x] Add local HTTP and HTTPS servers
+- [x] Add HTTPS reverse proxy
+- [x] Preserve original Host and TLS SNI
+- [x] Support WebSocket upgrade
+- [x] Add hosts, cert, and reverse proxy integration tests
+
+#### Notes
+
+- v0.4.0 is Windows-first; macOS/Linux Hosts and certificate-store setup are unsupported.
+- Hosts files cannot express wildcard domains, so v0.4.0 writes exact domains only.
+- `restore` removes the hosts marker block; root CA uninstall remains an explicit `cert uninstall` action.
 
 ---
 

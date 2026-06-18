@@ -9,7 +9,7 @@ go mod tidy
 gofmt -w .
 go vet ./...
 go test ./...
-go test -race ./internal/pac ./internal/systemproxy ./internal/resolver ./internal/upstream ./internal/proxy ./internal/engine ./internal/runtime
+go test -race ./internal/hosts ./internal/certstore ./internal/reverse ./internal/pac ./internal/systemproxy ./internal/resolver ./internal/upstream ./internal/proxy ./internal/engine ./internal/runtime
 go run ./cmd/steam-accelerator --version
 go run ./examples/basic
 ```
@@ -29,7 +29,7 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-The same lifecycle can be checked with an explicit v0.3.0 configuration file:
+The same lifecycle can be checked with an explicit proxy_only configuration file:
 
 ```yaml
 mode: proxy_only
@@ -77,6 +77,40 @@ Crash recovery:
 go run ./cmd/steam-accelerator restore
 ```
 
+## Windows Hosts and HTTPS Reverse Proxy Check
+
+These checks modify the current user's Root certificate store and the Windows hosts file. Use an Administrator PowerShell for Hosts mode, and run `stop` plus `cert uninstall` after testing.
+
+Install this project's root CA:
+
+```bash
+go run ./cmd/steam-accelerator cert install
+```
+
+Start with high ports to avoid occupying 80 / 443:
+
+```bash
+go run ./cmd/steam-accelerator start --mode hosts \
+  --hosts-http 127.0.0.1:28080 \
+  --hosts-https 127.0.0.1:28443 \
+  --state ./tmp/runtime.json
+```
+
+Check status from another terminal:
+
+```bash
+go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
+```
+
+Real browser testing with hosts requires default 80 / 443 and free local ports. High ports are mainly for reverse-server lifecycle checks.
+
+Stop and uninstall the CA:
+
+```bash
+go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
+go run ./cmd/steam-accelerator cert uninstall
+```
+
 ## Expected Output
 
 The version command should print project name, version, and module path.
@@ -95,5 +129,8 @@ The basic example should print the project name and module path.
 - An HTTP or SOCKS5 upstream is selected without `upstream.address`.
 - Port `127.0.0.1:26502` is already in use for PAC mode.
 - The current OS is not Windows or macOS for PAC/System Proxy modes.
+- Ports 80 / 443 are already in use for Hosts mode.
+- Hosts mode was started before `cert install`.
+- Windows hosts writing failed; use an Administrator terminal.
 - A rollback state remains after restore failure; run `restore` again after fixing the platform error.
 - A stale state file points to an old process; `status` or `stop` should remove it.

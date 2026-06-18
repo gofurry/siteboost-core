@@ -18,12 +18,14 @@ Print version information:
 go run ./cmd/steam-accelerator --version
 ```
 
-Start ProxyOnly, PAC, or System Proxy mode in the foreground:
+Start ProxyOnly, PAC, System Proxy, or Hosts mode in the foreground:
 
 ```bash
 go run ./cmd/steam-accelerator start --mode proxy-only
 go run ./cmd/steam-accelerator start --mode pac
 go run ./cmd/steam-accelerator start --mode system
+go run ./cmd/steam-accelerator cert install
+go run ./cmd/steam-accelerator start --mode hosts
 ```
 
 In another terminal:
@@ -57,6 +59,17 @@ rules:
 pac:
   listen_addr: "127.0.0.1:26502"
   allow_lan: false
+
+hosts:
+  map_ip: "127.0.0.1"
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+  allow_lan: false
+  path: "C:\\Windows\\System32\\drivers\\etc\\hosts"
+  extra_domains: []
+
+# cert.dir defaults to the user config directory and usually does not need
+# to be configured manually.
 
 resolver:
   mode: "system" # system | udp | tcp | doh
@@ -97,10 +110,12 @@ go run ./cmd/steam-accelerator start \
   --config config.yaml \
   --listen 127.0.0.1:26501 \
   --pac-listen 127.0.0.1:26502 \
+  --hosts-http 127.0.0.1:28080 \
+  --hosts-https 127.0.0.1:28443 \
   --non-steam reject
 ```
 
-Resolver, upstream, and macOS system service options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
+Resolver, upstream, macOS system service, and most Hosts options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
 
 ## Common Examples
 
@@ -173,6 +188,38 @@ mode: system
 
 System mode writes system HTTP and HTTPS proxy settings to the local proxy address. Non-Steam traffic still follows `proxy.non_steam_behavior`, which defaults to `reject`.
 
+Start Windows Hosts mode:
+
+```yaml
+mode: hosts
+
+hosts:
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+```
+
+Install this project's root CA explicitly before first use:
+
+```bash
+go run ./cmd/steam-accelerator cert install
+go run ./cmd/steam-accelerator start --mode hosts
+```
+
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
+
+```bash
+go run ./cmd/steam-accelerator cert uninstall
+```
+
+For high-port smoke testing:
+
+```bash
+go run ./cmd/steam-accelerator start --mode hosts \
+  --hosts-http 127.0.0.1:28080 \
+  --hosts-https 127.0.0.1:28443 \
+  --state ./tmp/runtime.json
+```
+
 Use an isolated state file for testing:
 
 ```bash
@@ -181,4 +228,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-Hosts, certificate management, and HTTPS reverse proxy are planned in later milestones.
+macOS/Linux Hosts and certificate-store setup are explicitly unsupported in v0.4.0.

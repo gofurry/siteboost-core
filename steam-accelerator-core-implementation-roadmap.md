@@ -1,11 +1,11 @@
 # steam-accelerator-core 中文实施文档与 Roadmap
 
-> 文档版本：v0.3
+> 文档版本：v0.4
 > 维护语言：中文  
 > 项目定位：Go 版 Steam 网络加速原子能力内核  
 > 目标读者：项目作者、后续贡献者、SteamScope / steam-go 集成开发者  
 > 参考项目：https://github.com/BeyondDimension/SteamTools
-> 当前阶段：v0.3.0 PAC 与 System Proxy 已实现
+> 当前阶段：v0.4.0 Hosts + HTTPS Reverse Proxy 已实现
 
 ---
 
@@ -760,7 +760,7 @@ steam-accelerator config init
 | `start` | 启动加速服务 |
 | `stop` | 停止服务并恢复系统配置 |
 | `status` | 查看当前运行状态 |
-| `restore` | 强制执行 hosts、system proxy、PAC、证书相关恢复 |
+| `restore` | 强制执行 hosts、system proxy、PAC 相关恢复 |
 | `cert install` | 安装本地 Root CA |
 | `cert uninstall` | 卸载本地 Root CA |
 | `rules list` | 查看当前 Steam 域名规则 |
@@ -979,19 +979,19 @@ Issue 标签建议：
 
 任务：
 
-- [ ] 实现 hosts patcher。
-- [ ] 实现 hosts 备份与恢复。
-- [ ] 实现 Root CA 生成。
-- [ ] 实现 Root CA 安装与卸载。
-- [ ] 实现动态站点证书签发。
-- [ ] 实现本地 HTTP Server。
-- [ ] 实现本地 HTTPS Server。
-- [ ] 实现 HTTPS Reverse Proxy。
-- [ ] 保留原始 Host 与 SNI。
-- [ ] 支持 WebSocket。
-- [ ] 实现 `start --mode hosts`。
-- [ ] 实现 `cert install` / `cert uninstall`。
-- [ ] 添加 hosts、cert、reverse 集成测试。
+- [x] 实现 hosts patcher。
+- [x] 实现 hosts 备份与恢复。
+- [x] 实现 Root CA 生成。
+- [x] 实现 Root CA 安装与卸载。
+- [x] 实现动态站点证书签发。
+- [x] 实现本地 HTTP Server。
+- [x] 实现本地 HTTPS Server。
+- [x] 实现 HTTPS Reverse Proxy。
+- [x] 保留原始 Host 与 SNI。
+- [x] 支持 WebSocket。
+- [x] 实现 `start --mode hosts`。
+- [x] 实现 `cert install` / `cert uninstall`。
+- [x] 添加 hosts、cert、reverse 集成测试。
 
 非目标：
 
@@ -1006,7 +1006,13 @@ Issue 标签建议：
 2. 停止后完整移除项目标记区块。
 3. 本地 CA 安装后浏览器访问规则域名证书可信。
 4. 反代出口仍使用真实 Steam 域名作为 SNI。
-5. `restore` 可恢复 hosts 与证书相关状态。
+5. `restore` 可移除 hosts 项目标记区块；Root CA 由 `cert uninstall` 显式卸载。
+
+说明：
+
+1. v0.4.0 为 Windows-first，macOS / Linux Hosts 与证书安装明确返回不支持。
+2. hosts 文件不能表达通配符，本版本只写入 exact 域名。
+3. `start --mode hosts` 不自动安装 Root CA，必须先执行 `cert install`。
 
 ---
 

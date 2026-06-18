@@ -26,6 +26,8 @@ PAC, System Proxy, Hosts, certificate installation, and HTTPS reverse proxy mode
 - document manual recovery steps;
 - keep all changes scoped to project-owned settings or marker blocks.
 
+In v0.4.0, Hosts and certificate-store setup are Windows-first. `restore` removes project-owned hosts or proxy rollback state, while root CA removal remains an explicit `cert uninstall` action.
+
 ## Reporting
 
 For now, report issues through the repository issue tracker. Do not include secrets, Steam account tokens, cookies, private certificates, or real proxy credentials in reports.

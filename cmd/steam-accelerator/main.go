@@ -17,8 +17,10 @@ import (
 	"time"
 
 	steamcore "github.com/gofurry/go-steam-core"
+	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/engine"
+	"github.com/gofurry/go-steam-core/internal/hosts"
 	runtimecontrol "github.com/gofurry/go-steam-core/internal/runtime"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 )
@@ -47,6 +49,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runStop(args[1:], stdout, stderr)
 	case "restore":
 		err = runRestore(args[1:], stdout, stderr)
+	case "cert":
+		err = runCert(args[1:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -62,9 +66,11 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "path to YAML config")
-	mode := fs.String("mode", "", "acceleration mode: proxy-only")
+	mode := fs.String("mode", "", "acceleration mode: proxy-only, pac, system, or hosts")
 	listen := fs.String("listen", "", "proxy listen address")
 	pacListen := fs.String("pac-listen", "", "PAC server listen address")
+	hostsHTTP := fs.String("hosts-http", "", "hosts mode HTTP listen address")
+	hostsHTTPS := fs.String("hosts-https", "", "hosts mode HTTPS listen address")
 	nonSteam := fs.String("non-steam", "", "non-Steam behavior: reject or direct")
 	allowLAN := fs.Bool("allow-lan", false, "allow non-loopback proxy listen address")
 	statePath := fs.String("state", "", "runtime state file path")
@@ -78,7 +84,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *nonSteam, *allowLAN, *statePath, *controlAddr)
+	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *nonSteam, *allowLAN, *statePath, *controlAddr)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -125,6 +131,8 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 		Mode:       cfg.Mode,
 		ProxyAddr:  status.ListenAddr,
 		PACURL:     status.PACURL,
+		HostsHTTP:  status.HostsHTTP,
+		HostsHTTPS: status.HostsHTTPS,
 		ControlURL: control.URL(),
 		Token:      token,
 		StartedAt:  status.StartedAt,
@@ -138,7 +146,20 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	}
 	defer runtimecontrol.RemoveState(cfg.Runtime.StatePath)
 
-	fmt.Fprintf(stdout, "%s started\nproxy: %s\nstate: %s\n", steamcore.ProjectName, status.ListenAddr, cfg.Runtime.StatePath)
+	fmt.Fprintf(stdout, "%s started\n", steamcore.ProjectName)
+	if status.ListenAddr != "" {
+		fmt.Fprintf(stdout, "proxy: %s\n", status.ListenAddr)
+	}
+	if status.PACURL != "" {
+		fmt.Fprintf(stdout, "pac_url: %s\n", status.PACURL)
+	}
+	if status.HostsHTTP != "" {
+		fmt.Fprintf(stdout, "hosts_http: %s\n", status.HostsHTTP)
+	}
+	if status.HostsHTTPS != "" {
+		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
+	}
+	fmt.Fprintf(stdout, "state: %s\n", cfg.Runtime.StatePath)
 	<-ctx.Done()
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), cfg.Proxy.ShutdownTimeout.Std())
@@ -177,7 +198,16 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if status.PACURL != "" {
 		fmt.Fprintf(stdout, "pac_url: %s\n", status.PACURL)
 	}
+	if status.HostsHTTP != "" {
+		fmt.Fprintf(stdout, "hosts_http: %s\n", status.HostsHTTP)
+	}
+	if status.HostsHTTPS != "" {
+		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
+	}
 	fmt.Fprintf(stdout, "rollback: %v\n", status.Rollback)
+	if status.Mode == config.ModeHosts {
+		fmt.Fprintf(stdout, "cert_installed: %v\n", status.CertInstalled)
+	}
 	fmt.Fprintf(stdout, "active_conns: %d\n", status.ActiveConns)
 	if !status.StartedAt.IsZero() {
 		fmt.Fprintf(stdout, "started_at: %s\n", status.StartedAt.Format(time.RFC3339))
@@ -241,8 +271,8 @@ func runRestore(args []string, stdout, stderr io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Runtime.StopTimeout.Std())
 	defer cancel()
-	err = systemproxy.Restore(ctx, cfg.Runtime.RollbackPath)
-	if errors.Is(err, systemproxy.ErrNoState) {
+	err = restoreRollback(ctx, cfg.Runtime.RollbackPath)
+	if errors.Is(err, systemproxy.ErrNoState) || errors.Is(err, hosts.ErrNoState) {
 		fmt.Fprintln(stdout, "not modified")
 		return nil
 	}
@@ -250,6 +280,57 @@ func runRestore(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	fmt.Fprintln(stdout, "restored")
+	return nil
+}
+
+func runCert(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		printUsage(stderr)
+		return fmt.Errorf("cert subcommand is required")
+	}
+	switch args[0] {
+	case "install", "uninstall":
+	default:
+		printUsage(stderr)
+		return fmt.Errorf("unsupported cert subcommand %q", args[0])
+	}
+
+	fs := flag.NewFlagSet("cert "+args[0], flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	configPath := fs.String("config", "", "path to YAML config")
+	certDir := fs.String("cert-dir", "", "certificate directory")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	cfg, err := config.LoadFile(*configPath)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*certDir) != "" {
+		cfg.Cert.Dir = *certDir
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Runtime.StopTimeout.Std())
+	defer cancel()
+	manager := certstore.New(certstore.ConfigFromApp(cfg))
+	switch args[0] {
+	case "install":
+		if err := manager.Install(ctx); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "installed")
+	case "uninstall":
+		if err := manager.Uninstall(ctx); err != nil {
+			if errors.Is(err, certstore.ErrNoCA) {
+				fmt.Fprintln(stdout, "not modified")
+				return nil
+			}
+			return err
+		}
+		fmt.Fprintln(stdout, "uninstalled")
+	}
 	return nil
 }
 
@@ -330,7 +411,7 @@ func runningFromState(path string) (bool, error) {
 	return true, nil
 }
 
-func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, nonSteam string, allowLAN bool, statePath, controlAddr string) {
+func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, hostsHTTP, hostsHTTPS, nonSteam string, allowLAN bool, statePath, controlAddr string) {
 	if visited["mode"] {
 		cfg.Mode = mode
 	}
@@ -339,6 +420,12 @@ func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, list
 	}
 	if visited["pac-listen"] {
 		cfg.PAC.ListenAddr = pacListen
+	}
+	if visited["hosts-http"] {
+		cfg.Hosts.HTTPListenAddr = hostsHTTP
+	}
+	if visited["hosts-https"] {
+		cfg.Hosts.HTTPSListenAddr = hostsHTTPS
 	}
 	if visited["non-steam"] {
 		cfg.Proxy.NonSteamBehavior = nonSteam
@@ -354,6 +441,27 @@ func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, list
 	}
 }
 
+func restoreRollback(ctx context.Context, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return systemproxy.ErrNoState
+		}
+		return err
+	}
+	var meta struct {
+		Kind string `json:"kind"`
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return fmt.Errorf("parse rollback state: %w", err)
+	}
+	if meta.Kind == "hosts" || meta.Mode == config.ModeHosts {
+		return hosts.Restore(ctx, path)
+	}
+	return systemproxy.Restore(ctx, path)
+}
+
 func visitedFlags(fs *flag.FlagSet) map[string]bool {
 	visited := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) {
@@ -367,9 +475,11 @@ func printUsage(w io.Writer) {
 
 Usage:
   steam-accelerator --version
-  steam-accelerator start [--config path] [--mode proxy-only|pac|system] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--non-steam reject|direct]
+  steam-accelerator start [--config path] [--mode proxy-only|pac|system|hosts] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--hosts-http 127.0.0.1:80] [--hosts-https 127.0.0.1:443] [--non-steam reject|direct]
   steam-accelerator status [--config path] [--state path]
   steam-accelerator stop [--config path] [--state path]
   steam-accelerator restore [--config path] [--rollback path]
+  steam-accelerator cert install [--config path] [--cert-dir path]
+  steam-accelerator cert uninstall [--config path] [--cert-dir path]
 `, steamcore.ProjectName, steamcore.Version)
 }

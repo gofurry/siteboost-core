@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
+	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 )
 
@@ -151,6 +153,64 @@ func TestEngineSystemModeAppliesManualProxy(t *testing.T) {
 	}
 }
 
+func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.Runtime.RollbackPath = t.TempDir() + "/rollback.json"
+
+	var applied hosts.Config
+	var restoredPath string
+	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error {
+			applied = cfg
+			return nil
+		},
+		func(ctx context.Context, path string) error {
+			restoredPath = path
+			return nil
+		},
+		func(ctx context.Context, cfg certstore.Config) (bool, error) {
+			return true, nil
+		},
+		func(path string) bool { return true },
+	)
+	defer restoreFns()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if status.HostsHTTP == "" || status.HostsHTTPS == "" {
+		t.Fatalf("hosts reverse addrs are empty: %#v", status)
+	}
+	if !status.CertInstalled {
+		t.Fatalf("cert should be reported as installed")
+	}
+	if !status.Rollback {
+		t.Fatalf("rollback should be reported")
+	}
+	if len(applied.Entries) == 0 {
+		t.Fatalf("hosts entries were not applied")
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if restoredPath != cfg.Runtime.RollbackPath {
+		t.Fatalf("restored path = %q, want %q", restoredPath, cfg.Runtime.RollbackPath)
+	}
+}
+
 func replaceSystemProxyHooks(apply func(context.Context, systemproxy.Config) error, restore func(context.Context, string) error, has func(string) bool) func() {
 	oldApply := applySystemProxy
 	oldRestore := restoreSystemProxy
@@ -161,6 +221,23 @@ func replaceSystemProxyHooks(apply func(context.Context, systemproxy.Config) err
 	return func() {
 		applySystemProxy = oldApply
 		restoreSystemProxy = oldRestore
+		hasRollbackState = oldHas
+	}
+}
+
+func replaceHostsHooks(apply func(context.Context, hosts.Config) error, restore func(context.Context, string) error, certCheck func(context.Context, certstore.Config) (bool, error), has func(string) bool) func() {
+	oldApply := applyHosts
+	oldRestore := restoreHosts
+	oldCertCheck := isCertInstalled
+	oldHas := hasRollbackState
+	applyHosts = apply
+	restoreHosts = restore
+	isCertInstalled = certCheck
+	hasRollbackState = has
+	return func() {
+		applyHosts = oldApply
+		restoreHosts = oldRestore
+		isCertInstalled = oldCertCheck
 		hasRollbackState = oldHas
 	}
 }

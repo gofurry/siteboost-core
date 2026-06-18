@@ -9,7 +9,7 @@
 - `ProxyMode` 枚举：`DNSIntercept`、`Hosts`、`System`、`VPN`、`ProxyOnly`、`PAC`。
 - SteamTools 许可证：GPL-3.0。
 
-截至 2026-06-17，这些信息用于本项目的架构边界设计，而不是作为代码移植来源。
+截至 2026-06-18，这些信息用于本项目的架构边界设计，而不是作为代码移植来源。
 
 ## 可借鉴内容
 
@@ -42,8 +42,8 @@
 ## 对本项目的落地影响
 
 - `v0.1.0` 先实现 `ProxyOnly`，不改系统状态。
-- `v0.3.0` 再实现 PAC 和 System Proxy。
-- `v0.4.0` 再实现 Hosts、Root CA 与 HTTPS Reverse Proxy。
+- `v0.3.0` 已实现 PAC 和 System Proxy。
+- `v0.4.0` 已实现 Windows-first Hosts、Root CA 与 HTTPS Reverse Proxy。
 - `DNSIntercept`、VPN / TUN 和 JS 注入进入延后路线或明确不做。
 
 ## 相关文档

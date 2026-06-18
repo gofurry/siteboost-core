@@ -12,12 +12,12 @@ Planned package boundaries:
 - `proxy`: HTTP proxy and HTTPS CONNECT for ProxyOnly mode.
 - `pac`: PAC generation and local PAC server.
 - `systemproxy`: Windows/macOS system proxy setup, rollback, and restore.
+- `hosts`: Windows hosts marker block patching and restore.
+- `certstore`: local root CA, Windows certificate store install/uninstall, and dynamic site certificates.
+- `reverse`: hosts-mode HTTP/HTTPS reverse proxy.
 - `engine`: lifecycle, status, start, and stop orchestration.
 - `runtime`: local state file and loopback control server.
 
 Planned packages:
 
-- `patcher`: hosts patching and rollback state.
-- `reverse`: hosts-mode HTTP/HTTPS reverse proxy.
-- `cert`: local root CA and dynamic site certificates.
 - `log`: structured logging helpers if the standard library handler becomes insufficient.
