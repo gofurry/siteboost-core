@@ -13,6 +13,8 @@ import (
 
 const (
 	ModeProxyOnly = "proxy_only"
+	ModePAC       = "pac"
+	ModeSystem    = "system"
 
 	NonSteamReject = "reject"
 	NonSteamDirect = "direct"
@@ -56,8 +58,10 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 type Config struct {
 	Mode     string         `yaml:"mode"`
 	Proxy    ProxyConfig    `yaml:"proxy"`
+	PAC      PACConfig      `yaml:"pac"`
 	Resolver ResolverConfig `yaml:"resolver"`
 	Upstream UpstreamConfig `yaml:"upstream"`
+	System   SystemConfig   `yaml:"system_proxy"`
 	Rules    RulesConfig    `yaml:"rules"`
 	Runtime  RuntimeConfig  `yaml:"runtime"`
 }
@@ -77,6 +81,11 @@ type RulesConfig struct {
 	CustomDomains           []string `yaml:"custom_domains"`
 }
 
+type PACConfig struct {
+	ListenAddr string `yaml:"listen_addr"`
+	AllowLAN   bool   `yaml:"allow_lan"`
+}
+
 type ResolverConfig struct {
 	Mode        string   `yaml:"mode"`
 	Servers     []string `yaml:"servers"`
@@ -94,10 +103,15 @@ type UpstreamConfig struct {
 	Password string `yaml:"password"`
 }
 
+type SystemConfig struct {
+	Services []string `yaml:"services"`
+}
+
 type RuntimeConfig struct {
-	StatePath   string   `yaml:"state_path"`
-	ControlAddr string   `yaml:"control_addr"`
-	StopTimeout Duration `yaml:"stop_timeout"`
+	StatePath    string   `yaml:"state_path"`
+	RollbackPath string   `yaml:"rollback_path"`
+	ControlAddr  string   `yaml:"control_addr"`
+	StopTimeout  Duration `yaml:"stop_timeout"`
 }
 
 func Default() Config {
@@ -112,6 +126,9 @@ func Default() Config {
 			DialTimeout:       Duration(30 * time.Second),
 			ShutdownTimeout:   Duration(5 * time.Second),
 		},
+		PAC: PACConfig{
+			ListenAddr: "127.0.0.1:26502",
+		},
 		Rules: RulesConfig{
 			EnableDefaultSteamRules: true,
 		},
@@ -125,19 +142,28 @@ func Default() Config {
 			Type: UpstreamDirect,
 		},
 		Runtime: RuntimeConfig{
-			StatePath:   DefaultStatePath(),
-			ControlAddr: "127.0.0.1:0",
-			StopTimeout: Duration(5 * time.Second),
+			StatePath:    DefaultStatePath(),
+			RollbackPath: DefaultRollbackPath(),
+			ControlAddr:  "127.0.0.1:0",
+			StopTimeout:  Duration(5 * time.Second),
 		},
 	}
 }
 
 func DefaultStatePath() string {
+	return filepath.Join(defaultRuntimeDir(), "runtime.json")
+}
+
+func DefaultRollbackPath() string {
+	return filepath.Join(defaultRuntimeDir(), "rollback.json")
+}
+
+func defaultRuntimeDir() string {
 	base, err := os.UserCacheDir()
 	if err != nil || base == "" {
 		base = os.TempDir()
 	}
-	return filepath.Join(base, "steam-accelerator-core", "runtime.json")
+	return filepath.Join(base, "steam-accelerator-core")
 }
 
 func LoadFile(path string) (Config, error) {
@@ -161,7 +187,9 @@ func LoadFile(path string) (Config, error) {
 
 func (c *Config) Validate() error {
 	c.Mode = normalizeMode(c.Mode)
-	if c.Mode != ModeProxyOnly {
+	switch c.Mode {
+	case ModeProxyOnly, ModePAC, ModeSystem:
+	default:
 		return fmt.Errorf("unsupported mode %q", c.Mode)
 	}
 
@@ -179,6 +207,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid proxy listen_addr: %w", err)
 	}
 
+	if c.PAC.ListenAddr == "" {
+		return fmt.Errorf("pac listen_addr is required")
+	}
+	if err := validateListenAddr(c.PAC.ListenAddr, c.PAC.AllowLAN); err != nil {
+		return fmt.Errorf("invalid pac listen_addr: %w", err)
+	}
+
 	if c.Runtime.ControlAddr == "" {
 		c.Runtime.ControlAddr = "127.0.0.1:0"
 	}
@@ -188,6 +223,9 @@ func (c *Config) Validate() error {
 
 	if strings.TrimSpace(c.Runtime.StatePath) == "" {
 		return fmt.Errorf("runtime state_path is required")
+	}
+	if strings.TrimSpace(c.Runtime.RollbackPath) == "" {
+		return fmt.Errorf("runtime rollback_path is required")
 	}
 
 	c.Resolver.Mode = normalizeResolverMode(c.Resolver.Mode)
@@ -215,6 +253,7 @@ func (c *Config) Validate() error {
 	}
 	c.Upstream.Address = strings.TrimSpace(c.Upstream.Address)
 	c.Upstream.Username = strings.TrimSpace(c.Upstream.Username)
+	c.System.Services = trimStrings(c.System.Services)
 
 	if c.Proxy.ReadHeaderTimeout.Std() <= 0 {
 		return fmt.Errorf("proxy read_header_timeout must be positive")
@@ -245,6 +284,10 @@ func normalizeMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "", ModeProxyOnly, "proxy-only":
 		return ModeProxyOnly
+	case ModePAC:
+		return ModePAC
+	case ModeSystem:
+		return ModeSystem
 	default:
 		return strings.ToLower(strings.TrimSpace(mode))
 	}

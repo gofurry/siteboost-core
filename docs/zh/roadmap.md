@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-当前 `v0.2.0` ProxyOnly 内核已实现：支持 YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Engine 生命周期、本地状态文件、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` CLI。
+当前 `v0.3.0` 本地加速内核已实现：支持 ProxyOnly、PAC、System Proxy、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` CLI。
 
 ## 路线策略
 
@@ -53,16 +53,16 @@
 
 ### v0.3.0 - PAC 与 System Proxy
 
-**状态：** 计划中  
+**状态：** 已完成
 **目标：** 支持 PAC 与系统代理接管，并保证可恢复。
 
 任务摘要：
 
-- [ ] PAC 从 rules 模块生成。
-- [ ] 本地 PAC Server。
-- [ ] Windows / macOS PAC 写入与恢复。
-- [ ] Windows / macOS HTTP / HTTPS 系统代理写入与恢复。
-- [ ] rollback 状态文件与 `restore`。
+- [x] PAC 从 rules 模块生成。
+- [x] 本地 PAC Server。
+- [x] Windows / macOS PAC 写入与恢复。
+- [x] Windows / macOS HTTP / HTTPS 系统代理写入与恢复。
+- [x] rollback 状态文件与 `restore`。
 
 ### v0.4.0 - Hosts + HTTPS Reverse Proxy
 

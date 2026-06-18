@@ -91,12 +91,13 @@ func (s *Server) Start() error {
 		ReadHeaderTimeout: s.cfg.ReadHeaderTimeout,
 		IdleTimeout:       s.cfg.IdleTimeout,
 	}
+	srv := s.server
 	s.listener = ln
 	s.addr = ln.Addr().String()
 	s.done = make(chan error, 1)
 
 	go func() {
-		err := s.server.Serve(ln)
+		err := srv.Serve(ln)
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}

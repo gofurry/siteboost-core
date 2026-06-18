@@ -27,6 +27,12 @@ func TestDefaultConfigValid(t *testing.T) {
 	if cfg.Upstream.Type != UpstreamDirect {
 		t.Fatalf("upstream type = %q, want %q", cfg.Upstream.Type, UpstreamDirect)
 	}
+	if cfg.PAC.ListenAddr != "127.0.0.1:26502" {
+		t.Fatalf("pac listen addr = %q", cfg.PAC.ListenAddr)
+	}
+	if cfg.Runtime.RollbackPath == "" {
+		t.Fatalf("rollback path is empty")
+	}
 }
 
 func TestLoadFileYAML(t *testing.T) {
@@ -37,6 +43,8 @@ proxy:
   listen_addr: "127.0.0.1:28080"
   non_steam_behavior: "direct"
   read_header_timeout: "3s"
+pac:
+  listen_addr: "127.0.0.1:28082"
 rules:
   custom_domains:
     - "example.steam.test"
@@ -51,6 +59,11 @@ upstream:
   address: "127.0.0.1:18080"
   username: "user"
   password: "secret"
+runtime:
+  rollback_path: "rollback.json"
+system_proxy:
+  services:
+    - "Wi-Fi"
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -81,6 +94,27 @@ upstream:
 	if cfg.Upstream.Type != UpstreamHTTP || cfg.Upstream.Address != "127.0.0.1:18080" {
 		t.Fatalf("upstream = %#v", cfg.Upstream)
 	}
+	if cfg.PAC.ListenAddr != "127.0.0.1:28082" {
+		t.Fatalf("pac listen addr = %q", cfg.PAC.ListenAddr)
+	}
+	if cfg.Runtime.RollbackPath != "rollback.json" {
+		t.Fatalf("rollback path = %q", cfg.Runtime.RollbackPath)
+	}
+	if len(cfg.System.Services) != 1 || cfg.System.Services[0] != "Wi-Fi" {
+		t.Fatalf("services = %#v", cfg.System.Services)
+	}
+}
+
+func TestValidateAllowsV03Modes(t *testing.T) {
+	for _, mode := range []string{ModePAC, ModeSystem, "proxy-only"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := Default()
+			cfg.Mode = mode
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+		})
+	}
 }
 
 func TestValidateRejectsInvalidValues(t *testing.T) {
@@ -91,7 +125,19 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		{
 			name: "mode",
 			mutate: func(cfg *Config) {
-				cfg.Mode = "pac"
+				cfg.Mode = "hosts"
+			},
+		},
+		{
+			name: "pac listen addr",
+			mutate: func(cfg *Config) {
+				cfg.PAC.ListenAddr = "0.0.0.0:26502"
+			},
+		},
+		{
+			name: "rollback path",
+			mutate: func(cfg *Config) {
+				cfg.Runtime.RollbackPath = ""
 			},
 		},
 		{

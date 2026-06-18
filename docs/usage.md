@@ -18,10 +18,12 @@ Print version information:
 go run ./cmd/steam-accelerator --version
 ```
 
-Start ProxyOnly mode in the foreground:
+Start ProxyOnly, PAC, or System Proxy mode in the foreground:
 
 ```bash
 go run ./cmd/steam-accelerator start --mode proxy-only
+go run ./cmd/steam-accelerator start --mode pac
+go run ./cmd/steam-accelerator start --mode system
 ```
 
 In another terminal:
@@ -29,6 +31,7 @@ In another terminal:
 ```bash
 go run ./cmd/steam-accelerator status
 go run ./cmd/steam-accelerator stop
+go run ./cmd/steam-accelerator restore
 ```
 
 ## Configuration
@@ -51,6 +54,10 @@ rules:
   enable_default_steam_rules: true
   custom_domains: []
 
+pac:
+  listen_addr: "127.0.0.1:26502"
+  allow_lan: false
+
 resolver:
   mode: "system" # system | udp | tcp | doh
   servers: []
@@ -68,8 +75,13 @@ upstream:
 
 runtime:
   # state_path defaults to the user cache directory.
+  # rollback_path defaults to the user cache directory.
   control_addr: "127.0.0.1:0"
   stop_timeout: "5s"
+
+system_proxy:
+  # macOS only. Empty means all enabled network services.
+  services: []
 ```
 
 Configuration precedence:
@@ -84,10 +96,11 @@ CLI overrides:
 go run ./cmd/steam-accelerator start \
   --config config.yaml \
   --listen 127.0.0.1:26501 \
+  --pac-listen 127.0.0.1:26502 \
   --non-steam reject
 ```
 
-Resolver and upstream options are YAML-only in v0.2.0. The CLI keeps only simple lifecycle and ProxyOnly overrides.
+Resolver, upstream, and macOS system service options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
 
 ## Common Examples
 
@@ -98,7 +111,7 @@ HTTP proxy: 127.0.0.1
 Port: 26501
 ```
 
-Default behavior only allows Steam rule domains. Non-Steam traffic is rejected unless `non_steam_behavior` is set to `direct`. In v0.2.0, `direct` means "allow forwarding"; the actual outbound path is selected by `upstream.type`.
+Default behavior only allows Steam rule domains. Non-Steam traffic is rejected unless `non_steam_behavior` is set to `direct`. `direct` means "allow forwarding"; the actual outbound path is selected by `upstream.type`.
 
 Use DoH with direct outbound dialing:
 
@@ -137,6 +150,29 @@ upstream:
 
 UDP and TCP DNS modes require explicit servers. If a DNS server address omits the port, port `53` is used.
 
+Start PAC mode:
+
+```yaml
+mode: pac
+
+pac:
+  listen_addr: "127.0.0.1:26502"
+```
+
+PAC mode starts the local proxy, starts `http://127.0.0.1:26502/proxy.pac`, and writes the system PAC URL on Windows or macOS. `stop` restores the previous system setting. If the process crashes, run:
+
+```bash
+go run ./cmd/steam-accelerator restore
+```
+
+Start System Proxy mode:
+
+```yaml
+mode: system
+```
+
+System mode writes system HTTP and HTTPS proxy settings to the local proxy address. Non-Steam traffic still follows `proxy.non_steam_behavior`, which defaults to `reject`.
+
 Use an isolated state file for testing:
 
 ```bash
@@ -145,4 +181,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-Future commands for PAC, System Proxy, Hosts, certificate management, and restore are planned in later milestones.
+Hosts, certificate management, and HTTPS reverse proxy are planned in later milestones.

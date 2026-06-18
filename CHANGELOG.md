@@ -10,7 +10,7 @@ The project has not published a runtime release yet.
 
 - Repository scaffold for `steam-accelerator-core`.
 - Go module `github.com/gofurry/go-steam-core`.
-- ProxyOnly CLI at `cmd/steam-accelerator` with `start`, `status`, and `stop`.
+- CLI at `cmd/steam-accelerator` with `start`, `status`, `stop`, and `restore`.
 - YAML configuration with safe loopback defaults.
 - Steam domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
 - HTTP proxy and HTTPS CONNECT tunnel for Steam rule domains.
@@ -19,6 +19,8 @@ The project has not published a runtime release yet.
 - DNS cache, resolver timeout, server fallback, and IPv4/IPv6 selection policy.
 - Direct upstream dialing through the configured resolver.
 - HTTP CONNECT upstream and SOCKS5 upstream dialing with optional authentication.
+- PAC generation and local PAC server.
+- Windows and macOS PAC/System Proxy setup with rollback state.
 - Engine lifecycle with status and active connection count.
 - Local runtime state file and token-protected loopback control server.
 - Unit tests for config, rules, resolver, upstream, proxy, engine, and runtime control.
@@ -31,11 +33,11 @@ The project has not published a runtime release yet.
 
 ### Changed
 
-- Version metadata now reports `v0.2.0-dev`.
+- Version metadata now reports `v0.3.0-dev`.
 - `non_steam_behavior: direct` still means non-Steam traffic is allowed, but the outbound path is now selected by `upstream.type`.
 
 ### Notes
 
-- Runtime, resolver, and upstream implementations remain internal; no stable public Go integration API is exposed yet.
+- Runtime, resolver, upstream, PAC, and system proxy implementations remain internal; no stable public Go integration API is exposed yet.
 - `github.com/miekg/dns` is used for DNS wire message handling.
 - SteamTools is used as an architecture reference only; no source code is copied or ported.

@@ -18,10 +18,12 @@ go mod download
 go run ./cmd/steam-accelerator --version
 ```
 
-以前台方式启动 ProxyOnly：
+以前台方式启动 ProxyOnly、PAC 或 System Proxy：
 
 ```bash
 go run ./cmd/steam-accelerator start --mode proxy-only
+go run ./cmd/steam-accelerator start --mode pac
+go run ./cmd/steam-accelerator start --mode system
 ```
 
 在另一个终端中：
@@ -29,6 +31,7 @@ go run ./cmd/steam-accelerator start --mode proxy-only
 ```bash
 go run ./cmd/steam-accelerator status
 go run ./cmd/steam-accelerator stop
+go run ./cmd/steam-accelerator restore
 ```
 
 ## 配置
@@ -51,6 +54,10 @@ rules:
   enable_default_steam_rules: true
   custom_domains: []
 
+pac:
+  listen_addr: "127.0.0.1:26502"
+  allow_lan: false
+
 resolver:
   mode: "system" # system | udp | tcp | doh
   servers: []
@@ -68,8 +75,13 @@ upstream:
 
 runtime:
   # state_path 默认位于用户 cache 目录。
+  # rollback_path 默认位于用户 cache 目录。
   control_addr: "127.0.0.1:0"
   stop_timeout: "5s"
+
+system_proxy:
+  # 仅 macOS 使用。为空表示所有启用的 network services。
+  services: []
 ```
 
 配置优先级：
@@ -84,10 +96,11 @@ CLI 覆盖示例：
 go run ./cmd/steam-accelerator start \
   --config config.yaml \
   --listen 127.0.0.1:26501 \
+  --pac-listen 127.0.0.1:26502 \
   --non-steam reject
 ```
 
-v0.2.0 中 resolver 与 upstream 选项只通过 YAML 配置。CLI 保持简单的生命周期与 ProxyOnly 覆盖参数。
+resolver、upstream 与 macOS system service 选项只通过 YAML 配置。CLI 保持简单的生命周期与本地监听覆盖参数。
 
 ## 常见示例
 
@@ -98,7 +111,7 @@ HTTP proxy: 127.0.0.1
 Port: 26501
 ```
 
-默认只允许 Steam 规则域名。非 Steam 流量默认拒绝，除非将 `non_steam_behavior` 设置为 `direct`。在 v0.2.0 中，`direct` 表示“允许转发”，实际出口由 `upstream.type` 决定。
+默认只允许 Steam 规则域名。非 Steam 流量默认拒绝，除非将 `non_steam_behavior` 设置为 `direct`。`direct` 表示“允许转发”，实际出口由 `upstream.type` 决定。
 
 使用 DoH 与 Direct 出口：
 
@@ -137,6 +150,29 @@ upstream:
 
 UDP 与 TCP DNS 模式必须显式配置 `servers`。DNS server 地址省略端口时默认使用 `53`。
 
+启动 PAC 模式：
+
+```yaml
+mode: pac
+
+pac:
+  listen_addr: "127.0.0.1:26502"
+```
+
+PAC 模式会启动本地代理、启动 `http://127.0.0.1:26502/proxy.pac`，并在 Windows 或 macOS 写入系统 PAC URL。`stop` 会恢复原系统设置。若进程异常退出，执行：
+
+```bash
+go run ./cmd/steam-accelerator restore
+```
+
+启动 System Proxy 模式：
+
+```yaml
+mode: system
+```
+
+System 模式会把系统 HTTP 与 HTTPS 代理写入本地代理地址。非 Steam 流量仍遵循 `proxy.non_steam_behavior`，默认是 `reject`。
+
 测试时使用隔离状态文件：
 
 ```bash
@@ -145,4 +181,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-PAC、System Proxy、Hosts、证书管理和 restore 命令将在后续里程碑实现。
+Hosts、证书管理和 HTTPS 反代将在后续里程碑实现。

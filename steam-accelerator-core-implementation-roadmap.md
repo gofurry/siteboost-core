@@ -1,11 +1,11 @@
 # steam-accelerator-core 中文实施文档与 Roadmap
 
-> 文档版本：v0.2
+> 文档版本：v0.3
 > 维护语言：中文  
 > 项目定位：Go 版 Steam 网络加速原子能力内核  
 > 目标读者：项目作者、后续贡献者、SteamScope / steam-go 集成开发者  
 > 参考项目：https://github.com/BeyondDimension/SteamTools
-> 当前阶段：v0.2.0 Resolver / DoH / 上游代理已实现
+> 当前阶段：v0.3.0 PAC 与 System Proxy 已实现
 
 ---
 
@@ -947,16 +947,16 @@ Issue 标签建议：
 
 任务：
 
-- [ ] 实现 PAC 生成器。
-- [ ] 实现 PAC Server。
-- [ ] 实现 `start --mode pac`。
-- [ ] Windows 系统 PAC 写入与恢复。
-- [ ] macOS 系统 PAC 写入与恢复。
-- [ ] Windows 系统 HTTP/HTTPS 代理写入与恢复。
-- [ ] macOS 系统 HTTP/HTTPS 代理写入与恢复。
-- [ ] 实现 rollback 状态文件。
-- [ ] 实现 `restore` 命令。
-- [ ] 添加 PAC 与 System Proxy 集成测试。
+- [x] 实现 PAC 生成器。
+- [x] 实现 PAC Server。
+- [x] 实现 `start --mode pac`。
+- [x] Windows 系统 PAC 写入与恢复。
+- [x] macOS 系统 PAC 写入与恢复。
+- [x] Windows 系统 HTTP/HTTPS 代理写入与恢复。
+- [x] macOS 系统 HTTP/HTTPS 代理写入与恢复。
+- [x] 实现 rollback 状态文件。
+- [x] 实现 `restore` 命令。
+- [x] 添加 PAC 与 System Proxy 集成测试。
 
 非目标：
 

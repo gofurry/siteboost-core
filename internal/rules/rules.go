@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 
 	"golang.org/x/net/idna"
@@ -15,6 +16,17 @@ type RuleGroup struct {
 }
 
 type MatchResult struct {
+	Host      string
+	GroupName string
+	Rule      string
+}
+
+type CompiledRules struct {
+	Exact    []CompiledRule
+	Wildcard []CompiledRule
+}
+
+type CompiledRule struct {
 	Host      string
 	GroupName string
 	Rule      string
@@ -107,6 +119,42 @@ func (m *Matcher) MatchHost(host string) (MatchResult, bool) {
 
 func (m *Matcher) RuleCount() int {
 	return len(m.exact) + len(m.wildcard)
+}
+
+func (m *Matcher) Rules() CompiledRules {
+	compiled := CompiledRules{
+		Exact:    make([]CompiledRule, 0, len(m.exact)),
+		Wildcard: make([]CompiledRule, 0, len(m.wildcard)),
+	}
+	for _, entry := range m.exact {
+		compiled.Exact = append(compiled.Exact, CompiledRule{
+			Host:      entry.host,
+			GroupName: entry.group,
+			Rule:      entry.rule,
+		})
+	}
+	for _, entry := range m.wildcard {
+		compiled.Wildcard = append(compiled.Wildcard, CompiledRule{
+			Host:      entry.host,
+			GroupName: entry.group,
+			Rule:      entry.rule,
+		})
+	}
+	sortCompiledRules(compiled.Exact)
+	sortCompiledRules(compiled.Wildcard)
+	return compiled
+}
+
+func sortCompiledRules(entries []CompiledRule) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Host != entries[j].Host {
+			return entries[i].Host < entries[j].Host
+		}
+		if entries[i].GroupName != entries[j].GroupName {
+			return entries[i].GroupName < entries[j].GroupName
+		}
+		return entries[i].Rule < entries[j].Rule
+	})
 }
 
 func (m *Matcher) addGroup(group RuleGroup) error {

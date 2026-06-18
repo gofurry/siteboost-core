@@ -11,7 +11,7 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
 
-The current v0.2.0 development line includes a runnable ProxyOnly core. It supports local HTTP proxying, HTTPS CONNECT tunneling, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
+The current v0.3.0 development line includes a runnable local acceleration core. It supports ProxyOnly, PAC, and System Proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -24,13 +24,13 @@ Current capabilities:
 - YAML configuration with safe defaults.
 - System DNS, UDP DNS, TCP DNS, DoH, DNS cache, and IPv4/IPv6 policy.
 - Direct, HTTP CONNECT upstream, and SOCKS5 upstream dialing.
-- Foreground `start`, `status`, and `stop` CLI lifecycle.
+- PAC generation and local PAC server.
+- Windows and macOS system PAC/manual proxy setup with rollback.
+- Foreground `start`, `status`, `stop`, and `restore` CLI lifecycle.
 - Local runtime state file and token-protected loopback control API.
 
 Planned capabilities:
 
-- PAC generation and local PAC server.
-- System proxy setup and rollback.
 - Hosts patching with transaction-style restore.
 - Local root CA and dynamic site certificate support.
 - HTTPS reverse proxy for hosts mode.
@@ -75,11 +75,19 @@ Start ProxyOnly mode in the foreground:
 go run ./cmd/steam-accelerator start --mode proxy-only
 ```
 
+Start PAC or System Proxy mode:
+
+```bash
+go run ./cmd/steam-accelerator start --mode pac
+go run ./cmd/steam-accelerator start --mode system
+```
+
 From another terminal:
 
 ```bash
 go run ./cmd/steam-accelerator status
 go run ./cmd/steam-accelerator stop
+go run ./cmd/steam-accelerator restore
 ```
 
 Run the basic module example:
@@ -88,7 +96,7 @@ Run the basic module example:
 go run ./examples/basic
 ```
 
-Resolver and upstream options are configured through YAML. The defaults remain `resolver.mode: system` and `upstream.type: direct`.
+Resolver, upstream, PAC, and system proxy options are configured through YAML. The defaults remain `resolver.mode: system` and `upstream.type: direct`.
 
 ## Documentation
 
@@ -107,7 +115,7 @@ Examples live under `examples/`.
 
 - `examples/basic`: verifies that the module can be imported and executed.
 
-Feature examples for ProxyOnly, PAC, System Proxy, and Hosts mode will be added with the corresponding milestones.
+Feature examples for Hosts mode will be added with the corresponding milestone.
 
 ## Project Structure
 

@@ -20,6 +20,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/engine"
 	runtimecontrol "github.com/gofurry/go-steam-core/internal/runtime"
+	"github.com/gofurry/go-steam-core/internal/systemproxy"
 )
 
 func main() {
@@ -44,6 +45,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runStatus(args[1:], stdout, stderr)
 	case "stop":
 		err = runStop(args[1:], stdout, stderr)
+	case "restore":
+		err = runRestore(args[1:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -61,6 +64,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	configPath := fs.String("config", "", "path to YAML config")
 	mode := fs.String("mode", "", "acceleration mode: proxy-only")
 	listen := fs.String("listen", "", "proxy listen address")
+	pacListen := fs.String("pac-listen", "", "PAC server listen address")
 	nonSteam := fs.String("non-steam", "", "non-Steam behavior: reject or direct")
 	allowLAN := fs.Bool("allow-lan", false, "allow non-loopback proxy listen address")
 	statePath := fs.String("state", "", "runtime state file path")
@@ -74,7 +78,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	applyStartOverrides(&cfg, visited, *mode, *listen, *nonSteam, *allowLAN, *statePath, *controlAddr)
+	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *nonSteam, *allowLAN, *statePath, *controlAddr)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -120,6 +124,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 		PID:        os.Getpid(),
 		Mode:       cfg.Mode,
 		ProxyAddr:  status.ListenAddr,
+		PACURL:     status.PACURL,
 		ControlURL: control.URL(),
 		Token:      token,
 		StartedAt:  status.StartedAt,
@@ -169,6 +174,10 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "running: %v\n", status.Running)
 	fmt.Fprintf(stdout, "mode: %s\n", status.Mode)
 	fmt.Fprintf(stdout, "proxy: %s\n", status.ListenAddr)
+	if status.PACURL != "" {
+		fmt.Fprintf(stdout, "pac_url: %s\n", status.PACURL)
+	}
+	fmt.Fprintf(stdout, "rollback: %v\n", status.Rollback)
 	fmt.Fprintf(stdout, "active_conns: %d\n", status.ActiveConns)
 	if !status.StartedAt.IsZero() {
 		fmt.Fprintf(stdout, "started_at: %s\n", status.StartedAt.Format(time.RFC3339))
@@ -209,6 +218,38 @@ func runStop(args []string, stdout, stderr io.Writer) error {
 	}
 	_ = runtimecontrol.RemoveState(statePath)
 	fmt.Fprintln(stdout, "stop requested")
+	return nil
+}
+
+func runRestore(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	configPath := fs.String("config", "", "path to YAML config")
+	rollbackPath := fs.String("rollback", "", "rollback state file path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.LoadFile(*configPath)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*rollbackPath) != "" {
+		cfg.Runtime.RollbackPath = *rollbackPath
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Runtime.StopTimeout.Std())
+	defer cancel()
+	err = systemproxy.Restore(ctx, cfg.Runtime.RollbackPath)
+	if errors.Is(err, systemproxy.ErrNoState) {
+		fmt.Fprintln(stdout, "not modified")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "restored")
 	return nil
 }
 
@@ -289,12 +330,15 @@ func runningFromState(path string) (bool, error) {
 	return true, nil
 }
 
-func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, nonSteam string, allowLAN bool, statePath, controlAddr string) {
+func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, nonSteam string, allowLAN bool, statePath, controlAddr string) {
 	if visited["mode"] {
 		cfg.Mode = mode
 	}
 	if visited["listen"] {
 		cfg.Proxy.ListenAddr = listen
+	}
+	if visited["pac-listen"] {
+		cfg.PAC.ListenAddr = pacListen
 	}
 	if visited["non-steam"] {
 		cfg.Proxy.NonSteamBehavior = nonSteam
@@ -323,8 +367,9 @@ func printUsage(w io.Writer) {
 
 Usage:
   steam-accelerator --version
-  steam-accelerator start [--config path] [--mode proxy-only] [--listen 127.0.0.1:26501] [--non-steam reject|direct]
+  steam-accelerator start [--config path] [--mode proxy-only|pac|system] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--non-steam reject|direct]
   steam-accelerator status [--config path] [--state path]
   steam-accelerator stop [--config path] [--state path]
+  steam-accelerator restore [--config path] [--rollback path]
 `, steamcore.ProjectName, steamcore.Version)
 }

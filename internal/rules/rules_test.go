@@ -50,6 +50,28 @@ func TestMatcherRejectsInvalidWildcard(t *testing.T) {
 	}
 }
 
+func TestMatcherRulesExportIsDeterministic(t *testing.T) {
+	matcher, err := NewMatcher([]RuleGroup{
+		{Name: "b", Domains: []string{"b.example", "*.z.example"}},
+		{Name: "a", Domains: []string{"a.example", "*.a.example"}},
+	}, []string{"c.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	compiled := matcher.Rules()
+	gotExact := hostsOf(compiled.Exact)
+	wantExact := []string{"a.example", "b.example", "c.example"}
+	if !sameStrings(gotExact, wantExact) {
+		t.Fatalf("exact rules = %#v, want %#v", gotExact, wantExact)
+	}
+	gotWildcard := hostsOf(compiled.Wildcard)
+	wantWildcard := []string{"a.example", "z.example"}
+	if !sameStrings(gotWildcard, wantWildcard) {
+		t.Fatalf("wildcard rules = %#v, want %#v", gotWildcard, wantWildcard)
+	}
+}
+
 func TestNormalizeHost(t *testing.T) {
 	tests := map[string]string{
 		"https://Store.SteamPowered.com/path?q=secret": "store.steampowered.com",
@@ -67,4 +89,24 @@ func TestNormalizeHost(t *testing.T) {
 			t.Fatalf("NormalizeHost(%q) = %q, want %q", input, got, want)
 		}
 	}
+}
+
+func hostsOf(entries []CompiledRule) []string {
+	hosts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		hosts = append(hosts, entry.Host)
+	}
+	return hosts
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

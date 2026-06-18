@@ -19,6 +19,7 @@ type State struct {
 	PID        int       `json:"pid"`
 	Mode       string    `json:"mode"`
 	ProxyAddr  string    `json:"proxy_addr"`
+	PACURL     string    `json:"pac_url,omitempty"`
 	ControlURL string    `json:"control_url"`
 	Token      string    `json:"token"`
 	StartedAt  time.Time `json:"started_at"`
@@ -121,12 +122,13 @@ func (s *ControlServer) Start() error {
 	mux.HandleFunc("/stop", s.withAuth(s.handleStop))
 
 	s.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := s.server
 	s.listener = ln
 	s.url = "http://" + ln.Addr().String()
 	s.done = make(chan error, 1)
 
 	go func() {
-		err := s.server.Serve(ln)
+		err := srv.Serve(ln)
 		if err == http.ErrServerClosed {
 			err = nil
 		}

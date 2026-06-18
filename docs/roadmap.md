@@ -2,7 +2,7 @@
 
 ## Current Position
 
-The v0.2.0 ProxyOnly core is implemented. It includes YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, engine lifecycle, local runtime state, a token-protected loopback control server, and `start` / `status` / `stop` CLI commands.
+The v0.3.0 local acceleration core is implemented. It includes ProxyOnly, PAC, and System Proxy modes, YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, rollback state, a token-protected loopback control server, and `start` / `status` / `stop` / `restore` CLI commands.
 
 The runtime remains internal. A stable public Go integration API is deferred until the project approaches v1.
 
@@ -63,20 +63,20 @@ Priority: keep the safe proxy foundation stable before adding modes that modify 
 
 ### v0.3.0 - PAC and System Proxy
 
-**Status:** Planned  
+**Status:** Completed
 **Scope:** User-facing / Safety / Cross-platform / Testing  
 **Goal:** Add PAC and system proxy takeover while preserving rollback behavior.
 
 #### Tasks
 
-- [ ] Generate PAC from the rules module
-- [ ] Add local PAC server
-- [ ] Add `start --mode pac`
-- [ ] Add Windows and macOS PAC setup and restore
-- [ ] Add Windows and macOS HTTP/HTTPS proxy setup and restore
-- [ ] Add rollback state file
-- [ ] Add `restore`
-- [ ] Add PAC and system proxy integration tests
+- [x] Generate PAC from the rules module
+- [x] Add local PAC server
+- [x] Add `start --mode pac`
+- [x] Add Windows and macOS PAC setup and restore
+- [x] Add Windows and macOS HTTP/HTTPS proxy setup and restore
+- [x] Add rollback state file
+- [x] Add `restore`
+- [x] Add PAC and system proxy integration tests
 
 ---
 

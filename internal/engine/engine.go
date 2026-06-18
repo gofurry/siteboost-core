@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,16 +10,26 @@ import (
 	"time"
 
 	"github.com/gofurry/go-steam-core/internal/config"
+	"github.com/gofurry/go-steam-core/internal/pac"
 	"github.com/gofurry/go-steam-core/internal/proxy"
 	"github.com/gofurry/go-steam-core/internal/resolver"
 	"github.com/gofurry/go-steam-core/internal/rules"
+	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
+)
+
+var (
+	applySystemProxy   = systemproxy.Apply
+	restoreSystemProxy = systemproxy.Restore
+	hasRollbackState   = systemproxy.HasState
 )
 
 type Status struct {
 	Running     bool      `json:"running"`
 	Mode        string    `json:"mode"`
 	ListenAddr  string    `json:"listen_addr"`
+	PACURL      string    `json:"pac_url,omitempty"`
+	Rollback    bool      `json:"rollback"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
 	RuleCount   int       `json:"rule_count"`
@@ -35,6 +46,8 @@ type Engine struct {
 	lastErr   error
 	ruleCount int
 	running   bool
+	pac       *pac.Server
+	pacURL    string
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Engine, error) {
@@ -76,9 +89,35 @@ func (e *Engine) Start(ctx context.Context) error {
 	if err := proxyServer.Start(); err != nil {
 		return err
 	}
+	var pacServer *pac.Server
+	var pacURL string
+	if e.cfg.Mode == config.ModePAC {
+		pacServer, err = pac.New(pac.ConfigFromApp(e.cfg, proxyServer.Addr()), matcher.Rules(), e.logger)
+		if err != nil {
+			_ = proxyServer.Stop(context.Background())
+			return fmt.Errorf("build PAC server: %w", err)
+		}
+		if err := pacServer.Start(); err != nil {
+			_ = proxyServer.Stop(context.Background())
+			return err
+		}
+		pacURL = pacServer.URL()
+	}
+	if e.cfg.Mode == config.ModePAC || e.cfg.Mode == config.ModeSystem {
+		sysCfg := systemproxy.ConfigFromApp(e.cfg, proxyServer.Addr(), pacURL)
+		if err := applySystemProxy(ctx, sysCfg); err != nil {
+			if pacServer != nil {
+				_ = pacServer.Stop(context.Background())
+			}
+			_ = proxyServer.Stop(context.Background())
+			return fmt.Errorf("apply system proxy: %w", err)
+		}
+	}
 
 	e.mu.Lock()
 	e.proxy = proxyServer
+	e.pac = pacServer
+	e.pacURL = pacURL
 	e.startedAt = time.Now()
 	e.lastErr = nil
 	e.ruleCount = matcher.RuleCount()
@@ -98,14 +137,31 @@ func (e *Engine) Start(ctx context.Context) error {
 func (e *Engine) Stop(ctx context.Context) error {
 	e.mu.Lock()
 	proxyServer := e.proxy
+	pacServer := e.pac
 	e.proxy = nil
+	e.pac = nil
+	e.pacURL = ""
 	e.running = false
 	e.mu.Unlock()
 
 	if proxyServer == nil {
 		return nil
 	}
-	err := proxyServer.Stop(ctx)
+	var err error
+	if e.cfg.Mode == config.ModePAC || e.cfg.Mode == config.ModeSystem {
+		restoreErr := restoreSystemProxy(ctx, e.cfg.Runtime.RollbackPath)
+		if restoreErr != nil && !errors.Is(restoreErr, systemproxy.ErrNoState) {
+			err = restoreErr
+		}
+	}
+	if pacServer != nil {
+		if stopErr := pacServer.Stop(ctx); err == nil {
+			err = stopErr
+		}
+	}
+	if stopErr := proxyServer.Stop(ctx); err == nil {
+		err = stopErr
+	}
 
 	e.mu.Lock()
 	e.lastErr = err
@@ -121,6 +177,8 @@ func (e *Engine) Status() Status {
 	status := Status{
 		Running:   e.running,
 		Mode:      e.cfg.Mode,
+		PACURL:    e.pacURL,
+		Rollback:  hasRollbackState(e.cfg.Runtime.RollbackPath),
 		StartedAt: e.startedAt,
 		RuleCount: e.ruleCount,
 	}
