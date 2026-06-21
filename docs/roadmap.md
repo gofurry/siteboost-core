@@ -8,13 +8,13 @@ In Hosts + Direct mode, runtime outbound resolution now uses built-in DoH defaul
 
 Starting in v0.6.1, `cert.auto_install` defaults to true. In v0.6.2, the default Windows store scope is `machine`, so administrator-run Hosts mode installs into `LocalMachine\Root` through the Windows certificate-store API to avoid the first-run confirmation commonly seen with CurrentUser root installs. `cert.store_scope: user` remains available as a compatibility fallback. `start --mode hosts` skips installation when already trusted and reports root CA / hosts / listener actions through `system_change` output.
 
-This is not yet a full Steam++-style one-click experience. The project now has a compatibility checklist, a Windows store/community/login/chat/static/WebSocket pass record, and core certificate/hosts orchestration. Broader rule coverage, a desktop/elevated wrapper for smoother Windows privilege handling, macOS/Linux Hosts support, DNSIntercept/VPN/TUN modes, and a stable public Go API remain future work.
+This is not yet a full Steam++-style one-click experience. The project now has a compatibility checklist, a Windows store/community/login/chat/static/WebSocket pass record, and core certificate/hosts orchestration. Ordinary non-elevated processes still cannot write `LocalMachine\Root` or the Windows hosts file directly, so the next Windows step is an explicit UAC-triggered elevated helper / AppHost similar in shape to Watt Toolkit's IPCRoot boundary. Broader rule coverage, macOS/Linux Hosts support, DNSIntercept/VPN/TUN modes, and a stable public Go API remain future work.
 
 The runtime remains internal. A stable public Go integration API is deferred until the project approaches v1. After the Steam flow is validated, the project is expected to evolve into a more general local acceleration core. A future repository/module rename is possible; Steam should become a built-in rule/profile provider rather than the only core target.
 
 ## Roadmap Strategy
 
-Priority: keep the safe proxy foundation stable while making the default Hosts + DoH loop usable without a user-configured upstream proxy. Next, validate real Steam behavior, package root CA and hosts changes into a low-friction one-click core flow, leave process elevation to a desktop/elevated wrapper boundary, then refactor toward a provider-based general acceleration core. HTTP and SOCKS5 upstreams remain optional enhancements, not the default acceleration prerequisite.
+Priority: keep the safe proxy foundation stable while making the default Hosts + DoH loop usable without a user-configured upstream proxy. Next, validate real Steam behavior, package root CA and hosts changes into a low-friction one-click core flow, add an explicit Windows elevated helper / AppHost so normal startup can request one UAC prompt when needed, then refactor toward a provider-based general acceleration core. HTTP and SOCKS5 upstreams remain optional enhancements, not the default acceleration prerequisite.
 
 ## Version Plan
 
@@ -204,6 +204,68 @@ Priority: keep the safe proxy foundation stable while making the default Hosts +
 - Repeated starts skip certificate installation when the project root CA is already installed.
 - Failed system changes are recoverable with clear diagnostics and `restore`.
 - The future helper contract exposes only the minimum system-modification surface.
+
+---
+
+### v0.6.2 - Windows Machine-scope Certificate Default
+
+**Status:** Completed
+**Scope:** User-facing / Security-Safety / Windows
+**Goal:** Install the local root CA into `LocalMachine\Root` by default to avoid the first-run confirmation commonly seen with `CurrentUser\Root`, while preserving a compatibility fallback.
+
+#### Tasks
+
+- [x] Add `cert.store_scope` with `machine` and `user`.
+- [x] Make `machine` the default Windows root-store scope for administrator-run Hosts mode.
+- [x] Keep `cert.store_scope: user` as a `CurrentUser\Root` compatibility path.
+- [x] Include the root CA store scope in `system_change`, for example `detail=store=machine,installed`.
+- [x] Update usage, security, smoke, and one-click-flow documentation.
+
+#### Acceptance Criteria
+
+- A first administrator-run `start --mode hosts` can silently trust the root CA.
+- Repeated starts skip root CA installation when the project CA is already trusted.
+- Non-admin machine-store failures explain how to rerun as Administrator or switch to `cert.store_scope: user`.
+
+---
+
+### v0.6.3 - Windows Elevated Helper / AppHost One-click Start
+
+**Status:** Planned
+**Scope:** User-facing / Security-Safety / Windows / Architecture / Testing
+**Goal:** Let a normal startup path request one explicit Windows UAC elevation and launch a narrow elevated helper / AppHost for root CA, hosts, and restore actions instead of requiring users to manually open an Administrator terminal.
+
+#### Focus
+
+- A `siteboost-helper.exe` or equivalent AppHost with a `requireAdministrator` manifest.
+- Non-admin main process detection plus Windows `ShellExecute` / `runas` helper launch.
+- A narrow helper command surface with no arbitrary shell execution, arbitrary file writes, or access to proxy credentials.
+- A loopback, named-pipe, or stdio IPC boundary with nonce, parent-process checks, and timeouts.
+- A reusable privilege boundary for CLI, future desktop shells, and Go integrations.
+
+#### Tasks
+
+- [ ] Add a Windows privilege package for admin detection, `runas` launch, helper path lookup, and error classification.
+- [ ] Add a helper / AppHost entrypoint that only accepts whitelisted commands such as `trust-root-ca`, `apply-hosts`, `restore-hosts`, and `untrust-root-ca`.
+- [ ] Add a `requireAdministrator` manifest for the helper and document Windows artifact generation.
+- [ ] Make `start --mode hosts` request the helper when the main process is not elevated; keep the current direct path when already elevated.
+- [ ] Route hosts writes, root CA writes, restore, and cert uninstall through the helper while preserving rollback and `system_change` output.
+- [ ] Add nonce / token, parent PID, command whitelist, path constraints, and timeout protection for helper IPC.
+- [ ] Add Windows tests and manual validation scripts for first UAC, already-elevated paths, UAC cancellation, helper timeout, helper failure, and restore behavior.
+- [ ] Update security docs to state that this is explicit UAC elevation, not UAC bypass; reference Watt Toolkit only as an architectural boundary, not as copied code.
+
+#### Acceptance Criteria
+
+- Running `start --mode hosts` from a normal PowerShell can trigger one Windows UAC prompt and complete root CA trust, hosts writes, and reverse-proxy startup after authorization.
+- UAC cancellation returns a clear error, leaves hosts unchanged, and does not leave partial rollback state.
+- The helper cannot execute arbitrary shell commands, cannot write outside approved project-owned system changes, and cannot receive cookies, proxy passwords, or user secrets.
+- `stop` / `restore` can use the helper to recover project-owned hosts changes from the normal startup path.
+- Administrator PowerShell still uses the v0.6.2 silent machine-store certificate path.
+
+#### Notes
+
+- This is implementable, but it must not bypass UAC. The goal is to replace "manually run an Administrator terminal" with "the program requests one system authorization when needed."
+- Watt Toolkit / Steam++ publicly shows the same broad pattern through `requireAdministrator` manifests, IPCRoot, and `runas`; this project keeps a clean-room implementation.
 
 ---
 
