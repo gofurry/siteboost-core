@@ -305,7 +305,7 @@ func TestEngineHostsModeAutoInstallsCert(t *testing.T) {
 		},
 		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
 			installed = true
-			return certstore.TrustResult{Installed: true, Changed: true}, nil
+			return certstore.TrustResult{StoreScope: cfg.StoreScope, Installed: true, Changed: true}, nil
 		},
 		func(path string) bool { return true },
 	)

@@ -2,7 +2,7 @@
 
 > 状态日期：2026-06-22
 > 主维护语言：中文
-> 当前阶段：`v0.6.1` 已完成 Windows 一键证书/Hosts 编排，下一阶段进入 `v0.7.0` 通用加速核心重构
+> 当前阶段：`v0.6.2` 已完成 Windows 机器级默认证书写入，下一阶段进入 `v0.7.0` 通用加速核心重构
 > Go module：`github.com/gofurry/go-steam-core`
 
 ## 当前定位
@@ -11,7 +11,7 @@
 
 项目短期目标是先把 Steam 场景的一键闭环验证扎实；中长期目标是沉淀可被 SteamScope、steam-go、Go/Wails 桌面工具或本地 sidecar 复用的底层能力，并在功能验证后重构为更通用的本地网络加速核心。后续仓库和 Go module 可能会从 Steam 专用命名迁移到领域无关命名，让 Steam 变成内置规则 / profile 包之一，而不是核心唯一目标。
 
-当前 `v0.6.1` 已经具备核心零件，并完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测、Windows 中国网络真实 smoke 记录和 Windows 一键证书 / Hosts 编排：
+当前 `v0.6.2` 已经具备核心零件，并完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测、Windows 中国网络真实 smoke 记录、Windows 一键证书 / Hosts 编排和机器级默认证书写入：
 
 - 本地 HTTP Proxy / HTTPS CONNECT。
 - PAC 模式与 System Proxy 模式。
@@ -27,7 +27,7 @@
 - Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段。
 - Hosts + Direct 模式默认启用 Steam 出站 profile，核心 store / checkout / help / login / media 域名优先走 `cdn-a.akamaihd.net`，community 域名优先走 `steamcommunity-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
 - Hosts + Direct 模式会执行非致命启动探测，并在 `start` / `status` 输出 `startup_probes` 和失败阶段，覆盖 DoH 解析、TCP 443、TLS 握手和轻量 HTTPS `HEAD /`。
-- `start --mode hosts` 默认会在一键流程内检查并安装本项目 Root CA；已安装时静默跳过，未安装时走 Windows 当前用户证书库 API。
+- `start --mode hosts` 默认会在一键流程内检查并安装本项目 Root CA；已安装时静默跳过，未安装时走 Windows 证书库 API。默认写入 `LocalMachine\Root`，用于管理员运行 Hosts 模式时减少首次确认；`cert.store_scope: user` 可切回 `CurrentUser\Root`。
 - `status` / `start` 会输出 `system_change`，展示 Root CA、hosts preflight、反代监听和 hosts 写入结果。
 
 但当前还不能称为完整 Steam++ 式“一键可用”体验。主要差距是：
@@ -235,7 +235,7 @@ stop / restore 可恢复系统修改
 #### 重点
 
 - 提权 helper / IPC / 子进程模型边界。
-- Windows 当前用户证书库 API 后端，替代裸 `certutil` 调用。
+- Windows 证书库 API 后端，默认 `LocalMachine\Root`，并保留 `CurrentUser\Root` 兼容配置，替代裸 `certutil` 调用。
 - Root CA 幂等安装、状态检查和卸载体验。
 - 一键启动中的证书信任、失败回滚和安全提示。
 

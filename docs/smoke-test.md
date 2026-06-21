@@ -79,7 +79,7 @@ go run ./cmd/steam-accelerator restore
 
 ## Windows Hosts and HTTPS Reverse Proxy Check
 
-These checks modify the current user's Root certificate store and the Windows hosts file. Use an Administrator PowerShell for Hosts mode, and run `stop` plus `cert uninstall` after testing.
+These checks modify the Windows `LocalMachine\Root` certificate store by default and the Windows hosts file. Use an Administrator PowerShell for Hosts mode, and run `stop` plus `cert uninstall` after testing.
 
 Optional pre-install for this project's root CA. In v0.6.1 and later, `start --mode hosts` can install it automatically when `cert.auto_install` is true:
 

@@ -129,7 +129,7 @@ Root CA 状态：已安装并受信
 | `startup_probe_failed ... stage=resolve` | DoH / DNS | 检查 `resolver_servers`、防火墙、DNS 劫持 |
 | `stage=tcp` | Direct 可达性 | 检查候选 IP 可达性和 profile 目标 |
 | `stage=tls` | TLS / SNI / 证书链 | 检查 `tls_server_name`、证书验证、本机时间 |
-| 浏览器证书警告 | 本地 Root CA 信任 | 执行 `cert install`，检查当前用户 Root store |
+| 浏览器证书警告 | 本地 Root CA 信任 | 执行 `cert install`，检查配置的 Windows Root store |
 | 浏览器能访问，`curl.exe` 报 `CRYPT_E_NO_REVOCATION_CHECK` | Windows Schannel 吊销检查 | 命令行验证使用 `curl.exe --ssl-no-revoke` |
 | 主页面能打开，子资源失败 | 规则 / profile 缺口 | 用浏览器 devtools 查看失败 host，Hosts 模式下补 exact 域名 |
 | WebSocket 失败 | 规则 / profile 或 upgrade 链路 | 检查日志，确认 websocket host 已被覆盖 |

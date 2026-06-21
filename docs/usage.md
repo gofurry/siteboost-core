@@ -75,6 +75,9 @@ cert:
   # Hosts mode checks root CA trust on start. When auto_install is true,
   # start --mode hosts installs the local root CA if it is not trusted yet.
   auto_install: true
+  # machine uses LocalMachine\Root and is the default Windows path for
+  # administrator-run Hosts mode. user uses CurrentUser\Root as a fallback.
+  store_scope: "machine"
 
 resolver:
   mode: "system" # system | udp | tcp | doh
@@ -241,7 +244,9 @@ hosts:
   https_listen_addr: "127.0.0.1:443"
 ```
 
-By default, `start --mode hosts` checks this project's root CA and installs it into the current-user Root store if it is not trusted yet. The normal Windows API path avoids the old `certutil` shell-out flow, but the core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
+By default, `start --mode hosts` checks this project's root CA and installs it into the Windows `LocalMachine\Root` store if it is not trusted yet. This is the low-friction path for administrator-run Hosts mode and avoids the first-run confirmation commonly seen with CurrentUser root installs. The core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
+
+Set `cert.store_scope: "user"` only when you explicitly want `CurrentUser\Root`; that compatibility path may still show a Windows root-certificate confirmation.
 
 ```bash
 go run ./cmd/steam-accelerator start --mode hosts
@@ -254,7 +259,7 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-`cert install` checks the current-user Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again.
+`cert install` checks the configured Windows Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again.
 
 Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA. To uninstall it, run:
 

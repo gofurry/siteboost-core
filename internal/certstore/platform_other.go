@@ -19,14 +19,14 @@ func (unsupportedPlatform) Name() string {
 	return runtime.GOOS
 }
 
-func (p unsupportedPlatform) IsInstalled(context.Context, *x509.Certificate, string) (bool, error) {
+func (p unsupportedPlatform) IsInstalled(context.Context, *x509.Certificate, string, string) (bool, error) {
 	return false, fmt.Errorf("%w: %s", ErrUnsupported, p.Name())
 }
 
-func (p unsupportedPlatform) Install(context.Context, *x509.Certificate, string) error {
+func (p unsupportedPlatform) Install(context.Context, *x509.Certificate, string, string) error {
 	return fmt.Errorf("%w: %s", ErrUnsupported, p.Name())
 }
 
-func (p unsupportedPlatform) Uninstall(context.Context, *x509.Certificate) error {
+func (p unsupportedPlatform) Uninstall(context.Context, *x509.Certificate, string) error {
 	return fmt.Errorf("%w: %s", ErrUnsupported, p.Name())
 }

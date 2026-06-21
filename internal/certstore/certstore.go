@@ -36,13 +36,15 @@ var (
 )
 
 type Config struct {
-	Dir string
+	Dir        string
+	StoreScope string
 }
 
 type TrustResult struct {
 	Platform       string
 	CertPath       string
 	Thumbprint     string
+	StoreScope     string
 	AlreadyTrusted bool
 	Installed      bool
 	Changed        bool
@@ -50,9 +52,9 @@ type TrustResult struct {
 
 type Platform interface {
 	Name() string
-	IsInstalled(ctx context.Context, cert *x509.Certificate, certPath string) (bool, error)
-	Install(ctx context.Context, cert *x509.Certificate, certPath string) error
-	Uninstall(ctx context.Context, cert *x509.Certificate) error
+	IsInstalled(ctx context.Context, cert *x509.Certificate, certPath string, storeScope string) (bool, error)
+	Install(ctx context.Context, cert *x509.Certificate, certPath string, storeScope string) error
+	Uninstall(ctx context.Context, cert *x509.Certificate, storeScope string) error
 }
 
 type Manager struct {
@@ -67,7 +69,7 @@ type Manager struct {
 }
 
 func ConfigFromApp(cfg config.Config) Config {
-	return Config{Dir: cfg.Cert.Dir}
+	return Config{Dir: cfg.Cert.Dir, StoreScope: cfg.Cert.StoreScope}
 }
 
 func New(cfg Config) *Manager {
@@ -79,7 +81,7 @@ func NewWithPlatform(cfg Config, platform Platform) *Manager {
 		platform = newOSPlatform()
 	}
 	return &Manager{
-		cfg:      cfg,
+		cfg:      normalizeConfig(cfg),
 		platform: platform,
 		cache:    make(map[string]*tls.Certificate),
 	}
@@ -110,7 +112,7 @@ func (m *Manager) IsInstalled(ctx context.Context) (bool, error) {
 		}
 		return false, err
 	}
-	return m.platform.IsInstalled(ctx, cert, m.RootCertPath())
+	return m.platform.IsInstalled(ctx, cert, m.RootCertPath(), m.cfg.StoreScope)
 }
 
 func (m *Manager) Install(ctx context.Context) error {
@@ -120,8 +122,9 @@ func (m *Manager) Install(ctx context.Context) error {
 
 func (m *Manager) EnsureTrusted(ctx context.Context) (TrustResult, error) {
 	result := TrustResult{
-		Platform: m.platform.Name(),
-		CertPath: m.RootCertPath(),
+		Platform:   m.platform.Name(),
+		CertPath:   m.RootCertPath(),
+		StoreScope: m.cfg.StoreScope,
 	}
 	if m.platform.Name() != "windows" {
 		return result, fmt.Errorf("%w: %s", ErrUnsupported, m.platform.Name())
@@ -131,7 +134,7 @@ func (m *Manager) EnsureTrusted(ctx context.Context) (TrustResult, error) {
 		return result, err
 	}
 	result.Thumbprint = Thumbprint(cert)
-	installed, err := m.platform.IsInstalled(ctx, cert, m.RootCertPath())
+	installed, err := m.platform.IsInstalled(ctx, cert, m.RootCertPath(), m.cfg.StoreScope)
 	if err != nil {
 		return result, err
 	}
@@ -139,7 +142,7 @@ func (m *Manager) EnsureTrusted(ctx context.Context) (TrustResult, error) {
 		result.AlreadyTrusted = true
 		return result, nil
 	}
-	if err := m.platform.Install(ctx, cert, m.RootCertPath()); err != nil {
+	if err := m.platform.Install(ctx, cert, m.RootCertPath(), m.cfg.StoreScope); err != nil {
 		return result, err
 	}
 	result.Installed = true
@@ -155,14 +158,24 @@ func (m *Manager) Uninstall(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	installed, err := m.platform.IsInstalled(ctx, cert, m.RootCertPath())
+	installed, err := m.platform.IsInstalled(ctx, cert, m.RootCertPath(), m.cfg.StoreScope)
 	if err != nil {
 		return err
 	}
 	if !installed {
 		return nil
 	}
-	return m.platform.Uninstall(ctx, cert)
+	return m.platform.Uninstall(ctx, cert, m.cfg.StoreScope)
+}
+
+func normalizeConfig(cfg Config) Config {
+	switch strings.ToLower(strings.TrimSpace(cfg.StoreScope)) {
+	case "", config.CertStoreMachine, "local_machine", "local-machine":
+		cfg.StoreScope = config.CertStoreMachine
+	case config.CertStoreUser, "current_user", "current-user":
+		cfg.StoreScope = config.CertStoreUser
+	}
+	return cfg
 }
 
 func (m *Manager) Certificate(host string) (*tls.Certificate, error) {

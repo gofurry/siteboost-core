@@ -4,11 +4,11 @@
 
 ## 当前阶段
 
-当前项目已完成 `v0.6.1`，并进入 `v0.7.0` 通用加速核心重构准备阶段。项目已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与一键安装、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
+当前项目已完成 `v0.6.2`，并进入 `v0.7.0` 通用加速核心重构准备阶段。项目已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与一键安装、Windows 机器级默认证书写入、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
 
 `v0.6.0` 已完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测和 Windows 中国网络真实 smoke 记录：Hosts + Direct 模式默认使用内置 DoH 解析真实 Steam IP，避免 hosts 写入后自绕回；`start --mode hosts` 已串联 Root CA、hosts 可读写、rollback 目录可写、反代监听和 hosts 写入失败恢复；`status` / `start` 会显示运行时 resolver 模式、DoH servers、规则版本和 `startup_probes`；Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段；默认 profile 会让 community 域名优先走 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 域名优先走 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
 
-`v0.6.1` 已将 Root CA 检查/安装、hosts preflight、反代监听、hosts 写入和 rollback 结果纳入 `start --mode hosts` 一键流程。默认 `cert.auto_install: true`，未安装时通过 Windows 证书库 API 安装，已安装时静默跳过；`status` / `start` 会输出 `system_change` 诊断。
+`v0.6.1` / `v0.6.2` 已将 Root CA 检查/安装、hosts preflight、反代监听、hosts 写入和 rollback 结果纳入 `start --mode hosts` 一键流程。默认 `cert.auto_install: true`，未安装时通过 Windows 证书库 API 安装，已安装时静默跳过；默认写入 `LocalMachine\Root`，用于管理员运行 Hosts 模式时减少首次确认，`cert.store_scope: user` 可切回 `CurrentUser\Root`；`status` / `start` 会输出 `system_change` 诊断。
 
 但当前还不能称为完整 Steam++ 式“一键可用”体验。主要差距是：
 
@@ -183,7 +183,7 @@
 #### 重点
 
 - 提权 helper / IPC / 子进程模型边界。
-- Windows 当前用户证书库 API 后端，替代裸 `certutil` 调用。
+- Windows 证书库 API 后端，默认 `LocalMachine\Root`，并保留 `CurrentUser\Root` 兼容配置，替代裸 `certutil` 调用。
 - Root CA 幂等安装、状态检查和卸载体验。
 - 一键启动中的证书信任、失败回滚和安全提示。
 

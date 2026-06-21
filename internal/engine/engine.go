@@ -135,8 +135,9 @@ func (e *Engine) Start(ctx context.Context) error {
 	var systemChanges []SystemChange
 
 	if e.cfg.Mode == config.ModeHosts {
-		certManager := certstore.New(certstore.ConfigFromApp(e.cfg))
-		certOK, err = isCertInstalled(ctx, certstore.ConfigFromApp(e.cfg))
+		certCfg := certstore.ConfigFromApp(e.cfg)
+		certManager := certstore.New(certCfg)
+		certOK, err = isCertInstalled(ctx, certCfg)
 		if err != nil {
 			return fmt.Errorf("check root CA install: %w", err)
 		}
@@ -144,14 +145,14 @@ func (e *Engine) Start(ctx context.Context) error {
 			if !e.cfg.Cert.AutoInstall {
 				return fmt.Errorf("local root CA is not installed; run `steam-accelerator cert install` first or enable cert.auto_install")
 			}
-			trust, err := ensureCertTrusted(ctx, certstore.ConfigFromApp(e.cfg))
+			trust, err := ensureCertTrusted(ctx, certCfg)
 			if err != nil {
 				return fmt.Errorf("install local root CA: %w", err)
 			}
 			certOK = true
 			systemChanges = append(systemChanges, certTrustChange(trust))
 		} else {
-			systemChanges = append(systemChanges, SystemChange{Component: "root_ca", Action: "check", Status: "already_trusted"})
+			systemChanges = append(systemChanges, SystemChange{Component: "root_ca", Action: "check", Status: "already_trusted", Detail: fmt.Sprintf("store=%s", certCfg.StoreScope)})
 		}
 		entries, skipped, err := hosts.EntriesFromRules(matcher.Rules(), e.cfg.Hosts.MapIP)
 		if err != nil {
@@ -369,13 +370,13 @@ func cloneSystemChanges(changes []SystemChange) []SystemChange {
 }
 
 func certTrustChange(trust certstore.TrustResult) SystemChange {
-	change := SystemChange{Component: "root_ca", Action: "install", Status: "ok"}
+	change := SystemChange{Component: "root_ca", Action: "install", Status: "ok", Detail: fmt.Sprintf("store=%s", trust.StoreScope)}
 	if trust.AlreadyTrusted {
 		change.Action = "check"
 		change.Status = "already_trusted"
 	}
 	if trust.Changed {
-		change.Detail = "installed"
+		change.Detail += ",installed"
 	}
 	return change
 }

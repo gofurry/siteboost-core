@@ -12,6 +12,7 @@ type fakePlatform struct {
 	name         string
 	installed    bool
 	installPath  string
+	storeScope   string
 	installCalls int
 	uninstalled  string
 }
@@ -23,19 +24,22 @@ func (p *fakePlatform) Name() string {
 	return p.name
 }
 
-func (p *fakePlatform) IsInstalled(context.Context, *x509.Certificate, string) (bool, error) {
+func (p *fakePlatform) IsInstalled(_ context.Context, _ *x509.Certificate, _ string, storeScope string) (bool, error) {
+	p.storeScope = storeScope
 	return p.installed, nil
 }
 
-func (p *fakePlatform) Install(_ context.Context, _ *x509.Certificate, certPath string) error {
+func (p *fakePlatform) Install(_ context.Context, _ *x509.Certificate, certPath string, storeScope string) error {
 	p.installed = true
 	p.installPath = certPath
+	p.storeScope = storeScope
 	p.installCalls++
 	return nil
 }
 
-func (p *fakePlatform) Uninstall(_ context.Context, cert *x509.Certificate) error {
+func (p *fakePlatform) Uninstall(_ context.Context, cert *x509.Certificate, storeScope string) error {
 	p.installed = false
+	p.storeScope = storeScope
 	p.uninstalled = Thumbprint(cert)
 	return nil
 }
@@ -99,6 +103,9 @@ func TestInstallAndUninstallUsePlatform(t *testing.T) {
 	if !result.Installed || !result.Changed || result.AlreadyTrusted || result.Thumbprint == "" {
 		t.Fatalf("trust result = %#v", result)
 	}
+	if result.StoreScope != "machine" || platform.storeScope != "machine" {
+		t.Fatalf("store scope result/platform = %q/%q, want machine", result.StoreScope, platform.storeScope)
+	}
 	if !platform.installed || platform.installPath == "" {
 		t.Fatalf("install did not use platform: %#v", platform)
 	}
@@ -125,5 +132,17 @@ func TestInstallSkipsWhenAlreadyInstalled(t *testing.T) {
 	}
 	if platform.installCalls != 0 {
 		t.Fatalf("install calls = %d, want 0", platform.installCalls)
+	}
+}
+
+func TestInstallUsesConfiguredStoreScope(t *testing.T) {
+	platform := &fakePlatform{}
+	manager := NewWithPlatform(Config{Dir: t.TempDir(), StoreScope: "user"}, platform)
+	result, err := manager.EnsureTrusted(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.StoreScope != "user" || platform.storeScope != "user" {
+		t.Fatalf("store scope result/platform = %q/%q, want user", result.StoreScope, platform.storeScope)
 	}
 }

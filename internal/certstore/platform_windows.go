@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"unsafe"
 
+	"github.com/gofurry/go-steam-core/internal/config"
 	"golang.org/x/sys/windows"
 )
 
@@ -26,8 +28,8 @@ func (p windowsPlatform) Name() string {
 	return runtime.GOOS
 }
 
-func (p windowsPlatform) IsInstalled(_ context.Context, cert *x509.Certificate, _ string) (bool, error) {
-	store, err := openCurrentUserRootStore()
+func (p windowsPlatform) IsInstalled(_ context.Context, cert *x509.Certificate, _ string, storeScope string) (bool, error) {
+	store, err := openRootStore(storeScope)
 	if err != nil {
 		return false, err
 	}
@@ -43,8 +45,8 @@ func (p windowsPlatform) IsInstalled(_ context.Context, cert *x509.Certificate, 
 	return true, nil
 }
 
-func (p windowsPlatform) Install(_ context.Context, cert *x509.Certificate, certPath string) error {
-	store, err := openCurrentUserRootStore()
+func (p windowsPlatform) Install(_ context.Context, cert *x509.Certificate, certPath string, storeScope string) error {
+	store, err := openRootStore(storeScope)
 	if err != nil {
 		return err
 	}
@@ -58,7 +60,10 @@ func (p windowsPlatform) Install(_ context.Context, cert *x509.Certificate, cert
 
 	var added *windows.CertContext
 	if err := windows.CertAddCertificateContextToStore(store, ctx, windows.CERT_STORE_ADD_REPLACE_EXISTING, &added); err != nil {
-		return fmt.Errorf("install root CA with Windows certificate store API: %w", err)
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) && isMachineStore(storeScope) {
+			return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w; rerun as Administrator or set cert.store_scope: user", windowsStoreLabel(storeScope), err)
+		}
+		return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w", windowsStoreLabel(storeScope), err)
 	}
 	if added != nil {
 		_ = windows.CertFreeCertificateContext(added)
@@ -67,8 +72,8 @@ func (p windowsPlatform) Install(_ context.Context, cert *x509.Certificate, cert
 	return nil
 }
 
-func (p windowsPlatform) Uninstall(_ context.Context, cert *x509.Certificate) error {
-	store, err := openCurrentUserRootStore()
+func (p windowsPlatform) Uninstall(_ context.Context, cert *x509.Certificate, storeScope string) error {
+	store, err := openRootStore(storeScope)
 	if err != nil {
 		return err
 	}
@@ -82,13 +87,17 @@ func (p windowsPlatform) Uninstall(_ context.Context, cert *x509.Certificate) er
 		return err
 	}
 	if err := windows.CertDeleteCertificateFromStore(ctx); err != nil {
-		return fmt.Errorf("uninstall root CA with Windows certificate store API: %w", err)
+		return fmt.Errorf("uninstall root CA from %s Root store with Windows certificate store API: %w", windowsStoreLabel(storeScope), err)
 	}
 	return nil
 }
 
-func openCurrentUserRootStore() (windows.Handle, error) {
+func openRootStore(storeScope string) (windows.Handle, error) {
 	name, err := windows.UTF16PtrFromString("Root")
+	if err != nil {
+		return 0, err
+	}
+	location, err := windowsStoreLocation(storeScope)
 	if err != nil {
 		return 0, err
 	}
@@ -96,13 +105,44 @@ func openCurrentUserRootStore() (windows.Handle, error) {
 		uintptr(windows.CERT_STORE_PROV_SYSTEM),
 		windows.X509_ASN_ENCODING|windows.PKCS_7_ASN_ENCODING,
 		0,
-		windows.CERT_SYSTEM_STORE_CURRENT_USER,
+		location|windows.CERT_STORE_OPEN_EXISTING_FLAG,
 		uintptr(unsafe.Pointer(name)),
 	)
 	if err != nil {
-		return 0, fmt.Errorf("open current-user Root certificate store: %w", err)
+		return 0, fmt.Errorf("open %s Root certificate store: %w", windowsStoreLabel(storeScope), err)
 	}
 	return store, nil
+}
+
+func windowsStoreLocation(storeScope string) (uint32, error) {
+	switch strings.ToLower(strings.TrimSpace(storeScope)) {
+	case "", config.CertStoreMachine, "local_machine", "local-machine":
+		return windows.CERT_SYSTEM_STORE_LOCAL_MACHINE, nil
+	case config.CertStoreUser, "current_user", "current-user":
+		return windows.CERT_SYSTEM_STORE_CURRENT_USER, nil
+	default:
+		return 0, fmt.Errorf("unsupported Windows cert store scope %q", storeScope)
+	}
+}
+
+func windowsStoreLabel(storeScope string) string {
+	switch strings.ToLower(strings.TrimSpace(storeScope)) {
+	case "", config.CertStoreMachine, "local_machine", "local-machine":
+		return "LocalMachine"
+	case config.CertStoreUser, "current_user", "current-user":
+		return "CurrentUser"
+	default:
+		return storeScope
+	}
+}
+
+func isMachineStore(storeScope string) bool {
+	switch strings.ToLower(strings.TrimSpace(storeScope)) {
+	case "", config.CertStoreMachine, "local_machine", "local-machine":
+		return true
+	default:
+		return false
+	}
 }
 
 func certificateContext(cert *x509.Certificate) (*windows.CertContext, error) {

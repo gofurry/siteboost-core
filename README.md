@@ -27,7 +27,7 @@ Current capabilities:
 - PAC generation and local PAC server.
 - Windows and macOS system PAC/manual proxy setup with rollback.
 - Windows hosts marker block setup and restore.
-- Local root CA generation plus Windows current-user install/uninstall.
+- Local root CA generation plus Windows machine/user certificate-store install/uninstall.
 - Local HTTP/HTTPS reverse proxy with dynamic site certificates for Hosts mode.
 - Windows Hosts one-click flow with root CA auto-install, hosts preflight, rollback, and system-change status output.
 - Hosts + Direct default DoH outbound resolution, hosts preflight, and resolver status output.

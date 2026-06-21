@@ -19,7 +19,7 @@
 - Windows HKCU 系统 PAC / HTTP / HTTPS 代理写入与恢复。
 - macOS `networksetup` PAC / HTTP / HTTPS 代理写入与恢复。
 - Windows hosts 项目标记区块写入与恢复。
-- Root CA 生成、Windows 当前用户 Root store 安装/卸载。
+- Root CA 生成、Windows 机器级 / 当前用户 Root store 安装与卸载。
 - 动态站点证书签发与缓存。
 - 本地 HTTP / HTTPS Reverse Proxy，保留 Host 与 SNI，支持 WebSocket upgrade。
 - rollback 状态文件与 `restore` 命令。

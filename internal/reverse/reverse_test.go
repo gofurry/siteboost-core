@@ -304,14 +304,14 @@ type fakeCertPlatform struct{}
 
 func (*fakeCertPlatform) Name() string { return "windows" }
 
-func (*fakeCertPlatform) IsInstalled(context.Context, *x509.Certificate, string) (bool, error) {
+func (*fakeCertPlatform) IsInstalled(context.Context, *x509.Certificate, string, string) (bool, error) {
 	return true, nil
 }
 
-func (*fakeCertPlatform) Install(context.Context, *x509.Certificate, string) error {
+func (*fakeCertPlatform) Install(context.Context, *x509.Certificate, string, string) error {
 	return nil
 }
 
-func (*fakeCertPlatform) Uninstall(context.Context, *x509.Certificate) error {
+func (*fakeCertPlatform) Uninstall(context.Context, *x509.Certificate, string) error {
 	return nil
 }

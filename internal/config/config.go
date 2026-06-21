@@ -29,6 +29,9 @@ const (
 	UpstreamDirect = "direct"
 	UpstreamHTTP   = "http"
 	UpstreamSOCKS5 = "socks5"
+
+	CertStoreMachine = "machine"
+	CertStoreUser    = "user"
 )
 
 func DefaultDoHServers() []string {
@@ -111,6 +114,7 @@ type HostsConfig struct {
 type CertConfig struct {
 	Dir         string `yaml:"dir"`
 	AutoInstall bool   `yaml:"auto_install"`
+	StoreScope  string `yaml:"store_scope"`
 }
 
 type ResolverConfig struct {
@@ -175,6 +179,7 @@ func Default() Config {
 		Cert: CertConfig{
 			Dir:         DefaultCertDir(),
 			AutoInstall: true,
+			StoreScope:  CertStoreMachine,
 		},
 		Rules: RulesConfig{
 			EnableDefaultSteamRules: true,
@@ -318,6 +323,12 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Cert.Dir) == "" {
 		return fmt.Errorf("cert dir is required")
+	}
+	c.Cert.StoreScope = normalizeCertStoreScope(c.Cert.StoreScope)
+	switch c.Cert.StoreScope {
+	case CertStoreMachine, CertStoreUser:
+	default:
+		return fmt.Errorf("unsupported cert store_scope %q", c.Cert.StoreScope)
 	}
 
 	if c.Runtime.ControlAddr == "" {
@@ -489,6 +500,17 @@ func normalizeResolverMode(mode string) string {
 		return ResolverDoH
 	default:
 		return strings.ToLower(strings.TrimSpace(mode))
+	}
+}
+
+func normalizeCertStoreScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "", CertStoreMachine, "local_machine", "local-machine":
+		return CertStoreMachine
+	case CertStoreUser, "current_user", "current-user":
+		return CertStoreUser
+	default:
+		return strings.ToLower(strings.TrimSpace(scope))
 	}
 }
 

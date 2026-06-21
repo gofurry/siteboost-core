@@ -129,7 +129,7 @@ Browser / Steam client: browser login and https://steamcommunity.com/chat/ worke
 | `startup_probe_failed ... stage=resolve` | DoH / DNS | Check `resolver_servers`, firewall, DNS interception |
 | `stage=tcp` | Direct reachability | Check candidate IP reachability and profile target |
 | `stage=tls` | TLS / SNI / certificate chain | Check `tls_server_name`, certificate validation, local clock |
-| Browser certificate warning | Local root CA trust | Run `cert install`, check current-user Root store |
+| Browser certificate warning | Local root CA trust | Run `cert install`, check the configured Windows Root store |
 | Browser works, `curl.exe` reports `CRYPT_E_NO_REVOCATION_CHECK` | Windows Schannel revocation check | Use `curl.exe --ssl-no-revoke` for command-line validation |
 | Main page works, subresource fails | Rule/profile gap | Inspect failed host in browser devtools and add exact host for Hosts mode |
 | WebSocket fails | Rule/profile or upgrade path | Check logs and verify the websocket host is covered |

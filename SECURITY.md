@@ -26,7 +26,7 @@ PAC, System Proxy, Hosts, certificate installation, and HTTPS reverse proxy mode
 - document manual recovery steps;
 - keep all changes scoped to project-owned settings or marker blocks.
 - check for an existing project root CA before running the certificate install action again.
-- when `cert.auto_install` is enabled, keep root CA trust scoped to the explicit `start --mode hosts` flow and the current-user Root store; the core must not bypass UAC, enterprise policy, or accept arbitrary system-change commands.
+- when `cert.auto_install` is enabled, keep root CA trust scoped to the explicit `start --mode hosts` flow and the configured Windows Root store. The default is `cert.store_scope: machine` for administrator-run Hosts mode; `user` remains available as a compatibility fallback. The core must not bypass UAC, enterprise policy, or accept arbitrary system-change commands.
 
 In v0.6.1, Hosts and certificate-store setup are still Windows-first. `restore` removes project-owned hosts or proxy rollback state, while root CA removal remains an explicit `cert uninstall` action.
 

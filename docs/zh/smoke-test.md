@@ -79,7 +79,7 @@ go run ./cmd/steam-accelerator restore
 
 ## Windows Hosts 与 HTTPS Reverse Proxy 检查
 
-这些检查会修改当前用户 Root 证书库和 Windows hosts 文件。请使用管理员 PowerShell 运行 hosts 模式，并在测试完成后执行 `stop` 与 `cert uninstall`。
+这些检查会默认修改 Windows `LocalMachine\Root` 证书库和 Windows hosts 文件。请使用管理员 PowerShell 运行 hosts 模式，并在测试完成后执行 `stop` 与 `cert uninstall`。
 
 可选预安装本项目 Root CA。v0.6.1 起，`cert.auto_install` 为 true 时，`start --mode hosts` 可以在启动流程内自动安装：
 

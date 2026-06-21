@@ -42,6 +42,9 @@ func TestDefaultConfigValid(t *testing.T) {
 	if !cfg.Cert.AutoInstall {
 		t.Fatalf("cert auto install should be enabled by default")
 	}
+	if cfg.Cert.StoreScope != CertStoreMachine {
+		t.Fatalf("cert store scope = %q, want %q", cfg.Cert.StoreScope, CertStoreMachine)
+	}
 }
 
 func TestValidateFillsDefaultDoHServers(t *testing.T) {
@@ -79,6 +82,7 @@ hosts:
 cert:
   dir: "certs"
   auto_install: false
+  store_scope: "current_user"
 rules:
   custom_domains:
     - "example.steam.test"
@@ -157,6 +161,9 @@ system_proxy:
 	}
 	if cfg.Cert.AutoInstall {
 		t.Fatalf("cert auto install should be disabled")
+	}
+	if cfg.Cert.StoreScope != CertStoreUser {
+		t.Fatalf("cert store scope = %q, want %q", cfg.Cert.StoreScope, CertStoreUser)
 	}
 	if cfg.Runtime.RollbackPath != "rollback.json" {
 		t.Fatalf("rollback path = %q", cfg.Runtime.RollbackPath)
