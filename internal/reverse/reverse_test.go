@@ -18,6 +18,7 @@ import (
 
 	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/rules"
+	"github.com/gofurry/go-steam-core/internal/upstream"
 )
 
 type mapDialer map[string]string
@@ -72,7 +73,18 @@ func TestHTTPReversePreservesHost(t *testing.T) {
 }
 
 func TestReverseUpstreamErrorIncludesDiagnostic(t *testing.T) {
-	server := newTestServer(t, errorDialer{err: fmt.Errorf("direct upstream dial store.steampowered.com:80 failed after 1 attempt")}, nil)
+	dialErr := &upstream.DirectDialError{
+		Host: "store.steampowered.com",
+		Port: "80",
+		Attempts: []upstream.DirectDialAttempt{{
+			Stage:   "tcp",
+			Address: "203.0.113.20:80",
+			Target:  "store.steampowered.com",
+			Err:     fmt.Errorf("timeout"),
+		}},
+	}
+	var logs strings.Builder
+	server := newTestServerWithLogger(t, errorDialer{err: dialErr}, nil, slog.New(slog.NewTextHandler(&logs, nil)))
 	defer stopServer(t, server)
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.HTTPAddr()+"/", nil)
@@ -91,6 +103,12 @@ func TestReverseUpstreamErrorIncludesDiagnostic(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "direct upstream dial store.steampowered.com:80 failed") {
 		t.Fatalf("body = %q", body)
+	}
+	logText := logs.String()
+	for _, want := range []string{"upstream_error_stage=tcp", "upstream_target=store.steampowered.com", "upstream_attempts=1"} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("log = %q, want %q", logText, want)
+		}
 	}
 }
 
@@ -243,6 +261,17 @@ func newTestServer(t *testing.T, dialer Dialer, roots *x509.CertPool) *Server {
 
 func newTestServerWithManager(t *testing.T, dialer Dialer, roots *x509.CertPool, manager *certstore.Manager) *Server {
 	t.Helper()
+	return newTestServerWithLoggerAndManager(t, dialer, roots, manager, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func newTestServerWithLogger(t *testing.T, dialer Dialer, roots *x509.CertPool, logger *slog.Logger) *Server {
+	t.Helper()
+	manager := certstore.NewWithPlatform(certstore.Config{Dir: t.TempDir()}, &fakeCertPlatform{})
+	return newTestServerWithLoggerAndManager(t, dialer, roots, manager, logger)
+}
+
+func newTestServerWithLoggerAndManager(t *testing.T, dialer Dialer, roots *x509.CertPool, manager *certstore.Manager, logger *slog.Logger) *Server {
+	t.Helper()
 	matcher, err := rules.NewMatcher(rules.DefaultSteamRules, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +284,7 @@ func newTestServerWithManager(t *testing.T, dialer Dialer, roots *x509.CertPool,
 		ShutdownTimeout:   5 * time.Second,
 		RootCAs:           roots,
 	}
-	server := New(cfg, matcher, dialer, manager, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := New(cfg, matcher, dialer, manager, logger)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

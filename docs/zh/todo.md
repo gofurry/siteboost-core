@@ -3,9 +3,8 @@
 ## 短期任务
 
 - 推进 `v0.6.0` 真实 Steam 访问验收，覆盖商店、社区、登录、聊天、静态资源和 WebSocket。
-- 维护 Hosts exact 域名写入清单，标注 wildcard 规则无法通过 hosts 覆盖的范围。
 - 基于已实现的默认 Steam 出站 profile 做真实访问验证，并继续补齐 chat、static、api、cdn 等分组。
-- 增加启动前真实探测：ForwardDestination 解析、TCP 443、TLS SNI、轻量 HTTP smoke。
+- 基于 Steam 兼容性清单完成至少一轮 Windows 真实 smoke 记录。
 - 增加 malformed request、dial failure 和 upstream failure 等代理边界测试。
 - 在下一轮文档整理时增加配置示例文件。
 - 在公共 API 设计稳定前，继续保持运行时实现为 internal。

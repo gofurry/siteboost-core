@@ -11,7 +11,9 @@ import (
 	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/hosts"
+	"github.com/gofurry/go-steam-core/internal/rules"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
+	"github.com/gofurry/go-steam-core/internal/upstream"
 )
 
 func TestEngineStartStopStatus(t *testing.T) {
@@ -37,6 +39,9 @@ func TestEngineStartStopStatus(t *testing.T) {
 	}
 	if status.RuleCount == 0 {
 		t.Fatalf("rule count is zero")
+	}
+	if status.RuleSetName != rules.DefaultSteamRuleSetName || status.RuleSetVersion == "" {
+		t.Fatalf("rule set was not reported: %#v", status)
 	}
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -221,6 +226,16 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 		func(path string) bool { return true },
 	)
 	defer restoreFns()
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+		return []upstream.ProbeResult{{
+			Host:       "steamcommunity.com",
+			Target:     "steamcommunity-a.akamaihd.net",
+			OK:         true,
+			Stage:      "http",
+			HTTPStatus: "200 OK",
+		}}
+	})
+	defer restoreProbe()
 
 	eng, err := New(cfg, nil)
 	if err != nil {
@@ -249,6 +264,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	}
 	if status.UpstreamProfiles == 0 {
 		t.Fatalf("default upstream profiles were not reported")
+	}
+	if len(status.StartupProbes) != 1 || !status.StartupProbes[0].OK {
+		t.Fatalf("startup probes were not reported: %#v", status.StartupProbes)
 	}
 	if len(applied.Entries) == 0 {
 		t.Fatalf("hosts entries were not applied")
@@ -295,5 +313,13 @@ func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, appl
 		restoreHosts = oldRestore
 		isCertInstalled = oldCertCheck
 		hasRollbackState = oldHas
+	}
+}
+
+func replaceStartupProbeHook(probe func(context.Context, *upstream.DirectDialer) []upstream.ProbeResult) func() {
+	oldProbe := runStartupProbes
+	runStartupProbes = probe
+	return func() {
+		runStartupProbes = oldProbe
 	}
 }

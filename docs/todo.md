@@ -3,9 +3,8 @@
 ## Short-Term Tasks
 
 - Move into v0.6.0 real Steam smoke validation for store, community, login, chat, static assets, and WebSocket flows.
-- Maintain the exact-domain Hosts write list and document wildcard gaps.
 - Validate the implemented default Steam outbound profile against real access, then continue filling chat, static, API, and CDN groups.
-- Add startup probes for ForwardDestination resolution, TCP 443, TLS SNI, and light HTTP smoke checks.
+- Complete at least one real Windows smoke record using the Steam compatibility matrix.
 - Add more proxy edge-case tests for malformed requests, dial failures, and upstream failures.
 - Add a short config sample file once the next docs pass starts.
 - Keep runtime implementation internal until public API design is ready.

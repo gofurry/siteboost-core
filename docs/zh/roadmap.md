@@ -4,29 +4,34 @@
 
 ## 当前阶段
 
-当前项目处于 `v0.6.0-dev` 阶段，已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与显式安装、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
+当前项目已完成 `v0.6.0`，并进入 `v0.6.1-dev` 阶段。项目已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与显式安装、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
 
-`v0.6.0-dev` 已完成第一版 Hosts + DoH 默认闭环、出站失败诊断和默认 Steam 出站 profile 骨架：Hosts + Direct 模式默认使用内置 DoH 解析真实 Steam IP，避免 hosts 写入后自绕回；`start --mode hosts` 已串联 Root CA、hosts 可读写、rollback 目录可写、反代监听和 hosts 写入失败恢复；`status` / `start` 会显示运行时 resolver 模式和 DoH servers；Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段；默认 profile 会让 community 域名优先走 `steamcommunity-a.akamaihd.net`，store / checkout / help / login 域名优先走 `cdn-a.akamaihd.net`，HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
+`v0.6.0` 已完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测和 Windows 中国网络真实 smoke 记录：Hosts + Direct 模式默认使用内置 DoH 解析真实 Steam IP，避免 hosts 写入后自绕回；`start --mode hosts` 已串联 Root CA、hosts 可读写、rollback 目录可写、反代监听和 hosts 写入失败恢复；`status` / `start` 会显示运行时 resolver 模式、DoH servers、规则版本和 `startup_probes`；Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段；默认 profile 会让 community 域名优先走 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 域名优先走 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
 
 但当前还不能称为完整 Steam++ 式“一键可用”体验。主要差距是：
 
-- 真实 Steam 域名、Steam 客户端内置浏览器、网页登录、社区、商店、聊天、静态资源和 WebSocket 场景缺少系统化冒烟记录。
+- 真实 Steam 域名、Steam 客户端内置浏览器、网页登录、社区、商店、聊天、静态资源和 WebSocket 场景已经完成至少一轮 Windows 中国网络手动通过记录。
 - hosts 文件仍只能覆盖 exact 域名，wildcard 规则需要后续 DNSIntercept 等高级模式。
+- 证书安装 / 卸载当前仍是显式 CLI 动作，Windows 后端仍以 `certutil` 为主，尚未像 Steam++ 一样把提权、Root CA 写入、hosts 写入和恢复完整封装成少打扰的一键流程。
 - macOS / Linux Hosts 与证书安装仍未支持。
 - 当前运行时实现仍主要位于 `internal/`，公共 Go API 尚未稳定。
 
 ## 路线策略
 
-项目最终目标是朝 Steam++ / Watt Toolkit 的本地网络加速体验靠齐：默认一键启动时优先形成 `Hosts + DoH + HTTPS Reverse Proxy + Root CA + restore` 的本地闭环，外部上游代理只作为可选增强，而不是默认加速前提。
+项目短期目标是朝 Steam++ / Watt Toolkit 的本地网络加速体验靠齐：默认一键启动时优先形成 `Hosts + DoH + HTTPS Reverse Proxy + Root CA + restore` 的本地闭环，外部上游代理只作为可选增强，而不是默认加速前提。
+
+项目中长期目标是在 Steam 功能验证后重构为更通用的本地加速核心。后续仓库和 Go module 可能会从 Steam 专用命名迁移到领域无关命名，让 Steam 变成内置规则 / profile 包之一，而不是核心唯一目标。
 
 排序原则：
 
 1. 已先修正 Hosts 模式默认闭环和 DNS 自绕回风险。
 2. 接下来用真实 Steam 场景验证规则、证书、反代和恢复路径。
-3. 之后稳定跨平台能力和 Go 集成 API。
-4. `v1.0.0` 以一键 Hosts + DoH 闭环作为稳定主线。
-5. DNSIntercept、VPN / TUN、JS 注入进入 `v1.x` 高级能力路线，但不阻塞 `v1.0.0`。
-6. 继续保持 clean-room 边界：参考 Steam++ 的架构思想，不复制、不翻译、不移植 SteamTools 源码。
+3. 再补齐 Windows 一键提权 / 证书写入封装，目标是少打扰的一键体验，而不是绕过系统安全确认。
+4. 功能验证后进行通用加速核心重构，让规则、profile、接管模式、证书和权限能力从 Steam 业务命名中解耦。
+5. 之后稳定跨平台能力和 Go 集成 API。
+6. `v1.0.0` 以可维护、可扩展的一键本地加速闭环作为稳定主线。
+7. DNSIntercept、VPN / TUN、JS 注入进入 `v1.x` 高级能力路线，但不阻塞 `v1.0.0`。
+8. 继续保持 clean-room 边界：参考 Steam++ 的架构思想，不复制、不翻译、不移植 SteamTools 源码。
 
 ## 已实现摘要
 
@@ -132,7 +137,7 @@
 
 ### v0.6.0 - 真实 Steam 访问验收与规则完善
 
-**状态：** 开发中，已完成默认出站 profile 骨架
+**状态：** 已完成
 **范围：** User-facing / Testing / Documentation / Stability
 **目标：** 用真实 Steam 访问场景验证一键闭环，补齐 Steam 默认出站 profile、域名规则和手动验收记录。
 
@@ -146,16 +151,17 @@
 
 #### 任务
 
-- [ ] 建立真实 Steam 域名兼容性清单，覆盖 store、community、login、api、chat、static、cdn 等分组。
-- [ ] 为 Hosts 模式维护 exact 域名写入清单，明确 wildcard 规则无法通过 hosts 覆盖的范围。
+- [x] 建立真实 Steam 域名兼容性清单，覆盖 store、community、login、api、chat、static、cdn 等分组。
+- [x] 为 Hosts 模式维护 exact 域名写入清单，明确 wildcard 规则无法通过 hosts 覆盖的范围。
 - [x] 为核心 Steam 域名设计并实现默认出站 profile 骨架，支持候选 IP、ForwardDestination、TLS SNI、证书名不匹配策略和 fallback 顺序。
-- [x] 为 `steamcommunity.com` / `*.steamcommunity.com` 增加默认 `steamcommunity-a.akamaihd.net` fallback；为 store / checkout / help / login 增加默认 `cdn-a.akamaihd.net` fallback。
+- [x] 为 `steamcommunity.com` / `*.steamcommunity.com` 增加默认 `steamcommunity-a.akamaihd.net` fallback；为 store / checkout / help / login / media 增加默认 `cdn-a.akamaihd.net` fallback；补齐 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 的默认接管与 profile 覆盖。
 - [x] 增加 YAML 自定义 outbound profile 配置和校验，允许用户覆盖 `match_domains`、`candidate_ips`、`forward_host`、`tls_server_name` 和 `ignore_tls_name_mismatch`。
-- [ ] 增加启动前真实探测：DoH 解析、TCP 443 连通、TLS 握手和轻量 HTTP smoke。
-- [ ] 增加真实 Steam 访问手动 smoke 文档，记录 Windows 管理员终端、证书安装、启动、访问、停止、恢复全过程。
-- [ ] 增加常见失败诊断文档：DNS 失败、证书不受信、端口占用、hosts 被安全软件拦截、WebSocket 失败。
-- [ ] 增加代理请求、反代请求和 resolver 失败的脱敏日志字段扩展，确保不泄露 Cookie / Authorization / URL secret。
-- [ ] 评估是否需要内置规则版本号和规则更新时间。
+- [x] 增加启动前真实探测：DoH 解析、TCP 443 连通、TLS 握手和轻量 HTTP smoke。
+- [x] 增加真实 Steam 访问手动 smoke 文档模板，覆盖 Windows 管理员终端、证书安装、启动、访问、停止、恢复全过程。
+- [x] 增加常见失败诊断文档：DNS 失败、证书不受信、端口占用、hosts 被安全软件拦截、WebSocket 失败。
+- [x] 完成至少一轮 Windows 真实 Steam 商店 / 社区 / 登录 / 静态资源 / WebSocket 手动验收记录。
+- [x] 增加代理请求、反代请求和 resolver 失败的脱敏日志字段扩展，确保不泄露 Cookie / Authorization / URL secret。
+- [x] 增加内置规则版本号和规则更新时间，供 status、日志和后续 provider/rule pack 演进使用。
 
 #### 验收标准
 
@@ -166,11 +172,75 @@
 
 ---
 
-### v0.7.0 - 跨平台闭环与集成 API 候选
+### v0.6.1 - Windows 一键提权与证书写入封装
+
+**状态：** 计划中
+**范围：** User-facing / Security-Safety / Windows / Architecture
+**目标：** 将 Windows 提权、Root CA 写入、hosts 写入、启动检查和失败恢复封装进少打扰的一键流程。
+
+#### 重点
+
+- 提权 helper / IPC / 子进程模型。
+- Windows 证书库 API 后端，逐步替代裸 `certutil` 调用。
+- Root CA 幂等安装、状态检查和卸载体验。
+- 一键启动中的用户授权、失败回滚和安全提示。
+
+#### 任务
+
+- [ ] 设计 Windows privileged helper / IPC 边界：主进程负责用户交互和状态，提权进程只执行受限系统修改。
+- [ ] 评估并实现 Windows 证书库 API 后端，支持按 thumbprint 查询、安装和删除本项目 Root CA。
+- [ ] 将 `start --mode hosts` 的一键流程扩展为可选自动确认证书状态：未安装时提示用户授权，已安装时静默跳过。
+- [ ] 将 hosts 写入、Root CA 写入、端口监听和 rollback 状态纳入同一个启动编排，任一步失败都给出可执行恢复建议。
+- [ ] 增加 `status` / 诊断输出，显示证书信任状态、提权 helper 可用性、hosts 写入状态和最近一次系统修改结果。
+- [ ] 增加 Windows 单元测试和可手动验证脚本，覆盖已安装跳过、安装失败、卸载失败和恢复路径。
+- [ ] 文档明确安全边界：不绕过 Windows 安全机制，必要时只触发一次明确授权，避免重复弹框和黑盒修改。
+
+#### 验收标准
+
+- 用户从未安装证书的 Windows 环境启动 Hosts 模式时，可以按一次明确授权完成证书信任、hosts 写入和反代启动。
+- 已安装本项目 Root CA 时，重复启动不会再次触发证书安装动作。
+- 系统修改失败时不会留下不可解释的半成品状态，`restore` 仍可执行。
+- 证书私钥不进入日志，helper 只暴露最小必要命令。
+
+---
+
+### v0.7.0 - 通用加速核心重构与命名迁移准备
+
+**状态：** 计划中
+**范围：** Architecture / Developer-facing / Maintainability / Documentation
+**目标：** 在 Steam 一键功能验证后，把项目从 Steam 专用核心演进为可维护、可扩展的通用本地加速核心。
+
+#### 重点
+
+- 领域无关的规则包、profile 包和接管模式抽象。
+- Steam 作为内置 provider / rule pack，而不是硬编码在核心层。
+- 仓库改名、module 路径、CLI 名称和配置兼容策略。
+- 包边界、公共 API 和内部实现的可维护性重构。
+
+#### 任务
+
+- [ ] 审计代码、配置、CLI、状态输出和文档中的 Steam 专用命名与硬编码假设。
+- [ ] 设计通用模型：`rule pack`、`provider profile`、`target group`、`outbound profile`、`takeover mode`、`restore state`。
+- [ ] 将 Steam 默认规则和 outbound profile 收敛为内置 Steam provider，核心逻辑只依赖通用接口。
+- [ ] 制定仓库改名、Go module 迁移、CLI 命令迁移和配置字段迁移方案；在 v1 前允许必要破坏性变更，但必须提供迁移文档。
+- [ ] 整理包边界，降低 `internal` 子包之间的耦合，明确 resolver、upstream、reverse、certstore、privilege、runtime 的职责。
+- [ ] 增加非 Steam 示例 provider，用最小规则证明核心可支持其他站点或服务的本地加速。
+- [ ] 增加迁移测试和兼容性检查，避免重构破坏已验证的 Steam 一键闭环。
+
+#### 验收标准
+
+- 核心层不再依赖 Steam 专用命名才能工作。
+- 新增一个非 Steam provider 不需要修改 reverse / resolver / upstream 核心逻辑。
+- 迁移文档能说明旧仓库名、旧 module、旧 CLI 和旧配置如何过渡。
+- Steam 一键闭环在重构后仍通过 smoke 验收。
+
+---
+
+### v0.8.0 - 跨平台闭环与集成 API 候选
 
 **状态：** 计划中
 **范围：** Cross-platform / Developer-facing / API / Documentation
-**目标：** 将一键闭环从 Windows-first 扩展为可评估的跨平台能力，并形成 Go 集成 API 候选。
+**目标：** 在通用核心边界清晰后，将一键闭环从 Windows-first 扩展为可评估的跨平台能力，并形成 Go 集成 API 候选。
 
 #### 重点
 
@@ -213,6 +283,7 @@
 #### 任务
 
 - [ ] 冻结 Engine API、Config 结构、Mode 枚举和 Status 输出。
+- [ ] 冻结 provider / rule pack / outbound profile 的扩展接口。
 - [ ] 完成 CLI 使用示例、Go package 示例和 Wails 集成建议。
 - [ ] 完成安全边界说明：Root CA、hosts、系统代理、DoH、日志脱敏、restore。
 - [ ] 完成 CHANGELOG、release notes、版本标签和发布检查清单。
@@ -223,6 +294,7 @@
 
 - 用户可以按文档完成一键启动、访问 Steam、停止和恢复。
 - 默认不需要配置外部上游代理。
+- 通用 provider 模型稳定，Steam 只是内置 provider 之一。
 - 公共 API、CLI 行为和配置格式在 v1 期间保持兼容。
 - 没有已知会破坏系统代理、hosts 或证书恢复的阻塞问题。
 
@@ -293,15 +365,15 @@
 
 短期：
 
-- 聚焦 `v0.6.0`，用真实 Steam 场景验证 Hosts + DoH 默认闭环，补齐规则、诊断和冒烟记录。
+- 聚焦 `v0.6.0` 和 `v0.6.1`，用真实 Steam 场景验证 Hosts + DoH 默认闭环，补齐规则、诊断、冒烟记录和 Windows 一键提权 / 证书写入体验。
 
 中期：
 
-- 用 `v0.6.0` 和 `v0.7.0` 完成真实 Steam 验收、规则维护、跨平台评估和 Go 集成 API 候选。
+- 用 `v0.7.0` 完成通用加速核心重构和可能改名的迁移准备，再用 `v0.8.0` 完成跨平台评估和 Go 集成 API 候选。
 
 长期：
 
-- `v1.0.0` 稳定发布后，在 `v1.x` 中逐步加入 DNSIntercept、VPN / TUN、JS 注入等高级 Steam++ 能力。
+- `v1.0.0` 稳定发布后，在 `v1.x` 中逐步加入 DNSIntercept、VPN / TUN、JS 注入等高级能力；这些能力应服务通用加速核心，而不只服务 Steam。
 
 ## 关键风险
 
@@ -309,9 +381,12 @@
 |---|---|---|
 | Hosts 模式 system resolver 自绕回 | 反代连接回本机导致访问失败 | v0.5 强制 Hosts 出站解析避开 system resolver |
 | Root CA 用户不信任 | 安全信任问题 | 默认明确提示、显式安装、显式卸载、文档说明 |
+| 提权 / 证书写入体验割裂 | 无法达到 Steam++ 式一键体验 | v0.6.1 引入提权 helper / 证书库 API / 一键编排，避免重复弹框 |
 | hosts 写入失败 | 用户网络异常 | 标记区块、rollback、restore、管理员权限检查 |
 | 80 / 443 端口占用 | 一键启动失败 | 启动前检查并提示占用进程或替代测试端口 |
 | Steam 域名变化 | 覆盖不足 | 规则分组、手动 smoke、规则版本化评估 |
+| 通用化重构范围过大 | 破坏已验证 Steam 闭环 | 功能验证后再重构，保留 smoke 回归和迁移文档 |
+| 仓库 / module 改名 | 用户集成破坏 | v1 前集中处理，提供兼容策略和迁移说明 |
 | DNS / DoH 服务失效 | 加速不可用 | 多服务器 fallback、用户可覆盖配置 |
 | 高级模式复杂度过高 | v1.0 被拖慢 | DNSIntercept / VPN / JS 注入放入 v1.x，不阻塞 v1.0 |
 | 复制 SteamTools 代码 | GPL 和维护边界风险 | 坚持 clean-room，只参考架构思想 |

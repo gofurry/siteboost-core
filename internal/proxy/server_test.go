@@ -131,7 +131,18 @@ func TestHTTPProxyRejectsNonSteamByDefault(t *testing.T) {
 }
 
 func TestHTTPProxyUpstreamErrorIncludesDiagnostic(t *testing.T) {
-	proxy := newTestProxyWithDialer(t, config.NonSteamReject, failingDialer{err: fmt.Errorf("direct upstream dial store.steam.test:80 failed after 1 attempt")}, io.Discard)
+	dialErr := &upstream.DirectDialError{
+		Host: "store.steam.test",
+		Port: "80",
+		Attempts: []upstream.DirectDialAttempt{{
+			Stage:   "tcp",
+			Address: "203.0.113.10:80",
+			Target:  "store.steam.test",
+			Err:     fmt.Errorf("timeout"),
+		}},
+	}
+	var logs bytes.Buffer
+	proxy := newTestProxyWithDialer(t, config.NonSteamReject, failingDialer{err: dialErr}, &logs)
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
 	resp, err := client.Get("http://store.steam.test/")
@@ -145,6 +156,12 @@ func TestHTTPProxyUpstreamErrorIncludesDiagnostic(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "direct upstream dial store.steam.test:80 failed") {
 		t.Fatalf("body = %q", body)
+	}
+	logText := logs.String()
+	for _, want := range []string{"upstream_error_stage=tcp", "upstream_target=store.steam.test", "upstream_attempts=1"} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("log = %q, want %q", logText, want)
+		}
 	}
 }
 

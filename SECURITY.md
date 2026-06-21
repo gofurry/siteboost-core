@@ -25,6 +25,7 @@ PAC, System Proxy, Hosts, certificate installation, and HTTPS reverse proxy mode
 - provide `restore` behavior;
 - document manual recovery steps;
 - keep all changes scoped to project-owned settings or marker blocks.
+- check for an existing project root CA before running the certificate install action again.
 
 In v0.4.0, Hosts and certificate-store setup are Windows-first. `restore` removes project-owned hosts or proxy rollback state, while root CA removal remains an explicit `cert uninstall` action.
 

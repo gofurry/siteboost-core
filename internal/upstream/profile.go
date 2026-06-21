@@ -45,9 +45,24 @@ func DefaultSteamProfiles() []Profile {
 				"checkout.steampowered.com",
 				"help.steampowered.com",
 				"login.steampowered.com",
+				"media.steampowered.com",
 			},
 			ForwardHost:   "cdn-a.akamaihd.net",
 			TLSServerName: "cdn-a.akamaihd.net",
+		},
+		{
+			MatchDomains: []string{
+				"community.steamstatic.com",
+			},
+			ForwardHost:   "community.steamstatic.com",
+			TLSServerName: "community.steamstatic.com",
+		},
+		{
+			MatchDomains: []string{
+				"steamcdn-a.akamaihd.net",
+			},
+			ForwardHost:   "steamcdn-a.akamaihd.net",
+			TLSServerName: "steamcdn-a.akamaihd.net",
 		},
 	}
 }

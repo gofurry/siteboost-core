@@ -31,24 +31,31 @@ var (
 	isCertInstalled    = func(ctx context.Context, cfg certstore.Config) (bool, error) {
 		return certstore.New(cfg).IsInstalled(ctx)
 	}
+	runStartupProbes = func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+		return dialer.ProbeHTTPS(ctx, upstream.DefaultSteamProbeTargets(), upstream.ProbeOptions{})
+	}
 )
 
 type Status struct {
-	Running          bool      `json:"running"`
-	Mode             string    `json:"mode"`
-	ListenAddr       string    `json:"listen_addr"`
-	PACURL           string    `json:"pac_url,omitempty"`
-	HostsHTTP        string    `json:"hosts_http,omitempty"`
-	HostsHTTPS       string    `json:"hosts_https,omitempty"`
-	ResolverMode     string    `json:"resolver_mode,omitempty"`
-	ResolverServers  []string  `json:"resolver_servers,omitempty"`
-	UpstreamProfiles int       `json:"upstream_profiles,omitempty"`
-	Rollback         bool      `json:"rollback"`
-	CertInstalled    bool      `json:"cert_installed,omitempty"`
-	StartedAt        time.Time `json:"started_at,omitempty"`
-	LastError        string    `json:"last_error,omitempty"`
-	RuleCount        int       `json:"rule_count"`
-	ActiveConns      int64     `json:"active_conns"`
+	Running          bool                   `json:"running"`
+	Mode             string                 `json:"mode"`
+	ListenAddr       string                 `json:"listen_addr"`
+	PACURL           string                 `json:"pac_url,omitempty"`
+	HostsHTTP        string                 `json:"hosts_http,omitempty"`
+	HostsHTTPS       string                 `json:"hosts_https,omitempty"`
+	ResolverMode     string                 `json:"resolver_mode,omitempty"`
+	ResolverServers  []string               `json:"resolver_servers,omitempty"`
+	UpstreamProfiles int                    `json:"upstream_profiles,omitempty"`
+	Rollback         bool                   `json:"rollback"`
+	CertInstalled    bool                   `json:"cert_installed,omitempty"`
+	StartupProbes    []upstream.ProbeResult `json:"startup_probes,omitempty"`
+	StartedAt        time.Time              `json:"started_at,omitempty"`
+	LastError        string                 `json:"last_error,omitempty"`
+	RuleSetName      string                 `json:"rule_set_name,omitempty"`
+	RuleSetVersion   string                 `json:"rule_set_version,omitempty"`
+	RuleSetUpdatedAt string                 `json:"rule_set_updated_at,omitempty"`
+	RuleCount        int                    `json:"rule_count"`
+	ActiveConns      int64                  `json:"active_conns"`
 }
 
 type Engine struct {
@@ -67,6 +74,8 @@ type Engine struct {
 	certOK           bool
 	resolver         resolver.Config
 	upstreamProfiles int
+	startupProbes    []upstream.ProbeResult
+	ruleSet          rules.RuleSetInfo
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Engine, error) {
@@ -110,6 +119,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	var pacURL string
 	var reverseServer *reverse.Server
 	var certOK bool
+	var startupProbes []upstream.ProbeResult
 
 	if e.cfg.Mode == config.ModeHosts {
 		certManager := certstore.New(certstore.ConfigFromApp(e.cfg))
@@ -130,6 +140,10 @@ func (e *Engine) Start(ctx context.Context) error {
 		hostsCfg := hosts.ConfigFromApp(e.cfg, entries)
 		if err := preflightHosts(ctx, hostsCfg); err != nil {
 			return fmt.Errorf("preflight hosts mode: %w", err)
+		}
+		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(upstreamCfg.Profiles) > 0 {
+			startupProbes = runStartupProbes(ctx, directDialer)
+			logStartupProbes(e.logger, startupProbes)
 		}
 		reverseServer = reverse.New(reverse.ConfigFromApp(e.cfg), matcher, dialer, certManager, e.logger)
 		if err := reverseServer.Start(); err != nil {
@@ -177,6 +191,8 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.certOK = certOK
 	e.resolver = cloneResolverConfig(resolverCfg)
 	e.upstreamProfiles = len(upstreamCfg.Profiles)
+	e.startupProbes = cloneStartupProbes(startupProbes)
+	e.ruleSet = ruleSetInfo(e.cfg, matcher)
 	e.startedAt = time.Now()
 	e.lastErr = nil
 	e.ruleCount = matcher.RuleCount()
@@ -205,6 +221,8 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.certOK = false
 	e.resolver = resolver.Config{}
 	e.upstreamProfiles = 0
+	e.startupProbes = nil
+	e.ruleSet = rules.RuleSetInfo{}
 	e.running = false
 	e.mu.Unlock()
 
@@ -261,8 +279,12 @@ func (e *Engine) Status() Status {
 		CertInstalled:    e.certOK,
 		StartedAt:        e.startedAt,
 		RuleCount:        e.ruleCount,
+		RuleSetName:      e.ruleSet.Name,
+		RuleSetVersion:   e.ruleSet.Version,
+		RuleSetUpdatedAt: e.ruleSet.UpdatedAt,
 	}
 	status.ResolverServers = append([]string(nil), e.resolver.Servers...)
+	status.StartupProbes = cloneStartupProbes(e.startupProbes)
 	if e.proxy != nil {
 		status.ListenAddr = e.proxy.Addr()
 		status.ActiveConns = e.proxy.ActiveConns()
@@ -301,6 +323,47 @@ func usesDirectUpstream(upstreamType string) bool {
 func cloneResolverConfig(cfg resolver.Config) resolver.Config {
 	cfg.Servers = append([]string(nil), cfg.Servers...)
 	return cfg
+}
+
+func cloneStartupProbes(probes []upstream.ProbeResult) []upstream.ProbeResult {
+	if len(probes) == 0 {
+		return nil
+	}
+	return append([]upstream.ProbeResult(nil), probes...)
+}
+
+func ruleSetInfo(cfg config.Config, matcher *rules.Matcher) rules.RuleSetInfo {
+	if cfg.Rules.EnableDefaultSteamRules {
+		return rules.DefaultSteamRuleSetInfo()
+	}
+	compiled := matcher.Rules()
+	return rules.RuleSetInfo{
+		Name:          "custom",
+		GroupCount:    1,
+		ExactCount:    len(compiled.Exact),
+		WildcardCount: len(compiled.Wildcard),
+	}
+}
+
+func logStartupProbes(logger *slog.Logger, probes []upstream.ProbeResult) {
+	if len(probes) == 0 {
+		return
+	}
+	okCount := 0
+	for _, probe := range probes {
+		if probe.OK {
+			okCount++
+			continue
+		}
+		logger.Warn("startup steam probe failed",
+			"host", probe.Host,
+			"target", probe.Target,
+			"stage", probe.Stage,
+			"error", probe.Error,
+			"duration_ms", probe.DurationMillis,
+		)
+	}
+	logger.Info("startup steam probes completed", "ok", okCount, "failed", len(probes)-okCount)
 }
 
 func (e *Engine) buildMatcher() (*rules.Matcher, error) {

@@ -166,8 +166,17 @@ upstream:
         - "checkout.steampowered.com"
         - "help.steampowered.com"
         - "login.steampowered.com"
+        - "media.steampowered.com"
       forward_host: "cdn-a.akamaihd.net"
       tls_server_name: "cdn-a.akamaihd.net"
+    - match_domains:
+        - "community.steamstatic.com"
+      forward_host: "community.steamstatic.com"
+      tls_server_name: "community.steamstatic.com"
+    - match_domains:
+        - "steamcdn-a.akamaihd.net"
+      forward_host: "steamcdn-a.akamaihd.net"
+      tls_server_name: "steamcdn-a.akamaihd.net"
 ```
 
 Profiles follow the same practical shape as the Steam++ acceleration data model: `match_domains` matches the original Steam host, `forward_host` is resolved and connected first, `tls_server_name` controls outbound TLS SNI, and the reverse proxy still sends the original Steam HTTP Host upstream. `candidate_ips` can pin fixed IP candidates; `ignore_tls_name_mismatch: true` should only be used when the certificate chain is trusted but the name does not match.
@@ -234,7 +243,9 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, and `upstream_profiles`. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
+`cert install` checks the current-user Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again.
+
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `upstream_profiles`, and `startup_probes`. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall
@@ -242,11 +253,16 @@ go run ./cmd/steam-accelerator cert uninstall
 
 If the browser or Steam embedded browser still shows `upstream request failed`, the response body and logs include an outbound diagnostic summary. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, ForwardDestination reachability, certificate/SNI behavior, or missing rule/profile coverage.
 
+In Hosts + Direct mode, `start` and `status` include a non-fatal startup probe summary. `startup_probes: ok=6 failed=0` means the default Steam probe targets passed DoH resolution, TCP 443, TLS, and a lightweight HTTPS `HEAD /` check through the active outbound profile path. Failed rows are printed as `startup_probe_failed` with `host`, `target`, `stage`, and a trimmed error. The exact host list, wildcard gaps, default probe targets, and manual smoke table are maintained in the [Steam compatibility matrix](steam-compatibility.md).
+
 Windows `curl.exe` uses Schannel and checks certificate revocation by default. Because this project dynamically issues local site certificates without public OCSP / CRL endpoints, command-line checks may report `CRYPT_E_NO_REVOCATION_CHECK`. Use `--ssl-no-revoke` to skip revocation checking while keeping certificate-chain and hostname validation, which is a better local acceleration check than `-k/--insecure`:
 
 ```bash
 curl.exe --ssl-no-revoke -I --max-time 30 https://steamcommunity.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://store.steampowered.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://community.steamstatic.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://media.steampowered.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
 ```
 
 For high-port smoke testing:
@@ -266,4 +282,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.0-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.0.

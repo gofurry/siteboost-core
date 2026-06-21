@@ -102,7 +102,9 @@ go run ./cmd/steam-accelerator start --mode hosts \
 go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 ```
 
-默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh`、`resolver_servers:` 和 `upstream_profiles: 2`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0-dev 起，默认出站 profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，同时保留原始 HTTP Host。
+默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.22`、`upstream_profiles: 4` 和 `startup_probes:`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认出站 profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，同时保留原始 HTTP Host。
+
+`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
 
 如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`resolve steamcommunity-a.akamaihd.net:443 failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要用来判断失败发生在 DoH、ForwardDestination 解析、TCP 直连还是 TLS 握手阶段。
 
@@ -113,6 +115,9 @@ Windows 自带 `curl.exe` 使用 Schannel，默认会检查证书吊销状态。
 ```bash
 curl.exe --ssl-no-revoke -I --max-time 30 https://steamcommunity.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://store.steampowered.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://community.steamstatic.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://media.steampowered.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
 ```
 
 停止并卸载证书：

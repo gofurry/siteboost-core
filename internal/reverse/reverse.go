@@ -12,12 +12,12 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gofurry/go-steam-core/internal/config"
+	"github.com/gofurry/go-steam-core/internal/diagnostics"
 	"github.com/gofurry/go-steam-core/internal/rules"
 )
 
@@ -247,8 +247,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		},
 		Transport: s.transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			msg := upstreamErrorMessage(err)
-			s.logRequestError("reverse_error", r.Method, host, match, http.StatusBadGateway, msg)
+			msg := diagnostics.UpstreamErrorMessage(err)
+			s.logRequestError("reverse_error", r.Method, host, match, http.StatusBadGateway, msg, diagnostics.UpstreamErrorAttrs(err)...)
 			http.Error(w, "upstream request failed: "+msg, http.StatusBadGateway)
 		},
 	}
@@ -295,7 +295,7 @@ func (s *Server) logRequest(event, method, host string, match rules.MatchResult,
 	s.logger.Info("reverse request", attrs...)
 }
 
-func (s *Server) logRequestError(event, method, host string, match rules.MatchResult, status int, message string) {
+func (s *Server) logRequestError(event, method, host string, match rules.MatchResult, status int, message string, extraAttrs ...any) {
 	attrs := []any{
 		"event", event,
 		"method", method,
@@ -303,32 +303,11 @@ func (s *Server) logRequestError(event, method, host string, match rules.MatchRe
 		"status", status,
 		"error", message,
 	}
+	attrs = append(attrs, extraAttrs...)
 	if match.GroupName != "" {
 		attrs = append(attrs, "rule_group", match.GroupName, "rule", match.Rule)
 	}
 	s.logger.Info("reverse request", attrs...)
-}
-
-func upstreamErrorMessage(err error) string {
-	if err == nil {
-		return "unknown error"
-	}
-	msg := strings.TrimSpace(err.Error())
-	msg = strings.Map(func(r rune) rune {
-		switch r {
-		case '\r', '\n', '\t':
-			return ' '
-		default:
-			return r
-		}
-	}, msg)
-	if len(msg) > 1200 {
-		msg = msg[:1200] + "..."
-	}
-	if msg == "" {
-		return "unknown error"
-	}
-	return msg
 }
 
 func serve(srv *http.Server, ln net.Listener, done chan<- error) {

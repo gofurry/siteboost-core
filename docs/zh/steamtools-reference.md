@@ -47,7 +47,7 @@
 - `v0.4.0` 已实现 Windows-first Hosts、Root CA 与 HTTPS Reverse Proxy。
 - `v0.5.0` 已补齐第一版 Hosts + DoH 一键默认闭环，避免 Hosts 模式出站解析自绕回。
 - `v0.5.1` 已补齐出站失败诊断和 HTTPS Direct 出口的 TCP + TLS 候选尝试链。
-- `v0.6.0-dev` 已开始落地默认 Steam 出站 profile：community 优先 `steamcommunity-a.akamaihd.net`，store / checkout / help / login 优先 `cdn-a.akamaihd.net`，HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名。
+- `v0.6.0` 已落地默认 Steam 出站 profile：community 优先 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 优先 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名。
 - `DNSIntercept`、VPN / TUN 和 JS 注入进入 `v1.x` 高级能力路线，但不阻塞 `v1.0.0`。
 
 ## 相关文档

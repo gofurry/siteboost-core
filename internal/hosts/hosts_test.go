@@ -70,7 +70,7 @@ func (p *fakePlatform) CheckWritable(path string) error {
 }
 
 func TestEntriesFromRulesSkipsWildcards(t *testing.T) {
-	matcher, err := rules.NewMatcher(rules.DefaultSteamRules, []string{"login.steampowered.com"})
+	matcher, err := rules.NewMatcher(rules.DefaultSteamRules, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +85,17 @@ func TestEntriesFromRulesSkipsWildcards(t *testing.T) {
 	for _, entry := range entries {
 		hosts[entry.Host] = true
 	}
-	if !hosts["store.steampowered.com"] || !hosts["login.steampowered.com"] {
-		t.Fatalf("entries missing expected hosts: %#v", entries)
+	for _, want := range []string{
+		"store.steampowered.com",
+		"login.steampowered.com",
+		"media.steampowered.com",
+		"steamcommunity.com",
+		"community.steamstatic.com",
+		"steamcdn-a.akamaihd.net",
+	} {
+		if !hosts[want] {
+			t.Fatalf("entries missing %s: %#v", want, entries)
+		}
 	}
 	if hosts["*.steamcommunity.com"] {
 		t.Fatalf("wildcard host should not be mapped")

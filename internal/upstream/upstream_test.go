@@ -150,8 +150,127 @@ func TestConfigFromAppAddsDefaultSteamProfilesForHosts(t *testing.T) {
 	cfg := config.Default()
 	cfg.Mode = config.ModeHosts
 	got := ConfigFromApp(cfg)
-	if len(got.Profiles) == 0 {
+	if len(got.Profiles) != 4 {
 		t.Fatalf("default steam profiles were not enabled")
+	}
+}
+
+func TestDefaultSteamProfilesCoverSteamPlusOneClickDomains(t *testing.T) {
+	dialer, err := NewDirectDialerWithProfiles(fakeResolver{}, time.Second, DefaultSteamProfiles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{
+		"steamcdn-a.akamaihd.net",
+		"community.steamstatic.com",
+		"media.steampowered.com",
+		"steamcommunity.com",
+		"store.steampowered.com",
+		"help.steampowered.com",
+		"login.steampowered.com",
+	} {
+		t.Run(host, func(t *testing.T) {
+			if dialer.matchProfile(host) == nil {
+				t.Fatalf("default profile does not match %s", host)
+			}
+		})
+	}
+}
+
+func TestDirectDialerProbeHTTPSUsesProfileAndOriginalHost(t *testing.T) {
+	sniCh := make(chan string, 1)
+	requestCh := make(chan struct {
+		method string
+		host   string
+	}, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requestCh <- struct {
+			method string
+			host   string
+		}{method: req.Method, host: req.Host}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			select {
+			case sniCh <- hello.ServerName:
+			default:
+			}
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	dialer, err := NewDirectDialerWithProfiles(mapResolver{ips: map[string][]net.IP{
+		"steamcommunity-a.akamaihd.net": {net.ParseIP("127.0.0.1")},
+		"steamcommunity.com":            {net.ParseIP("127.0.0.2")},
+	}}, time.Second, []Profile{{
+		MatchDomains:  []string{"steamcommunity.com"},
+		ForwardHost:   "steamcommunity-a.akamaihd.net",
+		TLSServerName: "steamcommunity-a.akamaihd.net",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results := dialer.ProbeHTTPS(context.Background(), []ProbeTarget{{
+		Host: "steamcommunity.com",
+		Port: portOf(server.Listener.Addr().String()),
+	}}, ProbeOptions{
+		Timeout:   time.Second,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+	})
+	if len(results) != 1 {
+		t.Fatalf("results len = %d", len(results))
+	}
+	got := results[0]
+	if !got.OK {
+		t.Fatalf("probe failed: %#v", got)
+	}
+	if got.Stage != "http" || got.HTTPStatus != "204 No Content" {
+		t.Fatalf("probe stage/status = %q/%q", got.Stage, got.HTTPStatus)
+	}
+	if got.Target != "steamcommunity-a.akamaihd.net" || got.TLSServerName != "steamcommunity-a.akamaihd.net" {
+		t.Fatalf("probe target/SNI = %q/%q", got.Target, got.TLSServerName)
+	}
+
+	select {
+	case gotSNI := <-sniCh:
+		if gotSNI != "steamcommunity-a.akamaihd.net" {
+			t.Fatalf("SNI = %q", gotSNI)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not receive TLS ClientHello")
+	}
+	select {
+	case gotReq := <-requestCh:
+		if gotReq.method != http.MethodHead || gotReq.host != "steamcommunity.com" {
+			t.Fatalf("request = %#v", gotReq)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not receive HTTP probe")
+	}
+}
+
+func TestDirectDialerProbeHTTPSReportsResolveFailure(t *testing.T) {
+	dialer := NewDirectDialer(fakeResolver{err: fmt.Errorf("doh blocked")}, time.Second)
+	results := dialer.ProbeHTTPS(context.Background(), []ProbeTarget{{
+		Host: "example.test",
+		Port: "443",
+	}}, ProbeOptions{Timeout: time.Second})
+	if len(results) != 1 {
+		t.Fatalf("results len = %d", len(results))
+	}
+	got := results[0]
+	if got.OK {
+		t.Fatalf("probe unexpectedly succeeded: %#v", got)
+	}
+	if got.Stage != "resolve" {
+		t.Fatalf("stage = %q, want resolve", got.Stage)
+	}
+	if !strings.Contains(got.Error, "doh blocked") {
+		t.Fatalf("error = %q", got.Error)
 	}
 }
 

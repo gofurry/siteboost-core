@@ -9,10 +9,11 @@ import (
 )
 
 type fakePlatform struct {
-	name        string
-	installed   bool
-	installPath string
-	uninstalled string
+	name         string
+	installed    bool
+	installPath  string
+	installCalls int
+	uninstalled  string
 }
 
 func (p *fakePlatform) Name() string {
@@ -29,6 +30,7 @@ func (p *fakePlatform) IsInstalled(context.Context, *x509.Certificate, string) (
 func (p *fakePlatform) Install(_ context.Context, _ *x509.Certificate, certPath string) error {
 	p.installed = true
 	p.installPath = certPath
+	p.installCalls++
 	return nil
 }
 
@@ -96,10 +98,24 @@ func TestInstallAndUninstallUsePlatform(t *testing.T) {
 	if !platform.installed || platform.installPath == "" {
 		t.Fatalf("install did not use platform: %#v", platform)
 	}
+	if platform.installCalls != 1 {
+		t.Fatalf("install calls = %d, want 1", platform.installCalls)
+	}
 	if err := manager.Uninstall(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if platform.installed || platform.uninstalled == "" {
 		t.Fatalf("uninstall did not use platform: %#v", platform)
+	}
+}
+
+func TestInstallSkipsWhenAlreadyInstalled(t *testing.T) {
+	platform := &fakePlatform{installed: true}
+	manager := NewWithPlatform(Config{Dir: t.TempDir()}, platform)
+	if err := manager.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if platform.installCalls != 0 {
+		t.Fatalf("install calls = %d, want 0", platform.installCalls)
 	}
 }

@@ -112,6 +112,13 @@ func (m *Manager) Install(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	installed, err := m.platform.IsInstalled(ctx, cert, m.RootCertPath())
+	if err != nil {
+		return err
+	}
+	if installed {
+		return nil
+	}
 	return m.platform.Install(ctx, cert, m.RootCertPath())
 }
 

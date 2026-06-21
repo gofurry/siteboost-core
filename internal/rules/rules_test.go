@@ -14,8 +14,12 @@ func TestMatcherMatchesDefaultRules(t *testing.T) {
 	}{
 		{host: "store.steampowered.com", want: true},
 		{host: "STORE.STEAMPOWERED.COM:443", want: true},
+		{host: "login.steampowered.com", want: true},
+		{host: "media.steampowered.com", want: true},
 		{host: "foo.steamcommunity.com", want: true},
 		{host: "steamcommunity.com", want: true},
+		{host: "community.steamstatic.com", want: true},
+		{host: "steamcdn-a.akamaihd.net", want: true},
 		{host: "example.com", want: false},
 	}
 
@@ -69,6 +73,19 @@ func TestMatcherRulesExportIsDeterministic(t *testing.T) {
 	wantWildcard := []string{"a.example", "z.example"}
 	if !sameStrings(gotWildcard, wantWildcard) {
 		t.Fatalf("wildcard rules = %#v, want %#v", gotWildcard, wantWildcard)
+	}
+}
+
+func TestDefaultSteamRuleSetInfo(t *testing.T) {
+	info := DefaultSteamRuleSetInfo()
+	if info.Name != DefaultSteamRuleSetName || info.Version == "" || info.UpdatedAt == "" {
+		t.Fatalf("bad rule set info: %#v", info)
+	}
+	if info.GroupCount != len(DefaultSteamRules) {
+		t.Fatalf("group count = %d, want %d", info.GroupCount, len(DefaultSteamRules))
+	}
+	if info.ExactCount == 0 || info.WildcardCount == 0 {
+		t.Fatalf("rule counts were not populated: %#v", info)
 	}
 }
 

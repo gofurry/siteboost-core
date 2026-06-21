@@ -8,6 +8,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - 默认只代理 Steam 规则域名。
 - ProxyOnly 模式不解密 HTTPS。
 - 默认不安装本地 Root CA，必须显式执行 `cert install`。
+- `cert install` 会先检查本项目 Root CA 是否已存在，避免重复执行安装动作。
 - 默认不修改 hosts，必须显式启动 `mode: hosts`。
 - 默认不暴露公网代理入口。
 - 日志不记录 Cookie、Authorization、代理密码、token 或完整敏感 URL。

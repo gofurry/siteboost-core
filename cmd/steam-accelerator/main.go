@@ -23,6 +23,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	runtimecontrol "github.com/gofurry/go-steam-core/internal/runtime"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
+	"github.com/gofurry/go-steam-core/internal/upstream"
 )
 
 func main() {
@@ -168,6 +169,8 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if status.UpstreamProfiles > 0 {
 		fmt.Fprintf(stdout, "upstream_profiles: %d\n", status.UpstreamProfiles)
 	}
+	printRuleSet(stdout, status)
+	printStartupProbes(stdout, status.StartupProbes)
 	fmt.Fprintf(stdout, "state: %s\n", cfg.Runtime.StatePath)
 	<-ctx.Done()
 
@@ -222,6 +225,8 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if status.UpstreamProfiles > 0 {
 		fmt.Fprintf(stdout, "upstream_profiles: %d\n", status.UpstreamProfiles)
 	}
+	printRuleSet(stdout, status)
+	printStartupProbes(stdout, status.StartupProbes)
 	fmt.Fprintf(stdout, "rollback: %v\n", status.Rollback)
 	if status.Mode == config.ModeHosts {
 		fmt.Fprintf(stdout, "cert_installed: %v\n", status.CertInstalled)
@@ -486,6 +491,55 @@ func visitedFlags(fs *flag.FlagSet) map[string]bool {
 		visited[f.Name] = true
 	})
 	return visited
+}
+
+func printStartupProbes(w io.Writer, probes []upstream.ProbeResult) {
+	if len(probes) == 0 {
+		return
+	}
+	okCount := 0
+	for _, probe := range probes {
+		if probe.OK {
+			okCount++
+		}
+	}
+	failed := len(probes) - okCount
+	fmt.Fprintf(w, "startup_probes: ok=%d failed=%d\n", okCount, failed)
+	for _, probe := range probes {
+		if probe.OK {
+			continue
+		}
+		fmt.Fprintf(w, "startup_probe_failed: host=%s", probe.Host)
+		if probe.Target != "" {
+			fmt.Fprintf(w, " target=%s", probe.Target)
+		}
+		if probe.Stage != "" {
+			fmt.Fprintf(w, " stage=%s", probe.Stage)
+		}
+		if probe.Error != "" {
+			fmt.Fprintf(w, " error=%s", truncateProbeError(probe.Error))
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func printRuleSet(w io.Writer, status engine.Status) {
+	if status.RuleSetName == "" {
+		return
+	}
+	if status.RuleSetVersion != "" {
+		fmt.Fprintf(w, "rule_set: %s@%s\n", status.RuleSetName, status.RuleSetVersion)
+		return
+	}
+	fmt.Fprintf(w, "rule_set: %s\n", status.RuleSetName)
+}
+
+func truncateProbeError(err string) string {
+	err = strings.TrimSpace(err)
+	if len(err) <= 320 {
+		return err
+	}
+	return err[:320] + "..."
 }
 
 func printUsage(w io.Writer) {

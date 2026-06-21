@@ -11,7 +11,7 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
 
-The current v0.6.0 development line includes a runnable local acceleration core. It supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface. Hosts + Direct mode uses built-in DoH defaults for real Steam IP lookup to avoid local hosts loopback, and now includes a default Steam outbound profile: community domains prefer `steamcommunity-a.akamaihd.net`, while store / checkout / help / login domains prefer `cdn-a.akamaihd.net`; the original Steam HTTP Host is preserved and TLS SNI follows the profile target. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
+The current v0.6.0 line includes a runnable local acceleration core. It supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface. Hosts + Direct mode uses built-in DoH defaults for real Steam IP lookup to avoid local hosts loopback, and now includes a default Steam outbound profile: community domains prefer `steamcommunity-a.akamaihd.net`, store / checkout / help / login / media domains prefer `cdn-a.akamaihd.net`, and common static/CDN hosts such as `community.steamstatic.com` and `steamcdn-a.akamaihd.net` are covered. The original Steam HTTP Host is preserved and TLS SNI follows the profile target. Startup probes expose DoH/TCP/TLS/HTTP smoke status in `start` and `status`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -31,6 +31,7 @@ Current capabilities:
 - Local HTTP/HTTPS reverse proxy with dynamic site certificates for Hosts mode.
 - Hosts + Direct default DoH outbound resolution, hosts preflight, and resolver status output.
 - Hosts + Direct default Steam outbound profile with ForwardDestination, TLS SNI, candidate IP, and original-domain fallback support.
+- Hosts + Direct startup probes for DoH resolution, TCP 443, TLS handshake, and lightweight HTTPS smoke status.
 - Outbound failure diagnostics with candidate IPs, TCP / TLS stages, and trimmed 502 error summaries.
 - Foreground `start`, `status`, `stop`, and `restore` CLI lifecycle.
 - Local runtime state file and token-protected loopback control API.
