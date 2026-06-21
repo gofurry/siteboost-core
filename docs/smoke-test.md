@@ -81,7 +81,7 @@ go run ./cmd/steam-accelerator restore
 
 These checks modify the current user's Root certificate store and the Windows hosts file. Use an Administrator PowerShell for Hosts mode, and run `stop` plus `cert uninstall` after testing.
 
-Install this project's root CA:
+Optional pre-install for this project's root CA. In v0.6.1 and later, `start --mode hosts` can install it automatically when `cert.auto_install` is true:
 
 ```bash
 go run ./cmd/steam-accelerator cert install
@@ -104,7 +104,7 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 
 The default Hosts + Direct loop should show `resolver: doh`, `resolver_servers:`, `rule_set: steam-web@2026.06.22`, `upstream_profiles: 4`, and `startup_probes:` in status output. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block. Starting in v0.6.0, the default outbound profile also makes `steamcommunity.com` prefer `steamcommunity-a.akamaihd.net`, `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` prefer `cdn-a.akamaihd.net`, and covers `community.steamstatic.com` plus `steamcdn-a.akamaihd.net`, while preserving the original HTTP Host.
 
-`startup_probes: ok=6 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
+`system_change:` lines should show the root CA check/install, hosts preflight, reverse-proxy listeners, and hosts apply result. `startup_probes: ok=6 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
 
 If a page returns `upstream request failed`, the response body should include more than that generic message. It should append a summary such as `direct upstream resolve ... failed`, `resolve steamcommunity-a.akamaihd.net:443 failed`, `tcp 1.2.3.4:443 failed`, or `tls 1.2.3.4:443 failed`. That summary is the key check for locating whether failure happened in DoH, ForwardDestination resolution, direct TCP reachability, or TLS handshake.
 

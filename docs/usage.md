@@ -68,8 +68,13 @@ hosts:
   path: "C:\\Windows\\System32\\drivers\\etc\\hosts"
   extra_domains: []
 
-# cert.dir defaults to the user config directory and usually does not need
-# to be configured manually.
+cert:
+  # dir defaults to the user config directory and usually does not need
+  # to be configured manually.
+  # dir: "C:\\path\\to\\certs"
+  # Hosts mode checks root CA trust on start. When auto_install is true,
+  # start --mode hosts installs the local root CA if it is not trusted yet.
+  auto_install: true
 
 resolver:
   mode: "system" # system | udp | tcp | doh
@@ -236,7 +241,13 @@ hosts:
   https_listen_addr: "127.0.0.1:443"
 ```
 
-Install this project's root CA explicitly before first use:
+By default, `start --mode hosts` checks this project's root CA and installs it into the current-user Root store if it is not trusted yet. The normal Windows API path avoids the old `certutil` shell-out flow, but the core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
+
+```bash
+go run ./cmd/steam-accelerator start --mode hosts
+```
+
+For an explicit/manual workflow, or if `cert.auto_install: false` is set, install the root CA first:
 
 ```bash
 go run ./cmd/steam-accelerator cert install
@@ -245,7 +256,7 @@ go run ./cmd/steam-accelerator start --mode hosts
 
 `cert install` checks the current-user Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again.
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `upstream_profiles`, and `startup_probes`. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA. To uninstall it, run:
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall

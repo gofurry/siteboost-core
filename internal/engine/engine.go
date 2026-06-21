@@ -31,10 +31,20 @@ var (
 	isCertInstalled    = func(ctx context.Context, cfg certstore.Config) (bool, error) {
 		return certstore.New(cfg).IsInstalled(ctx)
 	}
+	ensureCertTrusted = func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+		return certstore.New(cfg).EnsureTrusted(ctx)
+	}
 	runStartupProbes = func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
 		return dialer.ProbeHTTPS(ctx, upstream.DefaultSteamProbeTargets(), upstream.ProbeOptions{})
 	}
 )
+
+type SystemChange struct {
+	Component string `json:"component"`
+	Action    string `json:"action"`
+	Status    string `json:"status"`
+	Detail    string `json:"detail,omitempty"`
+}
 
 type Status struct {
 	Running          bool                   `json:"running"`
@@ -56,6 +66,7 @@ type Status struct {
 	RuleSetUpdatedAt string                 `json:"rule_set_updated_at,omitempty"`
 	RuleCount        int                    `json:"rule_count"`
 	ActiveConns      int64                  `json:"active_conns"`
+	SystemChanges    []SystemChange         `json:"system_changes,omitempty"`
 }
 
 type Engine struct {
@@ -76,6 +87,7 @@ type Engine struct {
 	upstreamProfiles int
 	startupProbes    []upstream.ProbeResult
 	ruleSet          rules.RuleSetInfo
+	systemChanges    []SystemChange
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Engine, error) {
@@ -120,6 +132,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	var reverseServer *reverse.Server
 	var certOK bool
 	var startupProbes []upstream.ProbeResult
+	var systemChanges []SystemChange
 
 	if e.cfg.Mode == config.ModeHosts {
 		certManager := certstore.New(certstore.ConfigFromApp(e.cfg))
@@ -128,7 +141,17 @@ func (e *Engine) Start(ctx context.Context) error {
 			return fmt.Errorf("check root CA install: %w", err)
 		}
 		if !certOK {
-			return fmt.Errorf("local root CA is not installed; run `steam-accelerator cert install` first")
+			if !e.cfg.Cert.AutoInstall {
+				return fmt.Errorf("local root CA is not installed; run `steam-accelerator cert install` first or enable cert.auto_install")
+			}
+			trust, err := ensureCertTrusted(ctx, certstore.ConfigFromApp(e.cfg))
+			if err != nil {
+				return fmt.Errorf("install local root CA: %w", err)
+			}
+			certOK = true
+			systemChanges = append(systemChanges, certTrustChange(trust))
+		} else {
+			systemChanges = append(systemChanges, SystemChange{Component: "root_ca", Action: "check", Status: "already_trusted"})
 		}
 		entries, skipped, err := hosts.EntriesFromRules(matcher.Rules(), e.cfg.Hosts.MapIP)
 		if err != nil {
@@ -141,6 +164,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		if err := preflightHosts(ctx, hostsCfg); err != nil {
 			return fmt.Errorf("preflight hosts mode: %w", err)
 		}
+		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "preflight", Status: "ok"})
 		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(upstreamCfg.Profiles) > 0 {
 			startupProbes = runStartupProbes(ctx, directDialer)
 			logStartupProbes(e.logger, startupProbes)
@@ -149,10 +173,12 @@ func (e *Engine) Start(ctx context.Context) error {
 		if err := reverseServer.Start(); err != nil {
 			return fmt.Errorf("start hosts reverse proxy: %w", err)
 		}
+		systemChanges = append(systemChanges, SystemChange{Component: "reverse_proxy", Action: "listen", Status: "ok"})
 		if err := applyHosts(ctx, hostsCfg); err != nil {
 			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("apply hosts: %w", err)
 		}
+		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "apply", Status: "ok", Detail: fmt.Sprintf("entries=%d", len(entries))})
 	} else {
 		proxyServer = proxy.New(proxy.ConfigFromApp(e.cfg), matcher, dialer, e.logger)
 		if err := proxyServer.Start(); err != nil {
@@ -193,6 +219,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.upstreamProfiles = len(upstreamCfg.Profiles)
 	e.startupProbes = cloneStartupProbes(startupProbes)
 	e.ruleSet = ruleSetInfo(e.cfg, matcher)
+	e.systemChanges = cloneSystemChanges(systemChanges)
 	e.startedAt = time.Now()
 	e.lastErr = nil
 	e.ruleCount = matcher.RuleCount()
@@ -223,6 +250,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.upstreamProfiles = 0
 	e.startupProbes = nil
 	e.ruleSet = rules.RuleSetInfo{}
+	e.systemChanges = nil
 	e.running = false
 	e.mu.Unlock()
 
@@ -285,6 +313,7 @@ func (e *Engine) Status() Status {
 	}
 	status.ResolverServers = append([]string(nil), e.resolver.Servers...)
 	status.StartupProbes = cloneStartupProbes(e.startupProbes)
+	status.SystemChanges = cloneSystemChanges(e.systemChanges)
 	if e.proxy != nil {
 		status.ListenAddr = e.proxy.Addr()
 		status.ActiveConns = e.proxy.ActiveConns()
@@ -330,6 +359,25 @@ func cloneStartupProbes(probes []upstream.ProbeResult) []upstream.ProbeResult {
 		return nil
 	}
 	return append([]upstream.ProbeResult(nil), probes...)
+}
+
+func cloneSystemChanges(changes []SystemChange) []SystemChange {
+	if len(changes) == 0 {
+		return nil
+	}
+	return append([]SystemChange(nil), changes...)
+}
+
+func certTrustChange(trust certstore.TrustResult) SystemChange {
+	change := SystemChange{Component: "root_ca", Action: "install", Status: "ok"}
+	if trust.AlreadyTrusted {
+		change.Action = "check"
+		change.Status = "already_trusted"
+	}
+	if trust.Changed {
+		change.Detail = "installed"
+	}
+	return change
 }
 
 func ruleSetInfo(cfg config.Config, matcher *rules.Matcher) rules.RuleSetInfo {

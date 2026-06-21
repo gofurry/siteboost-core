@@ -45,3 +45,18 @@ func TestPrintRuleSet(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }
+
+func TestPrintSystemChanges(t *testing.T) {
+	var stdout bytes.Buffer
+	printSystemChanges(&stdout, []engine.SystemChange{{
+		Component: "root_ca",
+		Action:    "install",
+		Status:    "ok",
+		Detail:    "installed",
+	}})
+	got := strings.TrimSpace(stdout.String())
+	want := "system_change: component=root_ca action=install status=ok detail=installed"
+	if got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}

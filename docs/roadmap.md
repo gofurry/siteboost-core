@@ -2,17 +2,19 @@
 
 ## Current Position
 
-The v0.6.0 line has the first Hosts + DoH default loop, outbound failure diagnostics, the first default Steam outbound profile, startup probes, and a Windows China-network smoke record in place. It includes ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, local root CA generation, dynamic site certificates, rollback state, a token-protected loopback control server, and `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI commands.
+The v0.6.1 line has the first Hosts + DoH default loop, outbound failure diagnostics, the first default Steam outbound profile, startup probes, a Windows China-network smoke record, and Windows one-click certificate/hosts orchestration in place. It includes ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, YAML configuration, Steam domain matching, local HTTP proxying, HTTPS CONNECT tunneling, configurable resolver modes, DNS cache, IPv4/IPv6 policy, direct/HTTP/SOCKS5 upstream dialing, local root CA generation, dynamic site certificates, rollback state, a token-protected loopback control server, and `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI commands.
 
 In Hosts + Direct mode, runtime outbound resolution now uses built-in DoH defaults instead of the system resolver, preventing the local hosts marker block from resolving Steam domains back to `127.0.0.1`. Hosts mode also performs preflight checks for the root CA, hosts readability/writability, rollback directory writability, reverse-proxy listen errors, and hosts write rollback. Reverse Proxy / Proxy 502 responses now include a trimmed outbound error summary, and Direct outbound errors distinguish DoH resolve, TCP connect, and TLS handshake stages. The default Steam outbound profile now lets community domains prefer `steamcommunity-a.akamaihd.net`, store / checkout / help / login / media domains prefer `cdn-a.akamaihd.net`, and common static/CDN hosts such as `community.steamstatic.com` and `steamcdn-a.akamaihd.net` are covered, while preserving the original HTTP Host and using profile-specific TLS SNI before falling back to the original domain. Hosts + Direct startup also runs non-fatal probes and exposes rule metadata plus `startup_probes` in `start` / `status`.
 
-This is not yet a full Steam++-style one-click experience. The project now has a compatibility checklist and a Windows store/community/login/chat/static/WebSocket pass record, but broader rule coverage, a smoother Windows privileged certificate/hosts flow, macOS/Linux Hosts support, DNSIntercept/VPN/TUN modes, and a stable public Go API remain future work.
+Starting in v0.6.1, `cert.auto_install` defaults to true. `start --mode hosts` checks root CA trust, installs it through the Windows certificate-store API when needed, skips installation when already trusted, and reports root CA / hosts / listener actions through `system_change` output.
+
+This is not yet a full Steam++-style one-click experience. The project now has a compatibility checklist, a Windows store/community/login/chat/static/WebSocket pass record, and core certificate/hosts orchestration. Broader rule coverage, a desktop/elevated wrapper for smoother Windows privilege handling, macOS/Linux Hosts support, DNSIntercept/VPN/TUN modes, and a stable public Go API remain future work.
 
 The runtime remains internal. A stable public Go integration API is deferred until the project approaches v1. After the Steam flow is validated, the project is expected to evolve into a more general local acceleration core. A future repository/module rename is possible; Steam should become a built-in rule/profile provider rather than the only core target.
 
 ## Roadmap Strategy
 
-Priority: keep the safe proxy foundation stable while making the default Hosts + DoH loop usable without a user-configured upstream proxy. Next, validate real Steam behavior, package Windows privilege/certificate writes into a low-friction one-click flow, then refactor toward a provider-based general acceleration core. HTTP and SOCKS5 upstreams remain optional enhancements, not the default acceleration prerequisite.
+Priority: keep the safe proxy foundation stable while making the default Hosts + DoH loop usable without a user-configured upstream proxy. Next, validate real Steam behavior, package root CA and hosts changes into a low-friction one-click core flow, leave process elevation to a desktop/elevated wrapper boundary, then refactor toward a provider-based general acceleration core. HTTP and SOCKS5 upstreams remain optional enhancements, not the default acceleration prerequisite.
 
 ## Version Plan
 
@@ -183,25 +185,25 @@ Priority: keep the safe proxy foundation stable while making the default Hosts +
 
 ### v0.6.1 - Windows Privilege and Certificate One-click Flow
 
-**Status:** Planned
+**Status:** Completed
 **Scope:** User-facing / Security-Safety / Windows / Architecture
-**Goal:** Package Windows elevation, root CA writes, hosts writes, startup checks, and rollback into a low-friction one-click flow.
+**Goal:** Package Windows root CA writes, hosts writes, startup checks, and rollback into a low-friction core flow, while documenting the boundary for a future elevated helper.
 
 #### Tasks
 
-- [ ] Design a Windows privileged helper / IPC boundary where the main process owns user interaction and the elevated process only performs limited system changes.
-- [ ] Evaluate and implement a Windows certificate-store API backend for thumbprint lookup, install, and removal of this project's root CA.
-- [ ] Extend `start --mode hosts` so it can check certificate trust, ask for explicit authorization when needed, and skip install work when the root CA is already trusted.
-- [ ] Coordinate root CA writes, hosts writes, listener startup, and rollback state in one startup workflow.
-- [ ] Add `status` / diagnostics for certificate trust, helper availability, hosts write state, and last system-change result.
-- [ ] Document that the goal is not bypassing Windows security prompts; the goal is one clear authorization and no repeated black-box prompts.
+- [x] Design a Windows privileged helper / IPC boundary where the main process owns user interaction and the elevated process only performs limited system changes. See [Windows one-click system flow](windows-one-click-flow.md).
+- [x] Evaluate and implement a Windows certificate-store API backend for thumbprint lookup, install, and removal of this project's root CA.
+- [x] Extend `start --mode hosts` so it can check certificate trust, install during the explicit start flow when needed, and skip install work when the root CA is already trusted.
+- [x] Coordinate root CA writes, hosts writes, listener startup, and rollback state in one startup workflow.
+- [x] Add `status` / diagnostics for certificate trust, hosts write state, and last system-change result.
+- [x] Document that the core must not accept arbitrary system changes; future desktop/elevated helpers should expose only a narrow command surface.
 
 #### Acceptance Criteria
 
-- A fresh Windows Hosts-mode start can guide the user through one explicit authorization to trust the CA, write hosts, and start the reverse proxy.
+- A fresh Windows Hosts-mode start can trust the CA, write hosts, and start the reverse proxy in one `start` run when the process already has permission to write hosts.
 - Repeated starts skip certificate installation when the project root CA is already installed.
 - Failed system changes are recoverable with clear diagnostics and `restore`.
-- The helper exposes only the minimum system-modification surface.
+- The future helper contract exposes only the minimum system-modification surface.
 
 ---
 

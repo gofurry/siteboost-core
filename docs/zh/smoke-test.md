@@ -81,7 +81,7 @@ go run ./cmd/steam-accelerator restore
 
 这些检查会修改当前用户 Root 证书库和 Windows hosts 文件。请使用管理员 PowerShell 运行 hosts 模式，并在测试完成后执行 `stop` 与 `cert uninstall`。
 
-首次安装本项目 Root CA：
+可选预安装本项目 Root CA。v0.6.1 起，`cert.auto_install` 为 true 时，`start --mode hosts` 可以在启动流程内自动安装：
 
 ```bash
 go run ./cmd/steam-accelerator cert install
@@ -104,7 +104,7 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 
 默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.22`、`upstream_profiles: 4` 和 `startup_probes:`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认出站 profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，同时保留原始 HTTP Host。
 
-`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
+`system_change:` 行应显示 Root CA 检查/安装、hosts preflight、反代监听和 hosts 写入结果。`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
 
 如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`resolve steamcommunity-a.akamaihd.net:443 failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要用来判断失败发生在 DoH、ForwardDestination 解析、TCP 直连还是 TLS 握手阶段。
 

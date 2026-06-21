@@ -39,6 +39,15 @@ type Config struct {
 	Dir string
 }
 
+type TrustResult struct {
+	Platform       string
+	CertPath       string
+	Thumbprint     string
+	AlreadyTrusted bool
+	Installed      bool
+	Changed        bool
+}
+
 type Platform interface {
 	Name() string
 	IsInstalled(ctx context.Context, cert *x509.Certificate, certPath string) (bool, error)
@@ -105,21 +114,37 @@ func (m *Manager) IsInstalled(ctx context.Context) (bool, error) {
 }
 
 func (m *Manager) Install(ctx context.Context) error {
+	_, err := m.EnsureTrusted(ctx)
+	return err
+}
+
+func (m *Manager) EnsureTrusted(ctx context.Context) (TrustResult, error) {
+	result := TrustResult{
+		Platform: m.platform.Name(),
+		CertPath: m.RootCertPath(),
+	}
 	if m.platform.Name() != "windows" {
-		return fmt.Errorf("%w: %s", ErrUnsupported, m.platform.Name())
+		return result, fmt.Errorf("%w: %s", ErrUnsupported, m.platform.Name())
 	}
 	cert, err := m.EnsureRootCA()
 	if err != nil {
-		return err
+		return result, err
 	}
+	result.Thumbprint = Thumbprint(cert)
 	installed, err := m.platform.IsInstalled(ctx, cert, m.RootCertPath())
 	if err != nil {
-		return err
+		return result, err
 	}
 	if installed {
-		return nil
+		result.AlreadyTrusted = true
+		return result, nil
 	}
-	return m.platform.Install(ctx, cert, m.RootCertPath())
+	if err := m.platform.Install(ctx, cert, m.RootCertPath()); err != nil {
+		return result, err
+	}
+	result.Installed = true
+	result.Changed = true
+	return result, nil
 }
 
 func (m *Manager) Uninstall(ctx context.Context) error {

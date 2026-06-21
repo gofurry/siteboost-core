@@ -223,6 +223,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 		func(ctx context.Context, cfg certstore.Config) (bool, error) {
 			return true, nil
 		},
+		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+			return certstore.TrustResult{AlreadyTrusted: true}, nil
+		},
 		func(path string) bool { return true },
 	)
 	defer restoreFns()
@@ -265,6 +268,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	if status.UpstreamProfiles == 0 {
 		t.Fatalf("default upstream profiles were not reported")
 	}
+	if len(status.SystemChanges) == 0 {
+		t.Fatalf("system changes were not reported")
+	}
 	if len(status.StartupProbes) != 1 || !status.StartupProbes[0].OK {
 		t.Fatalf("startup probes were not reported: %#v", status.StartupProbes)
 	}
@@ -282,6 +288,84 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	}
 }
 
+func TestEngineHostsModeAutoInstallsCert(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.Runtime.RollbackPath = t.TempDir() + "/rollback.json"
+
+	installed := false
+	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error { return nil },
+		func(ctx context.Context, cfg hosts.Config) error { return nil },
+		func(ctx context.Context, path string) error { return nil },
+		func(ctx context.Context, cfg certstore.Config) (bool, error) {
+			return installed, nil
+		},
+		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+			installed = true
+			return certstore.TrustResult{Installed: true, Changed: true}, nil
+		},
+		func(path string) bool { return true },
+	)
+	defer restoreFns()
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+		return nil
+	})
+	defer restoreProbe()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if !status.CertInstalled {
+		t.Fatalf("cert should be installed after auto install")
+	}
+	if !hasSystemChange(status.SystemChanges, "root_ca", "install", "ok") {
+		t.Fatalf("root CA install change missing: %#v", status.SystemChanges)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
+func TestEngineHostsModeAutoInstallCanBeDisabled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Cert.AutoInstall = false
+
+	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error { return nil },
+		func(ctx context.Context, cfg hosts.Config) error { return nil },
+		func(ctx context.Context, path string) error { return nil },
+		func(ctx context.Context, cfg certstore.Config) (bool, error) { return false, nil },
+		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+			t.Fatalf("ensureCertTrusted should not be called when auto install is disabled")
+			return certstore.TrustResult{}, nil
+		},
+		func(path string) bool { return false },
+	)
+	defer restoreFns()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "cert.auto_install") {
+		t.Fatalf("Start error = %v, want cert.auto_install guidance", err)
+	}
+}
+
 func replaceSystemProxyHooks(apply func(context.Context, systemproxy.Config) error, restore func(context.Context, string) error, has func(string) bool) func() {
 	oldApply := applySystemProxy
 	oldRestore := restoreSystemProxy
@@ -296,24 +380,36 @@ func replaceSystemProxyHooks(apply func(context.Context, systemproxy.Config) err
 	}
 }
 
-func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, apply func(context.Context, hosts.Config) error, restore func(context.Context, string) error, certCheck func(context.Context, certstore.Config) (bool, error), has func(string) bool) func() {
+func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, apply func(context.Context, hosts.Config) error, restore func(context.Context, string) error, certCheck func(context.Context, certstore.Config) (bool, error), certTrust func(context.Context, certstore.Config) (certstore.TrustResult, error), has func(string) bool) func() {
 	oldPreflight := preflightHosts
 	oldApply := applyHosts
 	oldRestore := restoreHosts
 	oldCertCheck := isCertInstalled
+	oldCertTrust := ensureCertTrusted
 	oldHas := hasRollbackState
 	preflightHosts = preflight
 	applyHosts = apply
 	restoreHosts = restore
 	isCertInstalled = certCheck
+	ensureCertTrusted = certTrust
 	hasRollbackState = has
 	return func() {
 		preflightHosts = oldPreflight
 		applyHosts = oldApply
 		restoreHosts = oldRestore
 		isCertInstalled = oldCertCheck
+		ensureCertTrusted = oldCertTrust
 		hasRollbackState = oldHas
 	}
+}
+
+func hasSystemChange(changes []SystemChange, component, action, status string) bool {
+	for _, change := range changes {
+		if change.Component == component && change.Action == action && change.Status == status {
+			return true
+		}
+	}
+	return false
 }
 
 func replaceStartupProbeHook(probe func(context.Context, *upstream.DirectDialer) []upstream.ProbeResult) func() {

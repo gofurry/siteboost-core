@@ -29,6 +29,7 @@ Current capabilities:
 - Windows hosts marker block setup and restore.
 - Local root CA generation plus Windows current-user install/uninstall.
 - Local HTTP/HTTPS reverse proxy with dynamic site certificates for Hosts mode.
+- Windows Hosts one-click flow with root CA auto-install, hosts preflight, rollback, and system-change status output.
 - Hosts + Direct default DoH outbound resolution, hosts preflight, and resolver status output.
 - Hosts + Direct default Steam outbound profile with ForwardDestination, TLS SNI, candidate IP, and original-domain fallback support.
 - Hosts + Direct startup probes for DoH resolution, TCP 443, TLS handshake, and lightweight HTTPS smoke status.
@@ -88,10 +89,9 @@ go run ./cmd/steam-accelerator start --mode pac
 go run ./cmd/steam-accelerator start --mode system
 ```
 
-Windows Hosts mode requires an explicit local root CA install first:
+Windows Hosts mode checks and installs the local root CA inside the start flow by default. Hosts writes still require the process or wrapper to have permission:
 
 ```bash
-go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 

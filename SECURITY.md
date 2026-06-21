@@ -11,7 +11,7 @@ steam-accelerator-core is intended to run as a local tool. The safe defaults are
 - listen on `127.0.0.1` only;
 - proxy Steam rule domains only;
 - do not decrypt HTTPS in ProxyOnly mode;
-- do not install a local root CA by default;
+- install a local root CA only as part of an explicit Hosts-mode or `cert install` action;
 - do not modify hosts by default;
 - do not expose a public proxy endpoint;
 - do not log Cookie, Authorization, proxy passwords, tokens, or full sensitive URLs.
@@ -26,8 +26,9 @@ PAC, System Proxy, Hosts, certificate installation, and HTTPS reverse proxy mode
 - document manual recovery steps;
 - keep all changes scoped to project-owned settings or marker blocks.
 - check for an existing project root CA before running the certificate install action again.
+- when `cert.auto_install` is enabled, keep root CA trust scoped to the explicit `start --mode hosts` flow and the current-user Root store; the core must not bypass UAC, enterprise policy, or accept arbitrary system-change commands.
 
-In v0.4.0, Hosts and certificate-store setup are Windows-first. `restore` removes project-owned hosts or proxy rollback state, while root CA removal remains an explicit `cert uninstall` action.
+In v0.6.1, Hosts and certificate-store setup are still Windows-first. `restore` removes project-owned hosts or proxy rollback state, while root CA removal remains an explicit `cert uninstall` action.
 
 ## Reporting
 

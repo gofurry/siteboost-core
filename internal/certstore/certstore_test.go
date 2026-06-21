@@ -92,8 +92,12 @@ func TestDynamicCertificateHasSANAndCaches(t *testing.T) {
 func TestInstallAndUninstallUsePlatform(t *testing.T) {
 	platform := &fakePlatform{}
 	manager := NewWithPlatform(Config{Dir: t.TempDir()}, platform)
-	if err := manager.Install(context.Background()); err != nil {
+	result, err := manager.EnsureTrusted(context.Background())
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !result.Installed || !result.Changed || result.AlreadyTrusted || result.Thumbprint == "" {
+		t.Fatalf("trust result = %#v", result)
 	}
 	if !platform.installed || platform.installPath == "" {
 		t.Fatalf("install did not use platform: %#v", platform)
@@ -112,8 +116,12 @@ func TestInstallAndUninstallUsePlatform(t *testing.T) {
 func TestInstallSkipsWhenAlreadyInstalled(t *testing.T) {
 	platform := &fakePlatform{installed: true}
 	manager := NewWithPlatform(Config{Dir: t.TempDir()}, platform)
-	if err := manager.Install(context.Background()); err != nil {
+	result, err := manager.EnsureTrusted(context.Background())
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !result.AlreadyTrusted || result.Installed || result.Changed {
+		t.Fatalf("trust result = %#v", result)
 	}
 	if platform.installCalls != 0 {
 		t.Fatalf("install calls = %d, want 0", platform.installCalls)

@@ -170,6 +170,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "upstream_profiles: %d\n", status.UpstreamProfiles)
 	}
 	printRuleSet(stdout, status)
+	printSystemChanges(stdout, status.SystemChanges)
 	printStartupProbes(stdout, status.StartupProbes)
 	fmt.Fprintf(stdout, "state: %s\n", cfg.Runtime.StatePath)
 	<-ctx.Done()
@@ -226,6 +227,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "upstream_profiles: %d\n", status.UpstreamProfiles)
 	}
 	printRuleSet(stdout, status)
+	printSystemChanges(stdout, status.SystemChanges)
 	printStartupProbes(stdout, status.StartupProbes)
 	fmt.Fprintf(stdout, "rollback: %v\n", status.Rollback)
 	if status.Mode == config.ModeHosts {
@@ -532,6 +534,19 @@ func printRuleSet(w io.Writer, status engine.Status) {
 		return
 	}
 	fmt.Fprintf(w, "rule_set: %s\n", status.RuleSetName)
+}
+
+func printSystemChanges(w io.Writer, changes []engine.SystemChange) {
+	for _, change := range changes {
+		if change.Component == "" {
+			continue
+		}
+		fmt.Fprintf(w, "system_change: component=%s action=%s status=%s", change.Component, change.Action, change.Status)
+		if change.Detail != "" {
+			fmt.Fprintf(w, " detail=%s", change.Detail)
+		}
+		fmt.Fprintln(w)
+	}
 }
 
 func truncateProbeError(err string) string {

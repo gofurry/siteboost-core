@@ -109,7 +109,8 @@ type HostsConfig struct {
 }
 
 type CertConfig struct {
-	Dir string `yaml:"dir"`
+	Dir         string `yaml:"dir"`
+	AutoInstall bool   `yaml:"auto_install"`
 }
 
 type ResolverConfig struct {
@@ -172,7 +173,8 @@ func Default() Config {
 			Path:            DefaultHostsPath(),
 		},
 		Cert: CertConfig{
-			Dir: DefaultCertDir(),
+			Dir:         DefaultCertDir(),
+			AutoInstall: true,
 		},
 		Rules: RulesConfig{
 			EnableDefaultSteamRules: true,

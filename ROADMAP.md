@@ -2,7 +2,7 @@
 
 > 状态日期：2026-06-22
 > 主维护语言：中文
-> 当前阶段：`v0.6.0` 已完成真实 Steam 验收闭环，下一阶段进入 `v0.6.1-dev` Windows 一键提权与证书写入封装
+> 当前阶段：`v0.6.1` 已完成 Windows 一键证书/Hosts 编排，下一阶段进入 `v0.7.0` 通用加速核心重构
 > Go module：`github.com/gofurry/go-steam-core`
 
 ## 当前定位
@@ -11,7 +11,7 @@
 
 项目短期目标是先把 Steam 场景的一键闭环验证扎实；中长期目标是沉淀可被 SteamScope、steam-go、Go/Wails 桌面工具或本地 sidecar 复用的底层能力，并在功能验证后重构为更通用的本地网络加速核心。后续仓库和 Go module 可能会从 Steam 专用命名迁移到领域无关命名，让 Steam 变成内置规则 / profile 包之一，而不是核心唯一目标。
 
-当前 `v0.6.0` 已经具备核心零件，并完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测和 Windows 中国网络真实 smoke 记录：
+当前 `v0.6.1` 已经具备核心零件，并完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测、Windows 中国网络真实 smoke 记录和 Windows 一键证书 / Hosts 编排：
 
 - 本地 HTTP Proxy / HTTPS CONNECT。
 - PAC 模式与 System Proxy 模式。
@@ -27,12 +27,14 @@
 - Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段。
 - Hosts + Direct 模式默认启用 Steam 出站 profile，核心 store / checkout / help / login / media 域名优先走 `cdn-a.akamaihd.net`，community 域名优先走 `steamcommunity-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
 - Hosts + Direct 模式会执行非致命启动探测，并在 `start` / `status` 输出 `startup_probes` 和失败阶段，覆盖 DoH 解析、TCP 443、TLS 握手和轻量 HTTPS `HEAD /`。
+- `start --mode hosts` 默认会在一键流程内检查并安装本项目 Root CA；已安装时静默跳过，未安装时走 Windows 当前用户证书库 API。
+- `status` / `start` 会输出 `system_change`，展示 Root CA、hosts preflight、反代监听和 hosts 写入结果。
 
 但当前还不能称为完整 Steam++ 式“一键可用”体验。主要差距是：
 
 - 真实 Steam 域名、Steam 客户端内置浏览器、网页登录、社区、商店、聊天、静态资源和 WebSocket 场景已经完成至少一轮 Windows 中国网络手动通过记录。
 - hosts 文件仍只能覆盖 exact 域名，wildcard 规则需要后续 DNSIntercept 等高级模式。
-- 证书安装 / 卸载当前仍是显式 CLI 动作，Windows 后端仍以 `certutil` 为主，尚未像 Steam++ 一样把提权、Root CA 写入、hosts 写入和恢复完整封装成少打扰的一键流程。
+- Root CA 检查 / 安装已进入 `start --mode hosts` 流程，但 hosts 写入仍要求进程或外层 wrapper 具备对应权限；独立 privileged helper 目前完成的是边界设计，完整桌面一键提权体验还未落地。
 - macOS / Linux Hosts 与证书安装仍未支持。
 - 当前运行时实现仍主要位于 `internal/`，公共 Go API 尚未稳定。
 
@@ -75,7 +77,7 @@ stop / restore 可恢复系统修改
 
 1. 已先修正 Hosts 模式默认闭环和 DNS 自绕回风险。
 2. 接下来用真实 Steam 场景验证规则、证书、反代和恢复路径。
-3. 再补齐 Windows 一键提权 / 证书写入封装，目标是少打扰的一键体验，而不是绕过系统安全确认。
+3. 已补齐 Windows Root CA 写入编排和 helper 边界设计；后续桌面壳 / wrapper 负责把进程提权也纳入少打扰的一键体验。
 4. 功能验证后进行通用加速核心重构，让规则、profile、接管模式、证书和权限能力从 Steam 业务命名中解耦。
 5. 之后稳定跨平台能力和 Go 集成 API。
 6. `v1.0.0` 以可维护、可扩展的一键本地加速闭环作为稳定主线。
@@ -226,33 +228,33 @@ stop / restore 可恢复系统修改
 
 ### v0.6.1 - Windows 一键提权与证书写入封装
 
-**状态：** 计划中
+**状态：** 已完成
 **范围：** User-facing / Security-Safety / Windows / Architecture
-**目标：** 将 Windows 提权、Root CA 写入、hosts 写入、启动检查和失败恢复封装进少打扰的一键流程。
+**目标：** 将 Windows Root CA 写入、hosts 写入、启动检查和失败恢复封装进核心一键流程，并明确后续提权 helper 的安全边界。
 
 #### 重点
 
-- 提权 helper / IPC / 子进程模型。
-- Windows 证书库 API 后端，逐步替代裸 `certutil` 调用。
+- 提权 helper / IPC / 子进程模型边界。
+- Windows 当前用户证书库 API 后端，替代裸 `certutil` 调用。
 - Root CA 幂等安装、状态检查和卸载体验。
-- 一键启动中的用户授权、失败回滚和安全提示。
+- 一键启动中的证书信任、失败回滚和安全提示。
 
 #### 任务
 
-- [ ] 设计 Windows privileged helper / IPC 边界：主进程负责用户交互和状态，提权进程只执行受限系统修改。
-- [ ] 评估并实现 Windows 证书库 API 后端，支持按 thumbprint 查询、安装和删除本项目 Root CA。
-- [ ] 将 `start --mode hosts` 的一键流程扩展为可选自动确认证书状态：未安装时提示用户授权，已安装时静默跳过。
-- [ ] 将 hosts 写入、Root CA 写入、端口监听和 rollback 状态纳入同一个启动编排，任一步失败都给出可执行恢复建议。
-- [ ] 增加 `status` / 诊断输出，显示证书信任状态、提权 helper 可用性、hosts 写入状态和最近一次系统修改结果。
-- [ ] 增加 Windows 单元测试和可手动验证脚本，覆盖已安装跳过、安装失败、卸载失败和恢复路径。
-- [ ] 文档明确安全边界：不绕过 Windows 安全机制，必要时只触发一次明确授权，避免重复弹框和黑盒修改。
+- [x] 设计 Windows privileged helper / IPC 边界：主进程负责用户交互和状态，提权进程只执行受限系统修改，详见 `docs/zh/windows-one-click-flow.md`。
+- [x] 评估并实现 Windows 证书库 API 后端，支持按 thumbprint 查询、安装和删除本项目 Root CA。
+- [x] 将 `start --mode hosts` 的一键流程扩展为可选自动确认证书状态：未安装时在显式启动流程内安装，已安装时静默跳过。
+- [x] 将 hosts 写入、Root CA 写入、端口监听和 rollback 状态纳入同一个启动编排，任一步失败都给出可执行恢复建议。
+- [x] 增加 `status` / 诊断输出，显示证书信任状态、hosts 写入状态和最近一次系统修改结果。
+- [x] 增加 Windows 单元测试和可手动验证脚本，覆盖已安装跳过、安装失败、卸载失败和恢复路径。
+- [x] 文档明确安全边界：核心不接受任意系统修改，后续桌面壳 / helper 只暴露最小命令面，避免重复弹框和黑盒修改。
 
 #### 验收标准
 
-- 用户从未安装证书的 Windows 环境启动 Hosts 模式时，可以按一次明确授权完成证书信任、hosts 写入和反代启动。
+- 用户从未安装证书的 Windows 环境启动 Hosts 模式时，在进程已具备 hosts 写入权限的前提下，可以一次 `start` 完成证书信任、hosts 写入和反代启动。
 - 已安装本项目 Root CA 时，重复启动不会再次触发证书安装动作。
 - 系统修改失败时不会留下不可解释的半成品状态，`restore` 仍可执行。
-- 证书私钥不进入日志，helper 只暴露最小必要命令。
+- 证书私钥不进入日志，后续 helper 契约只暴露最小必要命令。
 
 ---
 
@@ -417,7 +419,7 @@ stop / restore 可恢复系统修改
 
 短期：
 
-- 聚焦 `v0.6.0` 和 `v0.6.1`，用真实 Steam 场景验证 Hosts + DoH 默认闭环，补齐规则、诊断、冒烟记录和 Windows 一键提权 / 证书写入体验。
+- 聚焦 `v0.6.0` 和 `v0.6.1`，用真实 Steam 场景验证 Hosts + DoH 默认闭环，补齐规则、诊断、冒烟记录和 Windows 一键证书 / Hosts 编排体验。
 
 中期：
 
@@ -433,7 +435,7 @@ stop / restore 可恢复系统修改
 |---|---|---|
 | Hosts 模式 system resolver 自绕回 | 反代连接回本机导致访问失败 | v0.5 强制 Hosts 出站解析避开 system resolver |
 | Root CA 用户不信任 | 安全信任问题 | 默认明确提示、显式安装、显式卸载、文档说明 |
-| 提权 / 证书写入体验割裂 | 无法达到 Steam++ 式一键体验 | v0.6.1 引入提权 helper / 证书库 API / 一键编排，避免重复弹框 |
+| 提权 / 证书写入体验割裂 | 无法达到 Steam++ 式一键体验 | v0.6.1 引入 helper 边界设计 / 证书库 API / 一键编排，后续由桌面壳或 wrapper 承接自动提权 |
 | hosts 写入失败 | 用户网络异常 | 标记区块、rollback、restore、管理员权限检查 |
 | 80 / 443 端口占用 | 一键启动失败 | 启动前检查并提示占用进程或替代测试端口 |
 | Steam 域名变化 | 覆盖不足 | 规则分组、手动 smoke、规则版本化评估 |

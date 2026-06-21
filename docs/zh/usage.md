@@ -68,7 +68,12 @@ hosts:
   path: "C:\\Windows\\System32\\drivers\\etc\\hosts"
   extra_domains: []
 
-# cert.dir 默认位于用户 config 目录，通常不需要手动配置。
+cert:
+  # dir 默认位于用户 config 目录，通常不需要手动配置。
+  # dir: "C:\\path\\to\\certs"
+  # Hosts 模式启动时会检查 Root CA 信任状态。auto_install 为 true 时，
+  # start --mode hosts 会在本地 Root CA 未受信时自动执行安装流程。
+  auto_install: true
 
 resolver:
   mode: "system" # system | udp | tcp | doh
@@ -235,7 +240,13 @@ hosts:
   https_listen_addr: "127.0.0.1:443"
 ```
 
-首次使用前必须显式安装本项目 Root CA：
+默认情况下，`start --mode hosts` 会检查本项目 Root CA；如果尚未受信，会通过 Windows 当前用户 Root store 在启动流程内执行安装。正常 Windows API 路径会避开过去裸调用 `certutil` 的外部命令流程，但核心不会绕过 UAC、企业策略，也不会接受任意系统修改命令。如果 Root CA 已安装，启动会静默跳过安装步骤。
+
+```bash
+go run ./cmd/steam-accelerator start --mode hosts
+```
+
+如果你希望保留显式流程，或配置了 `cert.auto_install: false`，则先手动安装 Root CA：
 
 ```bash
 go run ./cmd/steam-accelerator cert install
@@ -244,7 +255,7 @@ go run ./cmd/steam-accelerator start --mode hosts
 
 `cert install` 会先按证书 thumbprint 检查当前用户 Root store；如果本项目 Root CA 已安装，会直接返回，不会重复执行安装动作。
 
-Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `resolver`、`resolver_servers`、`upstream_profiles` 和 `startup_probes`。`stop` 或 `restore` 会删除项目标记区块，但不会卸载用户显式安装的 Root CA。卸载证书请执行：
+Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `resolver`、`resolver_servers`、`rule_set`、`upstream_profiles`、`system_change` 和 `startup_probes`。`stop` 或 `restore` 会删除项目标记区块，但不会卸载受信的 Root CA。卸载证书请执行：
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall

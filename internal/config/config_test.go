@@ -39,6 +39,9 @@ func TestDefaultConfigValid(t *testing.T) {
 	if cfg.Cert.Dir == "" {
 		t.Fatalf("cert dir is empty")
 	}
+	if !cfg.Cert.AutoInstall {
+		t.Fatalf("cert auto install should be enabled by default")
+	}
 }
 
 func TestValidateFillsDefaultDoHServers(t *testing.T) {
@@ -75,6 +78,7 @@ hosts:
     - "login.steampowered.com"
 cert:
   dir: "certs"
+  auto_install: false
 rules:
   custom_domains:
     - "example.steam.test"
@@ -150,6 +154,9 @@ system_proxy:
 	}
 	if cfg.Cert.Dir != "certs" {
 		t.Fatalf("cert dir = %q", cfg.Cert.Dir)
+	}
+	if cfg.Cert.AutoInstall {
+		t.Fatalf("cert auto install should be disabled")
 	}
 	if cfg.Runtime.RollbackPath != "rollback.json" {
 		t.Fatalf("rollback path = %q", cfg.Runtime.RollbackPath)
