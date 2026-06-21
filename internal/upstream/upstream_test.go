@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gofurry/go-steam-core/internal/config"
 )
 
 type fakeResolver struct {
@@ -22,6 +24,17 @@ type fakeResolver struct {
 
 func (r fakeResolver) Resolve(ctx context.Context, host string) ([]net.IP, error) {
 	return r.ips, r.err
+}
+
+type mapResolver struct {
+	ips map[string][]net.IP
+}
+
+func (r mapResolver) Resolve(ctx context.Context, host string) ([]net.IP, error) {
+	if ips, ok := r.ips[host]; ok {
+		return ips, nil
+	}
+	return nil, fmt.Errorf("unexpected resolve host %s", host)
 }
 
 func TestDirectDialerUsesResolver(t *testing.T) {
@@ -92,6 +105,62 @@ func TestDirectDialerDialTLSContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = conn.Close()
+}
+
+func TestDirectDialerProfileUsesForwardHostAndTLSServerName(t *testing.T) {
+	var gotSNI string
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			gotSNI = hello.ServerName
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	dialer, err := NewDirectDialerWithProfiles(mapResolver{ips: map[string][]net.IP{
+		"steamcommunity-a.akamaihd.net": {net.ParseIP("127.0.0.1")},
+		"steamcommunity.com":            {net.ParseIP("127.0.0.2")},
+	}}, time.Second, []Profile{{
+		MatchDomains:  []string{"steamcommunity.com"},
+		ForwardHost:   "steamcommunity-a.akamaihd.net",
+		TLSServerName: "steamcommunity-a.akamaihd.net",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := dialer.DialTLSContext(
+		context.Background(),
+		"tcp",
+		net.JoinHostPort("steamcommunity.com", portOf(server.Listener.Addr().String())),
+		&tls.Config{InsecureSkipVerify: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	if gotSNI != "steamcommunity-a.akamaihd.net" {
+		t.Fatalf("SNI = %q", gotSNI)
+	}
+}
+
+func TestConfigFromAppAddsDefaultSteamProfilesForHosts(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	got := ConfigFromApp(cfg)
+	if len(got.Profiles) == 0 {
+		t.Fatalf("default steam profiles were not enabled")
+	}
+}
+
+func TestConfigFromAppSkipsDefaultSteamProfilesOutsideHosts(t *testing.T) {
+	cfg := config.Default()
+	got := ConfigFromApp(cfg)
+	if len(got.Profiles) != 0 {
+		t.Fatalf("profiles = %#v", got.Profiles)
+	}
 }
 
 func TestHTTPDialerConnectsWithBasicAuth(t *testing.T) {

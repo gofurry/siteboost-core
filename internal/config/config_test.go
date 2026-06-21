@@ -89,6 +89,12 @@ upstream:
   address: "127.0.0.1:18080"
   username: "user"
   password: "secret"
+  enable_default_steam_profiles: false
+  profiles:
+    - match_domains:
+        - "steamcommunity.com"
+      forward_host: "steamcommunity-a.akamaihd.net"
+      tls_server_name: "steamcommunity-a.akamaihd.net"
 runtime:
   rollback_path: "rollback.json"
 system_proxy:
@@ -123,6 +129,15 @@ system_proxy:
 	}
 	if cfg.Upstream.Type != UpstreamHTTP || cfg.Upstream.Address != "127.0.0.1:18080" {
 		t.Fatalf("upstream = %#v", cfg.Upstream)
+	}
+	if cfg.Upstream.EnableDefaultSteamProfiles {
+		t.Fatalf("default steam profiles should be disabled")
+	}
+	if len(cfg.Upstream.Profiles) != 1 {
+		t.Fatalf("upstream profiles = %#v", cfg.Upstream.Profiles)
+	}
+	if cfg.Upstream.Profiles[0].ForwardHost != "steamcommunity-a.akamaihd.net" {
+		t.Fatalf("forward host = %q", cfg.Upstream.Profiles[0].ForwardHost)
 	}
 	if cfg.PAC.ListenAddr != "127.0.0.1:28082" {
 		t.Fatalf("pac listen addr = %q", cfg.PAC.ListenAddr)
@@ -221,6 +236,24 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "upstream address",
 			mutate: func(cfg *Config) {
 				cfg.Upstream.Type = UpstreamSOCKS5
+			},
+		},
+		{
+			name: "upstream profile domain",
+			mutate: func(cfg *Config) {
+				cfg.Upstream.Profiles = []OutboundProfileConfig{{
+					MatchDomains: []string{"foo.*.example"},
+					ForwardHost:  "cdn-a.akamaihd.net",
+				}}
+			},
+		},
+		{
+			name: "upstream profile ip",
+			mutate: func(cfg *Config) {
+				cfg.Upstream.Profiles = []OutboundProfileConfig{{
+					MatchDomains: []string{"steamcommunity.com"},
+					CandidateIPs: []string{"not-an-ip"},
+				}}
 			},
 		},
 		{

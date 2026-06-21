@@ -20,6 +20,7 @@
 - DNS / DoH 应属于加速核心的一部分，而不是外围诊断功能。
 - 上游出口应可配置：Direct、HTTP Proxy、SOCKS5。
 - Steam 域名规则应配置化、分组化，并由 PAC、Proxy、Hosts、Reverse Proxy 共用。
+- 真实可用的一键体验需要按域名维护出站 profile：原始匹配域名、ForwardDestination、TLS SNI / FakeServerName、候选 IP、证书名称不匹配策略和 fallback 顺序。
 
 ## 不进入默认主线的内容
 
@@ -46,6 +47,7 @@
 - `v0.4.0` 已实现 Windows-first Hosts、Root CA 与 HTTPS Reverse Proxy。
 - `v0.5.0` 已补齐第一版 Hosts + DoH 一键默认闭环，避免 Hosts 模式出站解析自绕回。
 - `v0.5.1` 已补齐出站失败诊断和 HTTPS Direct 出口的 TCP + TLS 候选尝试链。
+- `v0.6.0-dev` 已开始落地默认 Steam 出站 profile：community 优先 `steamcommunity-a.akamaihd.net`，store / checkout / help / login 优先 `cdn-a.akamaihd.net`，HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名。
 - `DNSIntercept`、VPN / TUN 和 JS 注入进入 `v1.x` 高级能力路线，但不阻塞 `v1.0.0`。
 
 ## 相关文档

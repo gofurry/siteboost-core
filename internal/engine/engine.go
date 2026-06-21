@@ -34,20 +34,21 @@ var (
 )
 
 type Status struct {
-	Running         bool      `json:"running"`
-	Mode            string    `json:"mode"`
-	ListenAddr      string    `json:"listen_addr"`
-	PACURL          string    `json:"pac_url,omitempty"`
-	HostsHTTP       string    `json:"hosts_http,omitempty"`
-	HostsHTTPS      string    `json:"hosts_https,omitempty"`
-	ResolverMode    string    `json:"resolver_mode,omitempty"`
-	ResolverServers []string  `json:"resolver_servers,omitempty"`
-	Rollback        bool      `json:"rollback"`
-	CertInstalled   bool      `json:"cert_installed,omitempty"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	LastError       string    `json:"last_error,omitempty"`
-	RuleCount       int       `json:"rule_count"`
-	ActiveConns     int64     `json:"active_conns"`
+	Running          bool      `json:"running"`
+	Mode             string    `json:"mode"`
+	ListenAddr       string    `json:"listen_addr"`
+	PACURL           string    `json:"pac_url,omitempty"`
+	HostsHTTP        string    `json:"hosts_http,omitempty"`
+	HostsHTTPS       string    `json:"hosts_https,omitempty"`
+	ResolverMode     string    `json:"resolver_mode,omitempty"`
+	ResolverServers  []string  `json:"resolver_servers,omitempty"`
+	UpstreamProfiles int       `json:"upstream_profiles,omitempty"`
+	Rollback         bool      `json:"rollback"`
+	CertInstalled    bool      `json:"cert_installed,omitempty"`
+	StartedAt        time.Time `json:"started_at,omitempty"`
+	LastError        string    `json:"last_error,omitempty"`
+	RuleCount        int       `json:"rule_count"`
+	ActiveConns      int64     `json:"active_conns"`
 }
 
 type Engine struct {
@@ -55,16 +56,17 @@ type Engine struct {
 	cfg    config.Config
 	logger *slog.Logger
 
-	proxy     *proxy.Server
-	startedAt time.Time
-	lastErr   error
-	ruleCount int
-	running   bool
-	pac       *pac.Server
-	pacURL    string
-	reverse   *reverse.Server
-	certOK    bool
-	resolver  resolver.Config
+	proxy            *proxy.Server
+	startedAt        time.Time
+	lastErr          error
+	ruleCount        int
+	running          bool
+	pac              *pac.Server
+	pacURL           string
+	reverse          *reverse.Server
+	certOK           bool
+	resolver         resolver.Config
+	upstreamProfiles int
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Engine, error) {
@@ -98,7 +100,8 @@ func (e *Engine) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("build resolver: %w", err)
 	}
-	dialer, err := upstream.NewDialer(upstream.ConfigFromApp(e.cfg), dnsResolver)
+	upstreamCfg := upstream.ConfigFromApp(e.cfg)
+	dialer, err := upstream.NewDialer(upstreamCfg, dnsResolver)
 	if err != nil {
 		return fmt.Errorf("build upstream dialer: %w", err)
 	}
@@ -173,6 +176,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.reverse = reverseServer
 	e.certOK = certOK
 	e.resolver = cloneResolverConfig(resolverCfg)
+	e.upstreamProfiles = len(upstreamCfg.Profiles)
 	e.startedAt = time.Now()
 	e.lastErr = nil
 	e.ruleCount = matcher.RuleCount()
@@ -200,6 +204,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.reverse = nil
 	e.certOK = false
 	e.resolver = resolver.Config{}
+	e.upstreamProfiles = 0
 	e.running = false
 	e.mu.Unlock()
 
@@ -247,14 +252,15 @@ func (e *Engine) Status() Status {
 	defer e.mu.Unlock()
 
 	status := Status{
-		Running:       e.running,
-		Mode:          e.cfg.Mode,
-		PACURL:        e.pacURL,
-		ResolverMode:  e.resolver.Mode,
-		Rollback:      hasRollbackState(e.cfg.Runtime.RollbackPath),
-		CertInstalled: e.certOK,
-		StartedAt:     e.startedAt,
-		RuleCount:     e.ruleCount,
+		Running:          e.running,
+		Mode:             e.cfg.Mode,
+		PACURL:           e.pacURL,
+		ResolverMode:     e.resolver.Mode,
+		UpstreamProfiles: e.upstreamProfiles,
+		Rollback:         hasRollbackState(e.cfg.Runtime.RollbackPath),
+		CertInstalled:    e.certOK,
+		StartedAt:        e.startedAt,
+		RuleCount:        e.ruleCount,
 	}
 	status.ResolverServers = append([]string(nil), e.resolver.Servers...)
 	if e.proxy != nil {

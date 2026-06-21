@@ -4,8 +4,8 @@
 
 - Move into v0.6.0 real Steam smoke validation for store, community, login, chat, static assets, and WebSocket flows.
 - Maintain the exact-domain Hosts write list and document wildcard gaps.
-- Use v0.5.1 outbound diagnostics to design the default Steam outbound profile.
-- Add the minimal design for ForwardDestination, TLS / SNI pattern, candidate IP fallback.
+- Validate the implemented default Steam outbound profile against real access, then continue filling chat, static, API, and CDN groups.
+- Add startup probes for ForwardDestination resolution, TCP 443, TLS SNI, and light HTTP smoke checks.
 - Add more proxy edge-case tests for malformed requests, dial failures, and upstream failures.
 - Add a short config sample file once the next docs pass starts.
 - Keep runtime implementation internal until public API design is ready.

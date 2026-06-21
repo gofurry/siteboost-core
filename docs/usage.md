@@ -85,6 +85,9 @@ upstream:
   address: ""
   username: ""
   password: ""
+  # Hosts + Direct mode enables the built-in Steam outbound profile by default.
+  enable_default_steam_profiles: true
+  profiles: []
 
 runtime:
   # state_path defaults to the user cache directory.
@@ -117,7 +120,7 @@ go run ./cmd/steam-accelerator start \
 
 Resolver, upstream, macOS system service, and most Hosts options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
 
-Note: `resolver.mode: system` is the general default. When `mode: hosts` and `upstream.type: direct` are active, runtime resolution automatically switches to the built-in DoH defaults for real Steam IP lookup. This avoids resolving outbound reverse-proxy connections back to `127.0.0.1` after the hosts marker block is written. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
+Note: `resolver.mode: system` is the general default. When `mode: hosts` and `upstream.type: direct` are active, runtime resolution automatically switches to the built-in DoH defaults for real Steam IP lookup and enables the default Steam outbound profile. This avoids resolving outbound reverse-proxy connections back to `127.0.0.1` after the hosts marker block is written. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
 
 ## Common Examples
 
@@ -143,7 +146,31 @@ resolver:
 
 upstream:
   type: "direct"
+  enable_default_steam_profiles: true
 ```
+
+Customize Steam outbound profiles:
+
+```yaml
+upstream:
+  type: "direct"
+  enable_default_steam_profiles: true
+  profiles:
+    - match_domains:
+        - "steamcommunity.com"
+        - "*.steamcommunity.com"
+      forward_host: "steamcommunity-a.akamaihd.net"
+      tls_server_name: "steamcommunity-a.akamaihd.net"
+    - match_domains:
+        - "store.steampowered.com"
+        - "checkout.steampowered.com"
+        - "help.steampowered.com"
+        - "login.steampowered.com"
+      forward_host: "cdn-a.akamaihd.net"
+      tls_server_name: "cdn-a.akamaihd.net"
+```
+
+Profiles follow the same practical shape as the Steam++ acceleration data model: `match_domains` matches the original Steam host, `forward_host` is resolved and connected first, `tls_server_name` controls outbound TLS SNI, and the reverse proxy still sends the original Steam HTTP Host upstream. `candidate_ips` can pin fixed IP candidates; `ignore_tls_name_mismatch: true` should only be used when the certificate chain is trusted but the name does not match.
 
 Use an HTTP upstream proxy:
 
@@ -207,13 +234,20 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver` and `resolver_servers`. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, and `upstream_profiles`. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall
 ```
 
-If the browser or Steam embedded browser still shows `upstream request failed`, v0.5.1 adds an outbound diagnostic summary to the response body and logs. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, direct IP reachability, certificate/SNI behavior, or missing rule/profile coverage.
+If the browser or Steam embedded browser still shows `upstream request failed`, the response body and logs include an outbound diagnostic summary. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, ForwardDestination reachability, certificate/SNI behavior, or missing rule/profile coverage.
+
+Windows `curl.exe` uses Schannel and checks certificate revocation by default. Because this project dynamically issues local site certificates without public OCSP / CRL endpoints, command-line checks may report `CRYPT_E_NO_REVOCATION_CHECK`. Use `--ssl-no-revoke` to skip revocation checking while keeping certificate-chain and hostname validation, which is a better local acceleration check than `-k/--insecure`:
+
+```bash
+curl.exe --ssl-no-revoke -I --max-time 30 https://steamcommunity.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://store.steampowered.com/
+```
 
 For high-port smoke testing:
 
@@ -232,4 +266,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.5.1-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.0-dev.

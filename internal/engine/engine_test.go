@@ -247,6 +247,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	if len(status.ResolverServers) == 0 {
 		t.Fatalf("resolver servers were not reported")
 	}
+	if status.UpstreamProfiles == 0 {
+		t.Fatalf("default upstream profiles were not reported")
+	}
 	if len(applied.Entries) == 0 {
 		t.Fatalf("hosts entries were not applied")
 	}

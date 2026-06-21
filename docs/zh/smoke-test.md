@@ -102,11 +102,18 @@ go run ./cmd/steam-accelerator start --mode hosts \
 go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 ```
 
-默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh` 和 `resolver_servers:`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。
+默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh`、`resolver_servers:` 和 `upstream_profiles: 2`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0-dev 起，默认出站 profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，同时保留原始 HTTP Host。
 
-如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要是 v0.5.1 的关键验收项，用来判断失败发生在 DoH、TCP 直连还是 TLS 握手阶段。
+如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`resolve steamcommunity-a.akamaihd.net:443 failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要用来判断失败发生在 DoH、ForwardDestination 解析、TCP 直连还是 TLS 握手阶段。
 
 真实 hosts 模式默认写入 80 / 443。高端口主要用于验证 reverse server 生命周期；如果要验证浏览器访问真实 Steam 域名，需要使用默认 80 / 443 并确认本机端口未被占用。
+
+Windows 自带 `curl.exe` 使用 Schannel，默认会检查证书吊销状态。本项目的 Hosts 反代会动态签发本地站点证书，这类本地证书没有公网 OCSP / CRL；如果直接 `curl.exe -I https://steamcommunity.com/` 出现 `CRYPT_E_NO_REVOCATION_CHECK`，说明命令行客户端无法完成吊销检查，不代表出站加速失败。命令行内容验证建议使用：
+
+```bash
+curl.exe --ssl-no-revoke -I --max-time 30 https://steamcommunity.com/
+curl.exe --ssl-no-revoke -I --max-time 30 https://store.steampowered.com/
+```
 
 停止并卸载证书：
 
@@ -137,7 +144,8 @@ basic 示例应输出项目名和模块路径。
 - Hosts 模式未先执行 `cert install`。
 - Windows hosts preflight 或写入失败；请使用管理员终端运行。
 - `upstream request failed` 后跟 `direct upstream resolve ... failed`：DoH / DNS 解析失败或网络拦截。
-- `upstream request failed` 后跟 `tcp ... failed`：候选真实 IP 无法直连。
-- `upstream request failed` 后跟 `tls ... failed`：真实 IP 可连，但 TLS / SNI / 证书链路失败。
+- `upstream request failed` 后跟 `resolve steamcommunity-a.akamaihd.net:443 failed` 或 `resolve cdn-a.akamaihd.net:443 failed`：默认 Steam profile 的 ForwardDestination 解析失败。
+- `upstream request failed` 后跟 `tcp ... failed`：候选真实 IP 或 ForwardDestination IP 无法直连。
+- `upstream request failed` 后跟 `tls ... failed`：IP 可连，但 TLS / SNI / 证书链路失败。
 - restore 失败后 rollback 状态仍会保留；修复平台错误后再次执行 `restore`。
 - 状态文件指向旧进程；`status` 或 `stop` 应自动清理 stale 状态。

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -31,15 +32,30 @@ type Config struct {
 	Username string
 	Password string
 	Timeout  time.Duration
+	Profiles []Profile
 }
 
 func ConfigFromApp(cfg config.Config) Config {
+	profiles := make([]Profile, 0, len(cfg.Upstream.Profiles)+len(DefaultSteamProfiles()))
+	if cfg.Mode == config.ModeHosts && cfg.Rules.EnableDefaultSteamRules && cfg.Upstream.EnableDefaultSteamProfiles {
+		profiles = append(profiles, DefaultSteamProfiles()...)
+	}
+	for _, profile := range cfg.Upstream.Profiles {
+		profiles = append(profiles, Profile{
+			MatchDomains:          append([]string(nil), profile.MatchDomains...),
+			CandidateIPs:          append([]string(nil), profile.CandidateIPs...),
+			ForwardHost:           profile.ForwardHost,
+			TLSServerName:         profile.TLSServerName,
+			IgnoreTLSNameMismatch: profile.IgnoreTLSNameMismatch,
+		})
+	}
 	return Config{
 		Type:     cfg.Upstream.Type,
 		Address:  cfg.Upstream.Address,
 		Username: cfg.Upstream.Username,
 		Password: cfg.Upstream.Password,
 		Timeout:  cfg.Proxy.DialTimeout.Std(),
+		Profiles: profiles,
 	}
 }
 
@@ -52,7 +68,7 @@ func NewDialer(cfg Config, resolver Resolver) (Dialer, error) {
 		if resolver == nil {
 			return nil, fmt.Errorf("resolver is required for direct upstream")
 		}
-		return NewDirectDialer(resolver, cfg.Timeout), nil
+		return NewDirectDialerWithProfiles(resolver, cfg.Timeout, cfg.Profiles)
 	case config.UpstreamHTTP:
 		return NewHTTPDialer(cfg)
 	case config.UpstreamSOCKS5:
@@ -65,12 +81,14 @@ func NewDialer(cfg Config, resolver Resolver) (Dialer, error) {
 type DirectDialer struct {
 	resolver Resolver
 	dialer   net.Dialer
+	profiles []compiledProfile
 }
 
 type DirectDialAttempt struct {
 	Stage   string
 	IP      net.IP
 	Address string
+	Target  string
 	Err     error
 }
 
@@ -79,10 +97,14 @@ func (a DirectDialAttempt) Error() string {
 	if stage == "" {
 		stage = "tcp"
 	}
-	if a.Err == nil {
-		return fmt.Sprintf("%s %s failed", stage, a.Address)
+	target := a.Address
+	if a.Target != "" && a.Target != a.Address {
+		target = fmt.Sprintf("%s (%s)", a.Address, a.Target)
 	}
-	return fmt.Sprintf("%s %s failed: %v", stage, a.Address, a.Err)
+	if a.Err == nil {
+		return fmt.Sprintf("%s %s failed", stage, target)
+	}
+	return fmt.Sprintf("%s %s failed: %v", stage, target, a.Err)
 }
 
 type DirectDialError struct {
@@ -131,10 +153,20 @@ func (e *DirectDialError) Unwrap() error {
 }
 
 func NewDirectDialer(resolver Resolver, timeout time.Duration) *DirectDialer {
+	dialer, _ := NewDirectDialerWithProfiles(resolver, timeout, nil)
+	return dialer
+}
+
+func NewDirectDialerWithProfiles(resolver Resolver, timeout time.Duration, profiles []Profile) (*DirectDialer, error) {
+	compiled, err := compileProfiles(profiles)
+	if err != nil {
+		return nil, err
+	}
 	return &DirectDialer{
 		resolver: resolver,
 		dialer:   net.Dialer{Timeout: timeout},
-	}
+		profiles: compiled,
+	}, nil
 }
 
 func (d *DirectDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
@@ -142,22 +174,21 @@ func (d *DirectDialer) DialContext(ctx context.Context, network, address string)
 	if err != nil {
 		return nil, fmt.Errorf("split target address: %w", err)
 	}
-	ips, err := d.resolver.Resolve(ctx, host)
+	candidates, attempts, err := d.candidates(ctx, host, port)
 	if err != nil {
 		return nil, &DirectDialError{Network: network, Host: host, Port: port, ResolveErr: err}
 	}
 
-	attempts := make([]DirectDialAttempt, 0, len(ips))
-	for _, ip := range ips {
-		target := net.JoinHostPort(ip.String(), port)
-		conn, err := d.dialer.DialContext(ctx, network, target)
+	for _, candidate := range candidates {
+		conn, err := d.dialer.DialContext(ctx, network, candidate.address)
 		if err == nil {
 			return conn, nil
 		}
 		attempts = append(attempts, DirectDialAttempt{
 			Stage:   "tcp",
-			IP:      cloneIP(ip),
-			Address: target,
+			IP:      cloneIP(candidate.ip),
+			Address: candidate.address,
+			Target:  candidate.target,
 			Err:     err,
 		})
 	}
@@ -169,34 +200,34 @@ func (d *DirectDialer) DialTLSContext(ctx context.Context, network, address stri
 	if err != nil {
 		return nil, fmt.Errorf("split target address: %w", err)
 	}
-	ips, err := d.resolver.Resolve(ctx, host)
+	candidates, attempts, err := d.candidates(ctx, host, port)
 	if err != nil {
 		return nil, &DirectDialError{Network: network, Host: host, Port: port, ResolveErr: err}
 	}
 
-	attempts := make([]DirectDialAttempt, 0, len(ips))
-	for _, ip := range ips {
-		target := net.JoinHostPort(ip.String(), port)
-		conn, err := d.dialer.DialContext(ctx, network, target)
+	for _, candidate := range candidates {
+		conn, err := d.dialer.DialContext(ctx, network, candidate.address)
 		if err != nil {
 			attempts = append(attempts, DirectDialAttempt{
 				Stage:   "tcp",
-				IP:      cloneIP(ip),
-				Address: target,
+				IP:      cloneIP(candidate.ip),
+				Address: candidate.address,
+				Target:  candidate.target,
 				Err:     err,
 			})
 			continue
 		}
 
 		handshakeCtx, cancel := d.handshakeContext(ctx)
-		tlsConn := tls.Client(conn, cloneTLSConfig(tlsConfig, host))
+		tlsConn := tls.Client(conn, cloneTLSConfig(tlsConfig, candidate.tlsServerName, host, candidate.ignoreTLSNameMismatch))
 		if err := tlsConn.HandshakeContext(handshakeCtx); err != nil {
 			cancel()
 			_ = tlsConn.Close()
 			attempts = append(attempts, DirectDialAttempt{
 				Stage:   "tls",
-				IP:      cloneIP(ip),
-				Address: target,
+				IP:      cloneIP(candidate.ip),
+				Address: candidate.address,
+				Target:  candidate.target,
 				Err:     err,
 			})
 			continue
@@ -205,6 +236,90 @@ func (d *DirectDialer) DialTLSContext(ctx context.Context, network, address stri
 		return tlsConn, nil
 	}
 	return nil, &DirectDialError{Network: network, Host: host, Port: port, Attempts: attempts}
+}
+
+type dialCandidate struct {
+	ip                    net.IP
+	address               string
+	target                string
+	tlsServerName         string
+	ignoreTLSNameMismatch bool
+}
+
+func (d *DirectDialer) candidates(ctx context.Context, host, port string) ([]dialCandidate, []DirectDialAttempt, error) {
+	profile := d.matchProfile(host)
+	if profile == nil {
+		ips, err := d.resolver.Resolve(ctx, host)
+		if err != nil {
+			return nil, nil, err
+		}
+		candidates := make([]dialCandidate, 0, len(ips))
+		for _, ip := range ips {
+			candidates = append(candidates, dialCandidate{
+				ip:            cloneIP(ip),
+				address:       net.JoinHostPort(ip.String(), port),
+				target:        host,
+				tlsServerName: host,
+			})
+		}
+		return candidates, nil, nil
+	}
+
+	var attempts []DirectDialAttempt
+	var candidates []dialCandidate
+	seen := make(map[string]struct{})
+	addCandidate := func(ip net.IP, target, tlsServerName string, ignoreTLSNameMismatch bool) {
+		if ip == nil {
+			return
+		}
+		if tlsServerName == "" {
+			tlsServerName = host
+		}
+		address := net.JoinHostPort(ip.String(), port)
+		key := address + "\x00" + target + "\x00" + tlsServerName
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		candidates = append(candidates, dialCandidate{
+			ip:                    cloneIP(ip),
+			address:               address,
+			target:                target,
+			tlsServerName:         tlsServerName,
+			ignoreTLSNameMismatch: ignoreTLSNameMismatch,
+		})
+	}
+	addResolved := func(resolveHost, tlsServerName string, ignoreTLSNameMismatch bool) {
+		ips, err := d.resolver.Resolve(ctx, resolveHost)
+		if err != nil {
+			attempts = append(attempts, DirectDialAttempt{
+				Stage:   "resolve",
+				Address: net.JoinHostPort(resolveHost, port),
+				Err:     err,
+			})
+			return
+		}
+		for _, ip := range ips {
+			addCandidate(ip, resolveHost, tlsServerName, ignoreTLSNameMismatch)
+		}
+	}
+
+	for _, ip := range profile.candidateIPs {
+		addCandidate(ip, "profile-ip", profileTLSServerName(profile, host), profile.ignoreTLSNameMismatch)
+	}
+	if profile.forwardHost != "" {
+		addResolved(profile.forwardHost, profileTLSServerName(profile, host), profile.ignoreTLSNameMismatch)
+	}
+	addResolved(host, host, profile.ignoreTLSNameMismatch)
+
+	return candidates, attempts, nil
+}
+
+func profileTLSServerName(profile *compiledProfile, host string) string {
+	if profile != nil && profile.tlsServerName != "" {
+		return profile.tlsServerName
+	}
+	return host
 }
 
 func (d *DirectDialer) handshakeContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -517,7 +632,7 @@ func cloneIP(ip net.IP) net.IP {
 	return append(net.IP(nil), ip...)
 }
 
-func cloneTLSConfig(cfg *tls.Config, serverName string) *tls.Config {
+func cloneTLSConfig(cfg *tls.Config, serverName, verifyHost string, ignoreNameMismatch bool) *tls.Config {
 	var cloned *tls.Config
 	if cfg == nil {
 		cloned = &tls.Config{}
@@ -526,6 +641,33 @@ func cloneTLSConfig(cfg *tls.Config, serverName string) *tls.Config {
 	}
 	if cloned.ServerName == "" {
 		cloned.ServerName = serverName
+	}
+	if ignoreNameMismatch && !cloned.InsecureSkipVerify {
+		rootCAs := cloned.RootCAs
+		verifyConnection := cloned.VerifyConnection
+		cloned.InsecureSkipVerify = true
+		cloned.VerifyConnection = func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 {
+				return fmt.Errorf("server did not present certificates")
+			}
+			intermediates := x509.NewCertPool()
+			for _, cert := range state.PeerCertificates[1:] {
+				intermediates.AddCert(cert)
+			}
+			opts := x509.VerifyOptions{
+				Roots:         rootCAs,
+				Intermediates: intermediates,
+				CurrentTime:   time.Now(),
+				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			}
+			if _, err := state.PeerCertificates[0].Verify(opts); err != nil {
+				return fmt.Errorf("verify certificate chain without hostname %q: %w", verifyHost, err)
+			}
+			if verifyConnection != nil {
+				return verifyConnection(state)
+			}
+			return nil
+		}
 	}
 	return cloned
 }

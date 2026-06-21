@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-当前项目处于 `v0.5.1-dev` 阶段，已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与显式安装、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
+当前项目处于 `v0.6.0-dev` 阶段，已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与显式安装、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
 
-`v0.5.1-dev` 已完成第一版 Hosts + DoH 默认闭环和出站失败诊断：Hosts + Direct 模式默认使用内置 DoH 解析真实 Steam IP，避免 hosts 写入后自绕回；`start --mode hosts` 已串联 Root CA、hosts 可读写、rollback 目录可写、反代监听和 hosts 写入失败恢复；`status` / `start` 会显示运行时 resolver 模式和 DoH servers；Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段。
+`v0.6.0-dev` 已完成第一版 Hosts + DoH 默认闭环、出站失败诊断和默认 Steam 出站 profile 骨架：Hosts + Direct 模式默认使用内置 DoH 解析真实 Steam IP，避免 hosts 写入后自绕回；`start --mode hosts` 已串联 Root CA、hosts 可读写、rollback 目录可写、反代监听和 hosts 写入失败恢复；`status` / `start` 会显示运行时 resolver 模式和 DoH servers；Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段；默认 profile 会让 community 域名优先走 `steamcommunity-a.akamaihd.net`，store / checkout / help / login 域名优先走 `cdn-a.akamaihd.net`，HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
 
 但当前还不能称为完整 Steam++ 式“一键可用”体验。主要差距是：
 
@@ -132,7 +132,7 @@
 
 ### v0.6.0 - 真实 Steam 访问验收与规则完善
 
-**状态：** 计划中
+**状态：** 开发中，已完成默认出站 profile 骨架
 **范围：** User-facing / Testing / Documentation / Stability
 **目标：** 用真实 Steam 访问场景验证一键闭环，补齐 Steam 默认出站 profile、域名规则和手动验收记录。
 
@@ -148,7 +148,9 @@
 
 - [ ] 建立真实 Steam 域名兼容性清单，覆盖 store、community、login、api、chat、static、cdn 等分组。
 - [ ] 为 Hosts 模式维护 exact 域名写入清单，明确 wildcard 规则无法通过 hosts 覆盖的范围。
-- [ ] 为核心 Steam 域名设计默认出站 profile，支持候选 IP、ForwardDestination、TLS / SNI pattern、证书名不匹配策略和 fallback 顺序。
+- [x] 为核心 Steam 域名设计并实现默认出站 profile 骨架，支持候选 IP、ForwardDestination、TLS SNI、证书名不匹配策略和 fallback 顺序。
+- [x] 为 `steamcommunity.com` / `*.steamcommunity.com` 增加默认 `steamcommunity-a.akamaihd.net` fallback；为 store / checkout / help / login 增加默认 `cdn-a.akamaihd.net` fallback。
+- [x] 增加 YAML 自定义 outbound profile 配置和校验，允许用户覆盖 `match_domains`、`candidate_ips`、`forward_host`、`tls_server_name` 和 `ignore_tls_name_mismatch`。
 - [ ] 增加启动前真实探测：DoH 解析、TCP 443 连通、TLS 握手和轻量 HTTP smoke。
 - [ ] 增加真实 Steam 访问手动 smoke 文档，记录 Windows 管理员终端、证书安装、启动、访问、停止、恢复全过程。
 - [ ] 增加常见失败诊断文档：DNS 失败、证书不受信、端口占用、hosts 被安全软件拦截、WebSocket 失败。

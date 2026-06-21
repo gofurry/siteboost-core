@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofurry/go-steam-core/internal/rules"
 	"gopkg.in/yaml.v3"
 )
 
@@ -122,10 +123,20 @@ type ResolverConfig struct {
 }
 
 type UpstreamConfig struct {
-	Type     string `yaml:"type"`
-	Address  string `yaml:"address"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	Type                       string                  `yaml:"type"`
+	Address                    string                  `yaml:"address"`
+	Username                   string                  `yaml:"username"`
+	Password                   string                  `yaml:"password"`
+	EnableDefaultSteamProfiles bool                    `yaml:"enable_default_steam_profiles"`
+	Profiles                   []OutboundProfileConfig `yaml:"profiles"`
+}
+
+type OutboundProfileConfig struct {
+	MatchDomains          []string `yaml:"match_domains"`
+	CandidateIPs          []string `yaml:"candidate_ips"`
+	ForwardHost           string   `yaml:"forward_host"`
+	TLSServerName         string   `yaml:"tls_server_name"`
+	IgnoreTLSNameMismatch bool     `yaml:"ignore_tls_name_mismatch"`
 }
 
 type SystemConfig struct {
@@ -173,7 +184,8 @@ func Default() Config {
 			Timeout:    Duration(5 * time.Second),
 		},
 		Upstream: UpstreamConfig{
-			Type: UpstreamDirect,
+			Type:                       UpstreamDirect,
+			EnableDefaultSteamProfiles: true,
 		},
 		Runtime: RuntimeConfig{
 			StatePath:    DefaultStatePath(),
@@ -348,6 +360,9 @@ func (c *Config) Validate() error {
 	}
 	c.Upstream.Address = strings.TrimSpace(c.Upstream.Address)
 	c.Upstream.Username = strings.TrimSpace(c.Upstream.Username)
+	if err := validateOutboundProfiles(c.Upstream.Profiles); err != nil {
+		return err
+	}
 	c.System.Services = trimStrings(c.System.Services)
 
 	if c.Proxy.ReadHeaderTimeout.Std() <= 0 {
@@ -373,6 +388,65 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func validateOutboundProfiles(profiles []OutboundProfileConfig) error {
+	for i := range profiles {
+		profile := &profiles[i]
+		profile.MatchDomains = trimStrings(profile.MatchDomains)
+		if len(profile.MatchDomains) == 0 {
+			return fmt.Errorf("upstream profiles[%d] match_domains is required", i)
+		}
+		for j, domain := range profile.MatchDomains {
+			if strings.Contains(domain, "*") && !strings.HasPrefix(domain, "*.") {
+				return fmt.Errorf("upstream profiles[%d] match_domains[%d] must use the *.example.com form", i, j)
+			}
+			if strings.HasPrefix(domain, "*.") {
+				normalized, err := rules.NormalizeHost(strings.TrimPrefix(domain, "*."))
+				if err != nil {
+					return fmt.Errorf("upstream profiles[%d] match_domains[%d]: %w", i, j, err)
+				}
+				profile.MatchDomains[j] = "*." + normalized
+				continue
+			}
+			normalized, err := rules.NormalizeHost(domain)
+			if err != nil {
+				return fmt.Errorf("upstream profiles[%d] match_domains[%d]: %w", i, j, err)
+			}
+			profile.MatchDomains[j] = normalized
+		}
+
+		profile.CandidateIPs = trimStrings(profile.CandidateIPs)
+		for j, ip := range profile.CandidateIPs {
+			if net.ParseIP(ip) == nil {
+				return fmt.Errorf("upstream profiles[%d] candidate_ips[%d] must be an IP address", i, j)
+			}
+		}
+		var err error
+		profile.ForwardHost, err = normalizeOptionalProfileHost(profile.ForwardHost)
+		if err != nil {
+			return fmt.Errorf("upstream profiles[%d] forward_host: %w", i, err)
+		}
+		profile.TLSServerName, err = normalizeOptionalProfileHost(profile.TLSServerName)
+		if err != nil {
+			return fmt.Errorf("upstream profiles[%d] tls_server_name: %w", i, err)
+		}
+		if len(profile.CandidateIPs) == 0 &&
+			profile.ForwardHost == "" &&
+			profile.TLSServerName == "" &&
+			!profile.IgnoreTLSNameMismatch {
+			return fmt.Errorf("upstream profiles[%d] must define candidate_ips, forward_host, tls_server_name, or ignore_tls_name_mismatch", i)
+		}
+	}
+	return nil
+}
+
+func normalizeOptionalProfileHost(host string) (string, error) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", nil
+	}
+	return rules.NormalizeHost(host)
 }
 
 func normalizeMode(mode string) string {
