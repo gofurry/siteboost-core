@@ -25,6 +25,7 @@ var (
 	applySystemProxy   = systemproxy.Apply
 	restoreSystemProxy = systemproxy.Restore
 	hasRollbackState   = systemproxy.HasState
+	preflightHosts     = hosts.Preflight
 	applyHosts         = hosts.Apply
 	restoreHosts       = hosts.Restore
 	isCertInstalled    = func(ctx context.Context, cfg certstore.Config) (bool, error) {
@@ -33,18 +34,20 @@ var (
 )
 
 type Status struct {
-	Running       bool      `json:"running"`
-	Mode          string    `json:"mode"`
-	ListenAddr    string    `json:"listen_addr"`
-	PACURL        string    `json:"pac_url,omitempty"`
-	HostsHTTP     string    `json:"hosts_http,omitempty"`
-	HostsHTTPS    string    `json:"hosts_https,omitempty"`
-	Rollback      bool      `json:"rollback"`
-	CertInstalled bool      `json:"cert_installed,omitempty"`
-	StartedAt     time.Time `json:"started_at,omitempty"`
-	LastError     string    `json:"last_error,omitempty"`
-	RuleCount     int       `json:"rule_count"`
-	ActiveConns   int64     `json:"active_conns"`
+	Running         bool      `json:"running"`
+	Mode            string    `json:"mode"`
+	ListenAddr      string    `json:"listen_addr"`
+	PACURL          string    `json:"pac_url,omitempty"`
+	HostsHTTP       string    `json:"hosts_http,omitempty"`
+	HostsHTTPS      string    `json:"hosts_https,omitempty"`
+	ResolverMode    string    `json:"resolver_mode,omitempty"`
+	ResolverServers []string  `json:"resolver_servers,omitempty"`
+	Rollback        bool      `json:"rollback"`
+	CertInstalled   bool      `json:"cert_installed,omitempty"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
+	LastError       string    `json:"last_error,omitempty"`
+	RuleCount       int       `json:"rule_count"`
+	ActiveConns     int64     `json:"active_conns"`
 }
 
 type Engine struct {
@@ -61,6 +64,7 @@ type Engine struct {
 	pacURL    string
 	reverse   *reverse.Server
 	certOK    bool
+	resolver  resolver.Config
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Engine, error) {
@@ -86,7 +90,11 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("build rules matcher: %w", err)
 	}
 
-	dnsResolver, err := resolver.New(resolver.ConfigFromApp(e.cfg))
+	resolverCfg := effectiveResolverConfig(e.cfg)
+	if e.cfg.Mode == config.ModeHosts && usesDirectUpstream(e.cfg.Upstream.Type) && resolverCfg.Mode == config.ResolverDoH {
+		e.logger.Info("hosts mode uses DoH resolver to avoid local hosts loopback", "servers", len(resolverCfg.Servers))
+	}
+	dnsResolver, err := resolver.New(resolverCfg)
 	if err != nil {
 		return fmt.Errorf("build resolver: %w", err)
 	}
@@ -102,28 +110,29 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	if e.cfg.Mode == config.ModeHosts {
 		certManager := certstore.New(certstore.ConfigFromApp(e.cfg))
-		reverseServer = reverse.New(reverse.ConfigFromApp(e.cfg), matcher, dialer, certManager, e.logger)
-		if err := reverseServer.Start(); err != nil {
-			return err
-		}
 		certOK, err = isCertInstalled(ctx, certstore.ConfigFromApp(e.cfg))
 		if err != nil {
-			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("check root CA install: %w", err)
 		}
 		if !certOK {
-			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("local root CA is not installed; run `steam-accelerator cert install` first")
 		}
 		entries, skipped, err := hosts.EntriesFromRules(matcher.Rules(), e.cfg.Hosts.MapIP)
 		if err != nil {
-			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("build hosts entries: %w", err)
 		}
 		if len(skipped) > 0 {
 			e.logger.Info("hosts mode skipped wildcard rules", "count", len(skipped))
 		}
-		if err := applyHosts(ctx, hosts.ConfigFromApp(e.cfg, entries)); err != nil {
+		hostsCfg := hosts.ConfigFromApp(e.cfg, entries)
+		if err := preflightHosts(ctx, hostsCfg); err != nil {
+			return fmt.Errorf("preflight hosts mode: %w", err)
+		}
+		reverseServer = reverse.New(reverse.ConfigFromApp(e.cfg), matcher, dialer, certManager, e.logger)
+		if err := reverseServer.Start(); err != nil {
+			return fmt.Errorf("start hosts reverse proxy: %w", err)
+		}
+		if err := applyHosts(ctx, hostsCfg); err != nil {
 			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("apply hosts: %w", err)
 		}
@@ -163,6 +172,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.pacURL = pacURL
 	e.reverse = reverseServer
 	e.certOK = certOK
+	e.resolver = cloneResolverConfig(resolverCfg)
 	e.startedAt = time.Now()
 	e.lastErr = nil
 	e.ruleCount = matcher.RuleCount()
@@ -189,6 +199,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.pacURL = ""
 	e.reverse = nil
 	e.certOK = false
+	e.resolver = resolver.Config{}
 	e.running = false
 	e.mu.Unlock()
 
@@ -239,11 +250,13 @@ func (e *Engine) Status() Status {
 		Running:       e.running,
 		Mode:          e.cfg.Mode,
 		PACURL:        e.pacURL,
+		ResolverMode:  e.resolver.Mode,
 		Rollback:      hasRollbackState(e.cfg.Runtime.RollbackPath),
 		CertInstalled: e.certOK,
 		StartedAt:     e.startedAt,
 		RuleCount:     e.ruleCount,
 	}
+	status.ResolverServers = append([]string(nil), e.resolver.Servers...)
 	if e.proxy != nil {
 		status.ListenAddr = e.proxy.Addr()
 		status.ActiveConns = e.proxy.ActiveConns()
@@ -257,6 +270,31 @@ func (e *Engine) Status() Status {
 		status.LastError = e.lastErr.Error()
 	}
 	return status
+}
+
+func effectiveResolverConfig(cfg config.Config) resolver.Config {
+	resolverCfg := resolver.ConfigFromApp(cfg)
+	if cfg.Mode != config.ModeHosts || !usesDirectUpstream(cfg.Upstream.Type) {
+		return resolverCfg
+	}
+	if resolverCfg.Mode == config.ResolverSystem {
+		resolverCfg.Mode = config.ResolverDoH
+		resolverCfg.Servers = config.DefaultDoHServers()
+		return resolverCfg
+	}
+	if resolverCfg.Mode == config.ResolverDoH && len(resolverCfg.Servers) == 0 {
+		resolverCfg.Servers = config.DefaultDoHServers()
+	}
+	return resolverCfg
+}
+
+func usesDirectUpstream(upstreamType string) bool {
+	return upstreamType == "" || upstreamType == config.UpstreamDirect
+}
+
+func cloneResolverConfig(cfg resolver.Config) resolver.Config {
+	cfg.Servers = append([]string(nil), cfg.Servers...)
+	return cfg
 }
 
 func (e *Engine) buildMatcher() (*rules.Matcher, error) {

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,10 @@ import (
 
 type Dialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+type TLSDialer interface {
+	DialTLSContext(ctx context.Context, network, address string, tlsConfig *tls.Config) (net.Conn, error)
 }
 
 type CertificateProvider interface {
@@ -95,14 +100,20 @@ func (s *Server) Start() error {
 		return fmt.Errorf("certificate provider is required")
 	}
 
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    s.cfg.RootCAs,
+	}
 	s.transport = &http.Transport{
 		Proxy:               nil,
 		DialContext:         s.dialer.DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    s.cfg.RootCAs,
-		},
+		TLSClientConfig:     tlsConfig,
+	}
+	if tlsDialer, ok := s.dialer.(TLSDialer); ok {
+		s.transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return tlsDialer.DialTLSContext(ctx, network, address, tlsConfig)
+		}
 	}
 
 	httpLn, err := net.Listen("tcp", s.cfg.HTTPListenAddr)
@@ -236,8 +247,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		},
 		Transport: s.transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			s.logRequest("reverse_error", r.Method, host, match, http.StatusBadGateway)
-			http.Error(w, "upstream request failed", http.StatusBadGateway)
+			msg := upstreamErrorMessage(err)
+			s.logRequestError("reverse_error", r.Method, host, match, http.StatusBadGateway, msg)
+			http.Error(w, "upstream request failed: "+msg, http.StatusBadGateway)
 		},
 	}
 	proxy.ServeHTTP(w, req)
@@ -281,6 +293,42 @@ func (s *Server) logRequest(event, method, host string, match rules.MatchResult,
 		attrs = append(attrs, "rule_group", match.GroupName, "rule", match.Rule)
 	}
 	s.logger.Info("reverse request", attrs...)
+}
+
+func (s *Server) logRequestError(event, method, host string, match rules.MatchResult, status int, message string) {
+	attrs := []any{
+		"event", event,
+		"method", method,
+		"host", host,
+		"status", status,
+		"error", message,
+	}
+	if match.GroupName != "" {
+		attrs = append(attrs, "rule_group", match.GroupName, "rule", match.Rule)
+	}
+	s.logger.Info("reverse request", attrs...)
+}
+
+func upstreamErrorMessage(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	msg := strings.TrimSpace(err.Error())
+	msg = strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '\t':
+			return ' '
+		default:
+			return r
+		}
+	}, msg)
+	if len(msg) > 1200 {
+		msg = msg[:1200] + "..."
+	}
+	if msg == "" {
+		return "unknown error"
+	}
+	return msg
 }
 
 func serve(srv *http.Server, ln net.Listener, done chan<- error) {

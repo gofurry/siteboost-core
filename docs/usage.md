@@ -117,6 +117,8 @@ go run ./cmd/steam-accelerator start \
 
 Resolver, upstream, macOS system service, and most Hosts options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
 
+Note: `resolver.mode: system` is the general default. When `mode: hosts` and `upstream.type: direct` are active, runtime resolution automatically switches to the built-in DoH defaults for real Steam IP lookup. This avoids resolving outbound reverse-proxy connections back to `127.0.0.1` after the hosts marker block is written. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
+
 ## Common Examples
 
 Use browser manual proxy settings:
@@ -133,8 +135,8 @@ Use DoH with direct outbound dialing:
 ```yaml
 resolver:
   mode: "doh"
-  servers:
-    - "https://dns.example/dns-query"
+  # Empty servers use the built-in DoH default list; explicit URLs can override it.
+  servers: []
   prefer_ipv4: true
   cache_ttl: "10m"
   timeout: "5s"
@@ -205,11 +207,13 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver` and `resolver_servers`. `stop` or `restore` removes the project marker block, but does not uninstall the explicitly installed root CA. To uninstall it, run:
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall
 ```
+
+If the browser or Steam embedded browser still shows `upstream request failed`, v0.5.1 adds an outbound diagnostic summary to the response body and logs. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, direct IP reachability, certificate/SNI behavior, or missing rule/profile coverage.
 
 For high-port smoke testing:
 
@@ -228,4 +232,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup are explicitly unsupported in v0.4.0.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.5.1-dev.

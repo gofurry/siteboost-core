@@ -48,7 +48,7 @@ Then start with:
 go run ./cmd/steam-accelerator start --config ./tmp/proxy-system-direct.yaml --state ./tmp/runtime.json
 ```
 
-DoH and HTTP/SOCKS5 upstream behavior should be covered with local fake servers in `go test ./internal/resolver ./internal/upstream ./internal/proxy`. For manual checks, configure `resolver.mode: doh` with an explicit `servers` URL, or set `upstream.type` to `http`/`socks5` with a local proxy address.
+DoH and HTTP/SOCKS5 upstream behavior should be covered with local fake servers in `go test ./internal/resolver ./internal/upstream ./internal/proxy`. For manual checks, configure `resolver.mode: doh`; empty `servers` use the built-in DoH defaults, and explicit URLs can override them. Configure HTTP/SOCKS5 upstreams only when an external proxy enhancement is needed.
 
 ## PAC and System Proxy Check
 
@@ -102,6 +102,10 @@ Check status from another terminal:
 go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 ```
 
+The default Hosts + Direct loop should show `resolver: doh` and `resolver_servers:` in status output. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block.
+
+If a page returns `upstream request failed`, the response body should include more than that generic message. v0.5.1 should append a summary such as `direct upstream resolve ... failed`, `tcp 1.2.3.4:443 failed`, or `tls 1.2.3.4:443 failed`. That summary is the key check for locating whether failure happened in DoH, direct TCP reachability, or TLS handshake.
+
 Real browser testing with hosts requires default 80 / 443 and free local ports. High ports are mainly for reverse-server lifecycle checks.
 
 Stop and uninstall the CA:
@@ -125,12 +129,15 @@ The basic example should print the project name and module path.
 - A generated file was not formatted by `gofmt`.
 - A future package introduces a dependency but `go mod tidy` was not run.
 - Port `127.0.0.1:26501` is already in use.
-- A non-system resolver mode is selected without `resolver.servers`.
+- UDP/TCP resolver mode is selected without `resolver.servers`.
 - An HTTP or SOCKS5 upstream is selected without `upstream.address`.
 - Port `127.0.0.1:26502` is already in use for PAC mode.
 - The current OS is not Windows or macOS for PAC/System Proxy modes.
 - Ports 80 / 443 are already in use for Hosts mode.
 - Hosts mode was started before `cert install`.
-- Windows hosts writing failed; use an Administrator terminal.
+- Windows hosts preflight or writing failed; use an Administrator terminal.
+- `upstream request failed` followed by `direct upstream resolve ... failed`: DoH/DNS failed or was blocked.
+- `upstream request failed` followed by `tcp ... failed`: candidate real IPs are not directly reachable.
+- `upstream request failed` followed by `tls ... failed`: the real IP is reachable, but TLS/SNI/certificate behavior failed.
 - A rollback state remains after restore failure; run `restore` again after fixing the platform error.
 - A stale state file points to an old process; `status` or `stop` should remove it.

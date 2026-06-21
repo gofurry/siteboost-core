@@ -32,3 +32,11 @@ func (osPlatform) FileMode(path string) (os.FileMode, error) {
 	}
 	return info.Mode().Perm(), nil
 }
+
+func (osPlatform) CheckWritable(path string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}

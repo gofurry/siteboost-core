@@ -28,6 +28,14 @@ func (d mappedDialer) DialContext(ctx context.Context, network, address string) 
 	return dialer.DialContext(ctx, network, d.target)
 }
 
+type failingDialer struct {
+	err error
+}
+
+func (d failingDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, d.err
+}
+
 type proxyTestResolver struct {
 	ips []net.IP
 }
@@ -119,6 +127,24 @@ func TestHTTPProxyRejectsNonSteamByDefault(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestHTTPProxyUpstreamErrorIncludesDiagnostic(t *testing.T) {
+	proxy := newTestProxyWithDialer(t, config.NonSteamReject, failingDialer{err: fmt.Errorf("direct upstream dial store.steam.test:80 failed after 1 attempt")}, io.Discard)
+
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
+	resp, err := client.Get("http://store.steam.test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %q", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "direct upstream dial store.steam.test:80 failed") {
+		t.Fatalf("body = %q", body)
 	}
 }
 

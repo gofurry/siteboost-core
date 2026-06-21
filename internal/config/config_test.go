@@ -41,6 +41,21 @@ func TestDefaultConfigValid(t *testing.T) {
 	}
 }
 
+func TestValidateFillsDefaultDoHServers(t *testing.T) {
+	cfg := Default()
+	cfg.Resolver.Mode = ResolverDoH
+	cfg.Resolver.Servers = []string{"  "}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if cfg.Resolver.Mode != ResolverDoH {
+		t.Fatalf("resolver mode = %q, want %q", cfg.Resolver.Mode, ResolverDoH)
+	}
+	if len(cfg.Resolver.Servers) == 0 {
+		t.Fatalf("default DoH servers were not filled")
+	}
+}
+
 func TestLoadFileYAML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`

@@ -159,6 +159,12 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if status.HostsHTTPS != "" {
 		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
 	}
+	if status.ResolverMode != "" {
+		fmt.Fprintf(stdout, "resolver: %s\n", status.ResolverMode)
+	}
+	if len(status.ResolverServers) > 0 {
+		fmt.Fprintf(stdout, "resolver_servers: %s\n", strings.Join(status.ResolverServers, ","))
+	}
 	fmt.Fprintf(stdout, "state: %s\n", cfg.Runtime.StatePath)
 	<-ctx.Done()
 
@@ -203,6 +209,12 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	}
 	if status.HostsHTTPS != "" {
 		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
+	}
+	if status.ResolverMode != "" {
+		fmt.Fprintf(stdout, "resolver: %s\n", status.ResolverMode)
+	}
+	if len(status.ResolverServers) > 0 {
+		fmt.Fprintf(stdout, "resolver_servers: %s\n", strings.Join(status.ResolverServers, ","))
 	}
 	fmt.Fprintf(stdout, "rollback: %v\n", status.Rollback)
 	if status.Mode == config.ModeHosts {

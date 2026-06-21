@@ -116,6 +116,8 @@ go run ./cmd/steam-accelerator start \
 
 resolver、upstream 与 macOS system service 选项只通过 YAML 配置。CLI 保持简单的生命周期与本地监听覆盖参数。
 
+说明：`resolver.mode: system` 是通用默认值；当 `mode: hosts` 且 `upstream.type: direct` 时，运行时会自动切到内置 DoH 解析真实 Steam IP，避免 hosts 写入后把反代出站连接解析回 `127.0.0.1`。外部 HTTP / SOCKS5 upstream 仍然只是可选增强，不是默认加速前提。
+
 ## 常见示例
 
 浏览器手动代理设置：
@@ -132,8 +134,8 @@ Port: 26501
 ```yaml
 resolver:
   mode: "doh"
-  servers:
-    - "https://dns.example/dns-query"
+  # servers 为空时使用内置 DoH 默认列表；也可以显式覆盖。
+  servers: []
   prefer_ipv4: true
   cache_ttl: "10m"
   timeout: "5s"
@@ -204,11 +206,13 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。`stop` 或 `restore` 会删除项目标记区块，但不会卸载用户显式安装的 Root CA。卸载证书请执行：
+Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `resolver` 和 `resolver_servers`。`stop` 或 `restore` 会删除项目标记区块，但不会卸载用户显式安装的 Root CA。卸载证书请执行：
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall
 ```
+
+如果浏览器或 Steam 内置浏览器仍显示 `upstream request failed`，v0.5.1 起响应体和日志会带出站诊断摘要，例如 DoH 解析失败、某个候选 IP 的 TCP 连接失败，或 TLS 握手失败。下一步应根据该错误判断是 DNS/DoH、直连 IP 可达性、证书/SNI，还是规则/profile 覆盖问题。
 
 测试时可以使用高端口，避免占用 80 / 443：
 
@@ -227,4 +231,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.4.0 中明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.5.1-dev 中仍明确不支持，会返回 unsupported。

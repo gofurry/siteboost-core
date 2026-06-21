@@ -3,11 +3,13 @@ package upstream
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +39,59 @@ func TestDirectDialerUsesResolver(t *testing.T) {
 	}
 	assertTunnel(t, conn)
 	<-done
+}
+
+func TestDirectDialerReportsResolveFailure(t *testing.T) {
+	dialer := NewDirectDialer(fakeResolver{err: fmt.Errorf("dns blocked")}, time.Second)
+	_, err := dialer.DialContext(context.Background(), "tcp", "example.test:443")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	for _, want := range []string{"direct upstream resolve example.test:443 failed", "dns blocked"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error = %q, want %q", msg, want)
+		}
+	}
+}
+
+func TestDirectDialerReportsAttemptFailures(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := portOf(ln.Addr().String())
+	_ = ln.Close()
+
+	dialer := NewDirectDialer(fakeResolver{ips: []net.IP{
+		net.ParseIP("127.0.0.1"),
+		net.ParseIP("127.0.0.2"),
+	}}, 200*time.Millisecond)
+	_, err = dialer.DialContext(context.Background(), "tcp", net.JoinHostPort("example.test", port))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"direct upstream dial " + net.JoinHostPort("example.test", port) + " failed after",
+		net.JoinHostPort("127.0.0.1", port),
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error = %q, want %q", msg, want)
+		}
+	}
+}
+
+func TestDirectDialerDialTLSContext(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer server.Close()
+
+	dialer := NewDirectDialer(fakeResolver{ips: []net.IP{net.ParseIP("127.0.0.1")}}, time.Second)
+	conn, err := dialer.DialTLSContext(context.Background(), "tcp", net.JoinHostPort("example.test", portOf(server.Listener.Addr().String())), &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
 }
 
 func TestHTTPDialerConnectsWithBasicAuth(t *testing.T) {

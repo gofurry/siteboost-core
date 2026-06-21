@@ -3,6 +3,7 @@ package upstream
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -66,6 +67,69 @@ type DirectDialer struct {
 	dialer   net.Dialer
 }
 
+type DirectDialAttempt struct {
+	Stage   string
+	IP      net.IP
+	Address string
+	Err     error
+}
+
+func (a DirectDialAttempt) Error() string {
+	stage := a.Stage
+	if stage == "" {
+		stage = "tcp"
+	}
+	if a.Err == nil {
+		return fmt.Sprintf("%s %s failed", stage, a.Address)
+	}
+	return fmt.Sprintf("%s %s failed: %v", stage, a.Address, a.Err)
+}
+
+type DirectDialError struct {
+	Network    string
+	Host       string
+	Port       string
+	ResolveErr error
+	Attempts   []DirectDialAttempt
+}
+
+func (e *DirectDialError) Error() string {
+	target := net.JoinHostPort(e.Host, e.Port)
+	if e.ResolveErr != nil {
+		return fmt.Sprintf("direct upstream resolve %s failed: %v", target, e.ResolveErr)
+	}
+	if len(e.Attempts) == 0 {
+		return fmt.Sprintf("direct upstream dial %s failed: no target IPs", target)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "direct upstream dial %s failed after %d attempt(s): ", target, len(e.Attempts))
+	limit := len(e.Attempts)
+	if limit > 5 {
+		limit = 5
+	}
+	for i := 0; i < limit; i++ {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(e.Attempts[i].Error())
+	}
+	if remaining := len(e.Attempts) - limit; remaining > 0 {
+		fmt.Fprintf(&b, "; %d more attempt(s) omitted", remaining)
+	}
+	return b.String()
+}
+
+func (e *DirectDialError) Unwrap() error {
+	if e.ResolveErr != nil {
+		return e.ResolveErr
+	}
+	if len(e.Attempts) == 1 {
+		return e.Attempts[0].Err
+	}
+	return nil
+}
+
 func NewDirectDialer(resolver Resolver, timeout time.Duration) *DirectDialer {
 	return &DirectDialer{
 		resolver: resolver,
@@ -80,22 +144,74 @@ func (d *DirectDialer) DialContext(ctx context.Context, network, address string)
 	}
 	ips, err := d.resolver.Resolve(ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("resolve target host: %w", err)
+		return nil, &DirectDialError{Network: network, Host: host, Port: port, ResolveErr: err}
 	}
 
-	var lastErr error
+	attempts := make([]DirectDialAttempt, 0, len(ips))
 	for _, ip := range ips {
 		target := net.JoinHostPort(ip.String(), port)
 		conn, err := d.dialer.DialContext(ctx, network, target)
 		if err == nil {
 			return conn, nil
 		}
-		lastErr = err
+		attempts = append(attempts, DirectDialAttempt{
+			Stage:   "tcp",
+			IP:      cloneIP(ip),
+			Address: target,
+			Err:     err,
+		})
 	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("no target IPs for %s", host)
+	return nil, &DirectDialError{Network: network, Host: host, Port: port, Attempts: attempts}
+}
+
+func (d *DirectDialer) DialTLSContext(ctx context.Context, network, address string, tlsConfig *tls.Config) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("split target address: %w", err)
 	}
-	return nil, lastErr
+	ips, err := d.resolver.Resolve(ctx, host)
+	if err != nil {
+		return nil, &DirectDialError{Network: network, Host: host, Port: port, ResolveErr: err}
+	}
+
+	attempts := make([]DirectDialAttempt, 0, len(ips))
+	for _, ip := range ips {
+		target := net.JoinHostPort(ip.String(), port)
+		conn, err := d.dialer.DialContext(ctx, network, target)
+		if err != nil {
+			attempts = append(attempts, DirectDialAttempt{
+				Stage:   "tcp",
+				IP:      cloneIP(ip),
+				Address: target,
+				Err:     err,
+			})
+			continue
+		}
+
+		handshakeCtx, cancel := d.handshakeContext(ctx)
+		tlsConn := tls.Client(conn, cloneTLSConfig(tlsConfig, host))
+		if err := tlsConn.HandshakeContext(handshakeCtx); err != nil {
+			cancel()
+			_ = tlsConn.Close()
+			attempts = append(attempts, DirectDialAttempt{
+				Stage:   "tls",
+				IP:      cloneIP(ip),
+				Address: target,
+				Err:     err,
+			})
+			continue
+		}
+		cancel()
+		return tlsConn, nil
+	}
+	return nil, &DirectDialError{Network: network, Host: host, Port: port, Attempts: attempts}
+}
+
+func (d *DirectDialer) handshakeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok || d.dialer.Timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d.dialer.Timeout)
 }
 
 type HTTPDialer struct {
@@ -392,4 +508,24 @@ func setHandshakeDeadline(ctx context.Context, conn net.Conn, timeout time.Durat
 		return fmt.Errorf("set upstream deadline: %w", err)
 	}
 	return nil
+}
+
+func cloneIP(ip net.IP) net.IP {
+	if ip == nil {
+		return nil
+	}
+	return append(net.IP(nil), ip...)
+}
+
+func cloneTLSConfig(cfg *tls.Config, serverName string) *tls.Config {
+	var cloned *tls.Config
+	if cfg == nil {
+		cloned = &tls.Config{}
+	} else {
+		cloned = cfg.Clone()
+	}
+	if cloned.ServerName == "" {
+		cloned.ServerName = serverName
+	}
+	return cloned
 }

@@ -196,8 +196,9 @@ func (s *Server) handleHTTP(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := s.transport.RoundTrip(outReq)
 	if err != nil {
-		s.logRequest("http_error", req.Method, host, match, s.behaviorFor(allowed), http.StatusBadGateway)
-		http.Error(w, "upstream request failed", http.StatusBadGateway)
+		msg := upstreamErrorMessage(err)
+		s.logRequestError("http_error", req.Method, host, match, s.behaviorFor(allowed), http.StatusBadGateway, msg)
+		http.Error(w, "upstream request failed: "+msg, http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -226,8 +227,9 @@ func (s *Server) handleConnect(w http.ResponseWriter, req *http.Request) {
 
 	upstreamConn, err := s.dialer.DialContext(req.Context(), "tcp", target)
 	if err != nil {
-		s.logRequest("connect_error", req.Method, host, match, s.behaviorFor(allowed), http.StatusBadGateway)
-		http.Error(w, "upstream dial failed", http.StatusBadGateway)
+		msg := upstreamErrorMessage(err)
+		s.logRequestError("connect_error", req.Method, host, match, s.behaviorFor(allowed), http.StatusBadGateway, msg)
+		http.Error(w, "upstream dial failed: "+msg, http.StatusBadGateway)
 		return
 	}
 
@@ -288,6 +290,43 @@ func (s *Server) logRequest(event, method, host string, match rules.MatchResult,
 		attrs = append(attrs, "rule_group", match.GroupName, "rule", match.Rule)
 	}
 	s.logger.Info("proxy request", attrs...)
+}
+
+func (s *Server) logRequestError(event, method, host string, match rules.MatchResult, behavior string, status int, message string) {
+	attrs := []any{
+		"event", event,
+		"method", method,
+		"host", host,
+		"behavior", behavior,
+		"status", status,
+		"error", message,
+	}
+	if match.GroupName != "" {
+		attrs = append(attrs, "rule_group", match.GroupName, "rule", match.Rule)
+	}
+	s.logger.Info("proxy request", attrs...)
+}
+
+func upstreamErrorMessage(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	msg := strings.TrimSpace(err.Error())
+	msg = strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '\t':
+			return ' '
+		default:
+			return r
+		}
+	}, msg)
+	if len(msg) > 1200 {
+		msg = msg[:1200] + "..."
+	}
+	if msg == "" {
+		return "unknown error"
+	}
+	return msg
 }
 
 func addressWithDefaultPort(raw, defaultPort string) (string, error) {

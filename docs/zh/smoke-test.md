@@ -48,7 +48,7 @@ upstream:
 go run ./cmd/steam-accelerator start --config ./tmp/proxy-system-direct.yaml --state ./tmp/runtime.json
 ```
 
-DoH 与 HTTP/SOCKS5 upstream 行为由 `go test ./internal/resolver ./internal/upstream ./internal/proxy` 中的本地 fake server 覆盖。手动检查时，可将 `resolver.mode` 配为 `doh` 并显式填写 `servers`，或将 `upstream.type` 配为 `http` / `socks5` 并填写本地代理地址。
+DoH 与 HTTP/SOCKS5 upstream 行为由 `go test ./internal/resolver ./internal/upstream ./internal/proxy` 中的本地 fake server 覆盖。手动检查时，可将 `resolver.mode` 配为 `doh`；`servers` 为空会使用内置 DoH 默认列表，也可以显式覆盖。HTTP / SOCKS5 upstream 只在需要外部代理增强时配置。
 
 ## PAC 与 System Proxy 检查
 
@@ -102,6 +102,10 @@ go run ./cmd/steam-accelerator start --mode hosts \
 go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 ```
 
+默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh` 和 `resolver_servers:`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。
+
+如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要是 v0.5.1 的关键验收项，用来判断失败发生在 DoH、TCP 直连还是 TLS 握手阶段。
+
 真实 hosts 模式默认写入 80 / 443。高端口主要用于验证 reverse server 生命周期；如果要验证浏览器访问真实 Steam 域名，需要使用默认 80 / 443 并确认本机端口未被占用。
 
 停止并卸载证书：
@@ -125,12 +129,15 @@ basic 示例应输出项目名和模块路径。
 - 新增 Go 文件未经过 `gofmt`。
 - 新增依赖后未运行 `go mod tidy`。
 - `127.0.0.1:26501` 端口已被占用。
-- 非 system resolver 未配置 `resolver.servers`。
+- UDP / TCP resolver 未配置 `resolver.servers`。
 - HTTP 或 SOCKS5 upstream 未配置 `upstream.address`。
 - PAC 模式下 `127.0.0.1:26502` 端口已被占用。
 - 当前系统不是 Windows 或 macOS，不能使用 PAC/System Proxy 模式写系统代理。
 - Hosts 模式下 80 / 443 端口已被占用。
 - Hosts 模式未先执行 `cert install`。
-- Windows hosts 写入失败；请使用管理员终端运行。
+- Windows hosts preflight 或写入失败；请使用管理员终端运行。
+- `upstream request failed` 后跟 `direct upstream resolve ... failed`：DoH / DNS 解析失败或网络拦截。
+- `upstream request failed` 后跟 `tcp ... failed`：候选真实 IP 无法直连。
+- `upstream request failed` 后跟 `tls ... failed`：真实 IP 可连，但 TLS / SNI / 证书链路失败。
 - restore 失败后 rollback 状态仍会保留；修复平台错误后再次执行 `restore`。
 - 状态文件指向旧进程；`status` 或 `stop` 应自动清理 stale 状态。

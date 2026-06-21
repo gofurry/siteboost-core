@@ -12,10 +12,11 @@ import (
 )
 
 type fakePlatform struct {
-	name  string
-	files map[string][]byte
-	mode  os.FileMode
-	err   error
+	name        string
+	files       map[string][]byte
+	mode        os.FileMode
+	err         error
+	writableErr error
 }
 
 func (p *fakePlatform) Name() string {
@@ -53,6 +54,19 @@ func (p *fakePlatform) FileMode(string) (os.FileMode, error) {
 		return 0o644, nil
 	}
 	return p.mode, nil
+}
+
+func (p *fakePlatform) CheckWritable(path string) error {
+	if p.writableErr != nil {
+		return p.writableErr
+	}
+	if p.files == nil {
+		p.files = make(map[string][]byte)
+	}
+	if _, ok := p.files[path]; !ok {
+		return os.ErrNotExist
+	}
+	return nil
 }
 
 func TestEntriesFromRulesSkipsWildcards(t *testing.T) {
@@ -131,5 +145,29 @@ func TestApplyUnsupportedPlatform(t *testing.T) {
 	}, &fakePlatform{name: "linux"})
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("err = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestPreflightChecksHostsWritable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	rollback := filepath.Join(t.TempDir(), "rollback.json")
+	platform := &fakePlatform{
+		files:       map[string][]byte{path: []byte("127.0.0.1 localhost\n")},
+		writableErr: os.ErrPermission,
+	}
+	err := PreflightWithPlatform(context.Background(), Config{
+		Path:         path,
+		RollbackPath: rollback,
+		MapIP:        "127.0.0.1",
+		Entries:      []Entry{{IP: "127.0.0.1", Host: "store.steampowered.com"}},
+	}, platform)
+	if err == nil {
+		t.Fatalf("PreflightWithPlatform returned nil")
+	}
+	if !strings.Contains(err.Error(), "Administrator terminal") {
+		t.Fatalf("err = %v, want Administrator hint", err)
+	}
+	if HasState(rollback) {
+		t.Fatalf("preflight should not create rollback state")
 	}
 }

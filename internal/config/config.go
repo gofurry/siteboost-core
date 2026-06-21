@@ -30,6 +30,15 @@ const (
 	UpstreamSOCKS5 = "socks5"
 )
 
+func DefaultDoHServers() []string {
+	return []string{
+		"https://dns.alidns.com/dns-query",
+		"https://doh.pub/dns-query",
+		"https://cloudflare-dns.com/dns-query",
+		"https://dns.google/dns-query",
+	}
+}
+
 type Duration time.Duration
 
 func (d Duration) Std() time.Duration {
@@ -318,6 +327,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("unsupported resolver mode %q", c.Resolver.Mode)
 	}
 	c.Resolver.Servers = trimStrings(c.Resolver.Servers)
+	if c.Resolver.Mode == ResolverDoH && len(c.Resolver.Servers) == 0 {
+		c.Resolver.Servers = DefaultDoHServers()
+	}
 	if c.Resolver.Mode != ResolverSystem && len(c.Resolver.Servers) == 0 {
 		return fmt.Errorf("resolver servers are required for mode %q", c.Resolver.Mode)
 	}

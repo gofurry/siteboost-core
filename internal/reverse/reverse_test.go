@@ -31,6 +31,14 @@ func (d mapDialer) DialContext(ctx context.Context, network, address string) (ne
 	return dialer.DialContext(ctx, network, target)
 }
 
+type errorDialer struct {
+	err error
+}
+
+func (d errorDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, d.err
+}
+
 func TestHTTPReversePreservesHost(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Host != "store.steampowered.com" {
@@ -60,6 +68,29 @@ func TestHTTPReversePreservesHost(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
 		t.Fatalf("status/body = %d/%q", resp.StatusCode, body)
+	}
+}
+
+func TestReverseUpstreamErrorIncludesDiagnostic(t *testing.T) {
+	server := newTestServer(t, errorDialer{err: fmt.Errorf("direct upstream dial store.steampowered.com:80 failed after 1 attempt")}, nil)
+	defer stopServer(t, server)
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+server.HTTPAddr()+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "store.steampowered.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %q", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "direct upstream dial store.steampowered.com:80 failed") {
+		t.Fatalf("body = %q", body)
 	}
 }
 
@@ -204,13 +235,13 @@ func TestWebSocketUpgradeIsForwarded(t *testing.T) {
 	}
 }
 
-func newTestServer(t *testing.T, dialer mapDialer, roots *x509.CertPool) *Server {
+func newTestServer(t *testing.T, dialer Dialer, roots *x509.CertPool) *Server {
 	t.Helper()
 	manager := certstore.NewWithPlatform(certstore.Config{Dir: t.TempDir()}, &fakeCertPlatform{})
 	return newTestServerWithManager(t, dialer, roots, manager)
 }
 
-func newTestServerWithManager(t *testing.T, dialer mapDialer, roots *x509.CertPool, manager *certstore.Manager) *Server {
+func newTestServerWithManager(t *testing.T, dialer Dialer, roots *x509.CertPool, manager *certstore.Manager) *Server {
 	t.Helper()
 	matcher, err := rules.NewMatcher(rules.DefaultSteamRules, nil)
 	if err != nil {

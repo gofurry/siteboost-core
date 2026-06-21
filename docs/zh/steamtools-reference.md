@@ -9,7 +9,7 @@
 - `ProxyMode` 枚举：`DNSIntercept`、`Hosts`、`System`、`VPN`、`ProxyOnly`、`PAC`。
 - SteamTools 许可证：GPL-3.0。
 
-截至 2026-06-18，这些信息用于本项目的架构边界设计，而不是作为代码移植来源。
+截至 2026-06-21，这些信息用于本项目的架构边界设计，而不是作为代码移植来源。
 
 ## 可借鉴内容
 
@@ -21,14 +21,14 @@
 - 上游出口应可配置：Direct、HTTP Proxy、SOCKS5。
 - Steam 域名规则应配置化、分组化，并由 PAC、Proxy、Hosts、Reverse Proxy 共用。
 
-## 不借鉴内容
+## 不进入默认主线的内容
 
 - 不做完整工具箱。
 - 不做 Steam 账号、令牌、库存、成就、挂卡等非网络能力。
-- 不做 JS 注入。
-- 首期不做 DNSIntercept。
-- 首期不做 VPN / TUN。
 - 不做公共代理池或节点服务。
+- 默认一键闭环不依赖 JS 注入。
+- `v1.0.0` 不以 DNSIntercept、VPN / TUN、JS 注入为阻塞项。
+- DNSIntercept、VPN / TUN、JS 注入进入 `v1.x` 高级能力路线，必须显式开启并单独说明安全风险。
 
 ## Clean-Room 规则
 
@@ -44,7 +44,9 @@
 - `v0.1.0` 先实现 `ProxyOnly`，不改系统状态。
 - `v0.3.0` 已实现 PAC 和 System Proxy。
 - `v0.4.0` 已实现 Windows-first Hosts、Root CA 与 HTTPS Reverse Proxy。
-- `DNSIntercept`、VPN / TUN 和 JS 注入进入延后路线或明确不做。
+- `v0.5.0` 已补齐第一版 Hosts + DoH 一键默认闭环，避免 Hosts 模式出站解析自绕回。
+- `v0.5.1` 已补齐出站失败诊断和 HTTPS Direct 出口的 TCP + TLS 候选尝试链。
+- `DNSIntercept`、VPN / TUN 和 JS 注入进入 `v1.x` 高级能力路线，但不阻塞 `v1.0.0`。
 
 ## 相关文档
 

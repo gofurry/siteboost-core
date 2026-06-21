@@ -153,6 +153,47 @@ func TestEngineSystemModeAppliesManualProxy(t *testing.T) {
 	}
 }
 
+func TestEffectiveResolverConfigHostsModeUsesDoHByDefault(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Resolver.Mode = config.ResolverSystem
+
+	got := effectiveResolverConfig(cfg)
+	if got.Mode != config.ResolverDoH {
+		t.Fatalf("resolver mode = %q, want %q", got.Mode, config.ResolverDoH)
+	}
+	if len(got.Servers) == 0 {
+		t.Fatalf("DoH servers were not filled")
+	}
+}
+
+func TestEffectiveResolverConfigKeepsExplicitResolver(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Resolver.Mode = config.ResolverUDP
+	cfg.Resolver.Servers = []string{"1.1.1.1:53"}
+
+	got := effectiveResolverConfig(cfg)
+	if got.Mode != config.ResolverUDP {
+		t.Fatalf("resolver mode = %q, want %q", got.Mode, config.ResolverUDP)
+	}
+	if len(got.Servers) != 1 || got.Servers[0] != "1.1.1.1:53" {
+		t.Fatalf("resolver servers = %#v", got.Servers)
+	}
+}
+
+func TestEffectiveResolverConfigKeepsSystemResolverWithProxyUpstream(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Upstream.Type = config.UpstreamHTTP
+	cfg.Upstream.Address = "127.0.0.1:18080"
+
+	got := effectiveResolverConfig(cfg)
+	if got.Mode != config.ResolverSystem {
+		t.Fatalf("resolver mode = %q, want %q", got.Mode, config.ResolverSystem)
+	}
+}
+
 func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	cfg := config.Default()
 	cfg.Mode = config.ModeHosts
@@ -163,6 +204,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	var applied hosts.Config
 	var restoredPath string
 	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error {
+			return nil
+		},
 		func(ctx context.Context, cfg hosts.Config) error {
 			applied = cfg
 			return nil
@@ -197,6 +241,12 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	if !status.Rollback {
 		t.Fatalf("rollback should be reported")
 	}
+	if status.ResolverMode != config.ResolverDoH {
+		t.Fatalf("resolver mode = %q, want %q", status.ResolverMode, config.ResolverDoH)
+	}
+	if len(status.ResolverServers) == 0 {
+		t.Fatalf("resolver servers were not reported")
+	}
 	if len(applied.Entries) == 0 {
 		t.Fatalf("hosts entries were not applied")
 	}
@@ -225,16 +275,19 @@ func replaceSystemProxyHooks(apply func(context.Context, systemproxy.Config) err
 	}
 }
 
-func replaceHostsHooks(apply func(context.Context, hosts.Config) error, restore func(context.Context, string) error, certCheck func(context.Context, certstore.Config) (bool, error), has func(string) bool) func() {
+func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, apply func(context.Context, hosts.Config) error, restore func(context.Context, string) error, certCheck func(context.Context, certstore.Config) (bool, error), has func(string) bool) func() {
+	oldPreflight := preflightHosts
 	oldApply := applyHosts
 	oldRestore := restoreHosts
 	oldCertCheck := isCertInstalled
 	oldHas := hasRollbackState
+	preflightHosts = preflight
 	applyHosts = apply
 	restoreHosts = restore
 	isCertInstalled = certCheck
 	hasRollbackState = has
 	return func() {
+		preflightHosts = oldPreflight
 		applyHosts = oldApply
 		restoreHosts = oldRestore
 		isCertInstalled = oldCertCheck

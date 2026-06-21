@@ -56,6 +56,7 @@ type Platform interface {
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, data []byte, mode os.FileMode) error
 	FileMode(path string) (os.FileMode, error)
+	CheckWritable(path string) error
 }
 
 func ConfigFromApp(cfg config.Config, entries []Entry) Config {
@@ -115,6 +116,35 @@ func EntriesFromDomains(domains []string, mapIP string) ([]Entry, error) {
 
 func Apply(ctx context.Context, cfg Config) error {
 	return ApplyWithPlatform(ctx, cfg, newOSPlatform())
+}
+
+func Preflight(ctx context.Context, cfg Config) error {
+	return PreflightWithPlatform(ctx, cfg, newOSPlatform())
+}
+
+func PreflightWithPlatform(ctx context.Context, cfg Config, platform Platform) error {
+	if platform == nil {
+		return fmt.Errorf("hosts platform is required")
+	}
+	if platform.Name() != "windows" {
+		return fmt.Errorf("%w: %s", ErrUnsupported, platform.Name())
+	}
+	if err := validateConfig(cfg); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := platform.ReadFile(cfg.Path); err != nil {
+		return fmt.Errorf("read hosts file: %w", err)
+	}
+	if err := platform.CheckWritable(cfg.Path); err != nil {
+		return formatWriteError(err)
+	}
+	if err := checkRollbackWritable(cfg.RollbackPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ApplyWithPlatform(ctx context.Context, cfg Config, platform Platform) error {
@@ -250,6 +280,27 @@ func RemoveState(path string) error {
 		return nil
 	}
 	return err
+}
+
+func checkRollbackWritable(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create hosts rollback directory: %w", err)
+	}
+	probe, err := os.CreateTemp(dir, ".steam-accelerator-preflight-*")
+	if err != nil {
+		return fmt.Errorf("check hosts rollback directory writable: %w", err)
+	}
+	name := probe.Name()
+	closeErr := probe.Close()
+	removeErr := os.Remove(name)
+	if closeErr != nil {
+		return fmt.Errorf("check hosts rollback directory writable: %w", closeErr)
+	}
+	if removeErr != nil && !os.IsNotExist(removeErr) {
+		return fmt.Errorf("check hosts rollback directory cleanup: %w", removeErr)
+	}
+	return nil
 }
 
 func validateConfig(cfg Config) error {
