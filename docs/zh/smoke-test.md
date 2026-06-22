@@ -79,9 +79,9 @@ go run ./cmd/steam-accelerator restore
 
 ## Windows Hosts 与 HTTPS Reverse Proxy 检查
 
-这些检查会默认修改 Windows `LocalMachine\Root` 证书库和 Windows hosts 文件。请使用管理员 PowerShell 运行 hosts 模式，并在测试完成后执行 `stop` 与 `cert uninstall`。
+这些检查会默认修改 Windows `LocalMachine\Root` 证书库和 Windows hosts 文件。v0.6.3 起，普通 PowerShell 运行 hosts 模式时会通过受限 helper 请求一次 Windows UAC；管理员 PowerShell 会走静默直接路径。测试完成后请执行 `stop` 与 `cert uninstall`。
 
-可选预安装本项目 Root CA。v0.6.1 起，`cert.auto_install` 为 true 时，`start --mode hosts` 可以在启动流程内自动安装：
+可选预安装本项目 Root CA。`cert.auto_install` 为 true 时，`start --mode hosts` 可以在启动流程内自动安装；普通 PowerShell 下该命令也会通过 helper 请求 UAC：
 
 ```bash
 go run ./cmd/steam-accelerator cert install
@@ -104,7 +104,7 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 
 默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.22`、`upstream_profiles: 4` 和 `startup_probes:`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认出站 profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，同时保留原始 HTTP Host。
 
-`system_change:` 行应显示 Root CA 检查/安装、hosts preflight、反代监听和 hosts 写入结果。`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
+`system_change:` 行应显示 Root CA 检查/安装、hosts preflight、反代监听和 hosts 写入结果。普通 PowerShell 通过 helper 成功时，Root CA 或 hosts 行的 detail 中应包含 `helper=elevated`。`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
 
 如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`resolve steamcommunity-a.akamaihd.net:443 failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要用来判断失败发生在 DoH、ForwardDestination 解析、TCP 直连还是 TLS 握手阶段。
 
@@ -127,6 +127,8 @@ go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator cert uninstall
 ```
 
+如果从普通 PowerShell 测试，`stop` / `restore` 恢复 hosts 和 `cert uninstall` 卸载机器级 Root CA 时也可能再次请求 UAC。取消 UAC 时命令应返回可理解错误；项目不应写入新的 hosts 标记区块或留下新的半成品 rollback。
+
 ## 期望输出
 
 版本命令应输出项目名、版本号和模块路径。
@@ -146,8 +148,8 @@ basic 示例应输出项目名和模块路径。
 - PAC 模式下 `127.0.0.1:26502` 端口已被占用。
 - 当前系统不是 Windows 或 macOS，不能使用 PAC/System Proxy 模式写系统代理。
 - Hosts 模式下 80 / 443 端口已被占用。
-- Hosts 模式未先执行 `cert install`。
-- Windows hosts preflight 或写入失败；请使用管理员终端运行。
+- Hosts 模式未先执行 `cert install`，且 `cert.auto_install` 被设为 false。
+- Windows hosts preflight 或写入失败；普通 PowerShell 应触发 UAC helper，若使用了自定义 `hosts.path` / `runtime.rollback_path` / `cert.dir`，请改用管理员终端或默认路径。
 - `upstream request failed` 后跟 `direct upstream resolve ... failed`：DoH / DNS 解析失败或网络拦截。
 - `upstream request failed` 后跟 `resolve steamcommunity-a.akamaihd.net:443 failed` 或 `resolve cdn-a.akamaihd.net:443 failed`：默认 Steam profile 的 ForwardDestination 解析失败。
 - `upstream request failed` 后跟 `tcp ... failed`：候选真实 IP 或 ForwardDestination IP 无法直连。

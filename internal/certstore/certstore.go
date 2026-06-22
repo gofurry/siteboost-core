@@ -48,6 +48,7 @@ type TrustResult struct {
 	AlreadyTrusted bool
 	Installed      bool
 	Changed        bool
+	ViaHelper      bool
 }
 
 type Platform interface {

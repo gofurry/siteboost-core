@@ -75,8 +75,9 @@ cert:
   # Hosts mode checks root CA trust on start. When auto_install is true,
   # start --mode hosts installs the local root CA if it is not trusted yet.
   auto_install: true
-  # machine uses LocalMachine\Root and is the default Windows path for
-  # administrator-run Hosts mode. user uses CurrentUser\Root as a fallback.
+  # machine uses LocalMachine\Root and is the default Windows Hosts path.
+  # A normal PowerShell requests one UAC prompt through the narrow helper
+  # when system writes are needed. user uses CurrentUser\Root as a fallback.
   store_scope: "machine"
 
 resolver:
@@ -244,7 +245,7 @@ hosts:
   https_listen_addr: "127.0.0.1:443"
 ```
 
-By default, `start --mode hosts` checks this project's root CA and installs it into the Windows `LocalMachine\Root` store if it is not trusted yet. This is the low-friction path for administrator-run Hosts mode and avoids the first-run confirmation commonly seen with CurrentUser root installs. The core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
+By default, `start --mode hosts` checks this project's root CA and installs it into the Windows `LocalMachine\Root` store if it is not trusted yet. Administrator PowerShell uses the silent direct path. A normal PowerShell asks for one Windows UAC authorization through the narrow helper when root CA or Windows hosts writes are needed. The core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
 
 Set `cert.store_scope: "user"` only when you explicitly want `CurrentUser\Root`; that compatibility path may still show a Windows root-certificate confirmation.
 
@@ -259,13 +260,15 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-`cert install` checks the configured Windows Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again.
+`cert install` checks the configured Windows Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again. From a normal PowerShell, writing the default `machine` store also requests UAC through the helper; `cert uninstall` is always an explicit user action.
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA. To uninstall it, run:
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. When the normal PowerShell helper path succeeds, `system_change` detail includes `helper=elevated`. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA; restoring hosts from a normal PowerShell may request UAC again. To uninstall it, run:
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall
 ```
+
+The narrow helper only accepts the default Windows hosts path plus rollback and certificate files under the default project runtime/config directories. If YAML config points `hosts.path`, `runtime.rollback_path`, or `cert.dir` to custom locations and the process is not elevated, the helper rejects the request; use an Administrator PowerShell for those advanced paths or a future controlled desktop integration.
 
 If the browser or Steam embedded browser still shows `upstream request failed`, the response body and logs include an outbound diagnostic summary. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, ForwardDestination reachability, certificate/SNI behavior, or missing rule/profile coverage.
 
@@ -298,4 +301,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.0.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.3.

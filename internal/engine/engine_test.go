@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/hosts"
+	"github.com/gofurry/go-steam-core/internal/privilege"
 	"github.com/gofurry/go-steam-core/internal/rules"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
@@ -366,6 +369,193 @@ func TestEngineHostsModeAutoInstallCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestEngineHostsModeUsesElevatedHelper(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.Cert.Dir = t.TempDir()
+	cfg.Runtime.RollbackPath = config.DefaultRollbackPath()
+
+	var helperCalled bool
+	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error {
+			t.Fatalf("preflightHosts should be handled by elevated helper")
+			return nil
+		},
+		func(ctx context.Context, cfg hosts.Config) error {
+			t.Fatalf("applyHosts should be handled by elevated helper")
+			return nil
+		},
+		func(ctx context.Context, path string) error { return nil },
+		func(ctx context.Context, cfg certstore.Config) (bool, error) {
+			t.Fatalf("isCertInstalled should be handled by elevated helper")
+			return false, nil
+		},
+		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+			t.Fatalf("ensureCertTrusted should be handled by elevated helper")
+			return certstore.TrustResult{}, nil
+		},
+		func(path string) bool { return true },
+	)
+	defer restoreFns()
+	oldPrepare := prepareHostsElevated
+	oldShouldUseHelper := shouldUseHostHelper
+	prepareHostsElevated = func(ctx context.Context, certCfg certstore.Config, hostsCfg hosts.Config, autoInstall bool) (privilege.PrepareHostsResult, error) {
+		helperCalled = true
+		if !autoInstall {
+			t.Fatalf("autoInstall = false, want true")
+		}
+		if len(hostsCfg.Entries) == 0 {
+			t.Fatalf("hosts entries were not passed to helper")
+		}
+		return privilege.PrepareHostsResult{
+			Cert: certstore.TrustResult{
+				StoreScope:     certCfg.StoreScope,
+				AlreadyTrusted: true,
+				ViaHelper:      true,
+			},
+			CertTrusted: true,
+			Entries:     len(hostsCfg.Entries),
+		}, nil
+	}
+	shouldUseHostHelper = func() bool { return true }
+	defer func() {
+		prepareHostsElevated = oldPrepare
+		shouldUseHostHelper = oldShouldUseHelper
+	}()
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+		return nil
+	})
+	defer restoreProbe()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if !helperCalled {
+		t.Fatalf("elevated helper was not called")
+	}
+	if !status.CertInstalled {
+		t.Fatalf("cert should be reported as installed")
+	}
+	if !hasSystemChange(status.SystemChanges, "root_ca", "check", "already_trusted") {
+		t.Fatalf("root CA helper change missing: %#v", status.SystemChanges)
+	}
+	if !hasSystemChange(status.SystemChanges, "hosts", "apply", "ok") {
+		t.Fatalf("hosts helper apply change missing: %#v", status.SystemChanges)
+	}
+	foundHelperDetail := false
+	for _, change := range status.SystemChanges {
+		if strings.Contains(change.Detail, "helper=elevated") {
+			foundHelperDetail = true
+			break
+		}
+	}
+	if !foundHelperDetail {
+		t.Fatalf("helper detail missing: %#v", status.SystemChanges)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
+func TestEngineHostsModeFallsBackToElevatedHelperOnAccessDenied(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only elevated helper fallback")
+	}
+	cfg := config.Default()
+	cfg.Mode = config.ModeHosts
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.Cert.Dir = t.TempDir()
+	cfg.Runtime.RollbackPath = config.DefaultRollbackPath()
+
+	var helperCalled bool
+	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error {
+			t.Fatalf("preflightHosts should not run after certificate access denied")
+			return nil
+		},
+		func(ctx context.Context, cfg hosts.Config) error {
+			t.Fatalf("applyHosts should not run after certificate access denied")
+			return nil
+		},
+		func(ctx context.Context, path string) error { return nil },
+		func(ctx context.Context, cfg certstore.Config) (bool, error) {
+			return false, nil
+		},
+		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+			return certstore.TrustResult{}, errors.New("Access is denied.")
+		},
+		func(path string) bool { return true },
+	)
+	defer restoreFns()
+	oldPrepare := prepareHostsElevated
+	prepareHostsElevated = func(ctx context.Context, certCfg certstore.Config, hostsCfg hosts.Config, autoInstall bool) (privilege.PrepareHostsResult, error) {
+		helperCalled = true
+		return privilege.PrepareHostsResult{
+			Cert: certstore.TrustResult{
+				StoreScope: cfg.Cert.StoreScope,
+				Installed:  true,
+				Changed:    true,
+				ViaHelper:  true,
+			},
+			CertTrusted: true,
+			Entries:     len(hostsCfg.Entries),
+		}, nil
+	}
+	defer func() {
+		prepareHostsElevated = oldPrepare
+	}()
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+		return nil
+	})
+	defer restoreProbe()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if !helperCalled {
+		t.Fatalf("elevated helper fallback was not called")
+	}
+	if !hasSystemChange(status.SystemChanges, "root_ca", "install", "ok") {
+		t.Fatalf("root CA helper install change missing: %#v", status.SystemChanges)
+	}
+	foundHelperDetail := false
+	for _, change := range status.SystemChanges {
+		if strings.Contains(change.Detail, "helper=elevated") {
+			foundHelperDetail = true
+			break
+		}
+	}
+	if !foundHelperDetail {
+		t.Fatalf("helper detail missing: %#v", status.SystemChanges)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
 func replaceSystemProxyHooks(apply func(context.Context, systemproxy.Config) error, restore func(context.Context, string) error, has func(string) bool) func() {
 	oldApply := applySystemProxy
 	oldRestore := restoreSystemProxy
@@ -387,12 +577,14 @@ func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, appl
 	oldCertCheck := isCertInstalled
 	oldCertTrust := ensureCertTrusted
 	oldHas := hasRollbackState
+	oldShouldUseHelper := shouldUseHostHelper
 	preflightHosts = preflight
 	applyHosts = apply
 	restoreHosts = restore
 	isCertInstalled = certCheck
 	ensureCertTrusted = certTrust
 	hasRollbackState = has
+	shouldUseHostHelper = func() bool { return false }
 	return func() {
 		preflightHosts = oldPreflight
 		applyHosts = oldApply
@@ -400,6 +592,7 @@ func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, appl
 		isCertInstalled = oldCertCheck
 		ensureCertTrusted = oldCertTrust
 		hasRollbackState = oldHas
+		shouldUseHostHelper = oldShouldUseHelper
 	}
 }
 

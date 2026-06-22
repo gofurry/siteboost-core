@@ -21,6 +21,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/engine"
 	"github.com/gofurry/go-steam-core/internal/hosts"
+	"github.com/gofurry/go-steam-core/internal/privilege"
 	runtimecontrol "github.com/gofurry/go-steam-core/internal/runtime"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
@@ -52,6 +53,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runRestore(args[1:], stdout, stderr)
 	case "cert":
 		err = runCert(args[1:], stdout, stderr)
+	case "__helper":
+		err = privilege.RunHelper(args[1:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -339,15 +342,15 @@ func runCert(args []string, stdout, stderr io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Runtime.StopTimeout.Std())
 	defer cancel()
-	manager := certstore.New(certstore.ConfigFromApp(cfg))
+	certCfg := certstore.ConfigFromApp(cfg)
 	switch args[0] {
 	case "install":
-		if err := manager.Install(ctx); err != nil {
+		if err := privilege.InstallCert(ctx, certCfg); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "installed")
 	case "uninstall":
-		if err := manager.Uninstall(ctx); err != nil {
+		if err := privilege.UninstallCert(ctx, certCfg); err != nil {
 			if errors.Is(err, certstore.ErrNoCA) {
 				fmt.Fprintln(stdout, "not modified")
 				return nil
@@ -482,7 +485,7 @@ func restoreRollback(ctx context.Context, path string) error {
 		return fmt.Errorf("parse rollback state: %w", err)
 	}
 	if meta.Kind == "hosts" || meta.Mode == config.ModeHosts {
-		return hosts.Restore(ctx, path)
+		return privilege.RestoreHosts(ctx, path)
 	}
 	return systemproxy.Restore(ctx, path)
 }

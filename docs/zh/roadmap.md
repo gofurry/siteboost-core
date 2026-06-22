@@ -4,17 +4,17 @@
 
 ## 当前阶段
 
-当前项目已完成 `v0.6.2`，并进入 `v0.6.3` Windows 提权 helper / AppHost 准备阶段。项目已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与一键安装、Windows 机器级默认证书写入、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
+当前项目已完成 `v0.6.3` Windows 受限提权 helper 一键启动，并准备进入 `v0.7.0` 通用加速核心重构与命名迁移阶段。项目已经具备 Steam 本地加速核心零件：ProxyOnly、PAC、System Proxy、Windows Hosts 反代、YAML 配置、Steam 域名规则、HTTP Proxy、HTTPS CONNECT、可配置 resolver、DNS 缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 upstream、Root CA 生成与一键安装、Windows 机器级默认证书写入、受限提权 helper、动态站点证书、rollback 状态、带 token 的 loopback 控制接口，以及 `start` / `status` / `stop` / `restore` / `cert install` / `cert uninstall` CLI。
 
 `v0.6.0` 已完成第一版 Hosts + DoH 默认闭环、出站失败诊断、默认 Steam 出站 profile、启动探测和 Windows 中国网络真实 smoke 记录：Hosts + Direct 模式默认使用内置 DoH 解析真实 Steam IP，避免 hosts 写入后自绕回；`start --mode hosts` 已串联 Root CA、hosts 可读写、rollback 目录可写、反代监听和 hosts 写入失败恢复；`status` / `start` 会显示运行时 resolver 模式、DoH servers、规则版本和 `startup_probes`；Reverse Proxy / Proxy 的 502 会显示裁剪后的出站失败摘要，Direct 出口可区分 DoH 解析、TCP 连接和 TLS 握手阶段；默认 profile 会让 community 域名优先走 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 域名优先走 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名，并保留原始域名 fallback。
 
-`v0.6.1` / `v0.6.2` 已将 Root CA 检查/安装、hosts preflight、反代监听、hosts 写入和 rollback 结果纳入 `start --mode hosts` 一键流程。默认 `cert.auto_install: true`，未安装时通过 Windows 证书库 API 安装，已安装时静默跳过；默认写入 `LocalMachine\Root`，用于管理员运行 Hosts 模式时减少首次确认，`cert.store_scope: user` 可切回 `CurrentUser\Root`；`status` / `start` 会输出 `system_change` 诊断。
+`v0.6.1` / `v0.6.2` 已将 Root CA 检查/安装、hosts preflight、反代监听、hosts 写入和 rollback 结果纳入 `start --mode hosts` 一键流程。默认 `cert.auto_install: true`，未安装时通过 Windows 证书库 API 安装，已安装时静默跳过；默认写入 `LocalMachine\Root`，用于管理员运行 Hosts 模式时减少首次确认，`cert.store_scope: user` 可切回 `CurrentUser\Root`；`status` / `start` 会输出 `system_change` 诊断。`v0.6.3` 进一步让普通 PowerShell 在需要写 `LocalMachine\Root` 或 Windows hosts 时，通过同一可执行文件的隐藏 helper 入口和 Windows `ShellExecute/runas` 主动请求一次 UAC；管理员进程仍走静默直接路径。helper 只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca` 白名单命令，并通过 token、父进程 PID、默认路径约束和超时保护限制提权面。
 
-但当前还不能称为完整 Steam++ 式“一键可用”体验。主要差距是：
+距离完整 Steam++ 式能力仍有差距。主要差距是：
 
 - 真实 Steam 域名、Steam 客户端内置浏览器、网页登录、社区、商店、聊天、静态资源和 WebSocket 场景已经完成至少一轮 Windows 中国网络手动通过记录。
 - hosts 文件仍只能覆盖 exact 域名，wildcard 规则需要后续 DNSIntercept 等高级模式。
-- Root CA 检查 / 安装已进入 `start --mode hosts` 流程，但普通进程仍不能直接写 `LocalMachine\Root` 或 hosts；下一步需要像 Steam++ 一样由主进程触发一次 Windows UAC，拉起受限的 elevated helper / AppHost 执行系统修改。
+- Windows 普通进程已能主动请求 UAC 完成 Root CA、hosts 和 restore，但这是显式系统授权，不是绕过 UAC；自定义 hosts / cert / rollback 路径会被 helper 限制，复杂桌面分发仍需要后续独立 AppHost / installer 打包设计。
 - macOS / Linux Hosts 与证书安装仍未支持。
 - 当前运行时实现仍主要位于 `internal/`，公共 Go API 尚未稳定。
 
@@ -28,7 +28,7 @@
 
 1. 已先修正 Hosts 模式默认闭环和 DNS 自绕回风险。
 2. 接下来用真实 Steam 场景验证规则、证书、反代和恢复路径。
-3. 已补齐 Windows Root CA 写入编排和 helper 边界设计；下一步实现受限 elevated helper / AppHost，让普通启动路径可以主动触发一次 UAC，而不是要求用户手动打开管理员终端。
+3. 已实现 Windows 受限 elevated helper，让普通启动路径可以主动触发一次 UAC，而不是要求用户手动打开管理员终端。
 4. 功能验证后进行通用加速核心重构，让规则、profile、接管模式、证书和权限能力从 Steam 业务命名中解耦。
 5. 之后稳定跨平台能力和 Go 集成 API。
 6. `v1.0.0` 以可维护、可扩展的一键本地加速闭环作为稳定主线。
@@ -228,30 +228,30 @@
 
 ---
 
-### v0.6.3 - Windows 提权 helper / AppHost 一键启动
+### v0.6.3 - Windows 提权 helper 一键启动
 
-**状态：** 计划中
+**状态：** 已完成
 **范围：** User-facing / Security-Safety / Windows / Architecture / Testing
 **目标：** 让普通启动路径可以像 Steam++ 一样由程序主动触发一次 UAC，拉起受限 elevated helper / AppHost 完成 Root CA、hosts 和恢复动作，而不是要求用户手动打开管理员 PowerShell。
 
 #### 重点
 
-- `siteboost-helper.exe` 或等价 AppHost，带 `requireAdministrator` manifest。
+- 同一可执行文件提供隐藏 `__helper` 入口，由主进程通过 Windows `ShellExecute/runas` 拉起；独立 `siteboost-helper.exe` / AppHost 和 manifest 打包留给后续桌面壳或发布包。
 - 主进程检测非管理员状态后，通过 Windows `ShellExecute` / `runas` 拉起 helper。
 - helper 只暴露受限命令，不提供任意 shell、任意文件写入或代理凭据访问。
-- helper 和主进程之间使用 loopback / named pipe / stdio 中的一种窄 IPC，带 nonce、父进程校验和超时。
+- helper 和主进程之间使用临时 JSON request / response 文件作为窄 IPC，带 token、父进程校验、命令白名单、路径约束和超时。
 - 普通 CLI、未来桌面壳和 Go 集成 API 都能复用同一套 privilege boundary。
 
 #### 任务
 
-- [ ] 新增 Windows privilege 包，封装管理员检测、`runas` 启动、helper 路径定位和错误分类。
-- [ ] 增加 helper / AppHost 入口，只允许执行 `trust-root-ca`、`apply-hosts`、`restore-hosts`、`untrust-root-ca` 等白名单命令。
-- [ ] 为 helper 增加 `requireAdministrator` manifest，并在构建文档中说明 Windows 产物生成方式。
-- [ ] 将 `start --mode hosts` 在非管理员时改为自动请求 helper；管理员进程仍走当前直接路径。
-- [ ] 将 hosts 写入、Root CA 写入、restore、cert uninstall 接入 helper，保持 rollback 和 `system_change` 输出一致。
-- [ ] 增加 helper IPC 的 nonce / token、父进程 PID、命令白名单、路径约束和超时保护。
-- [ ] 增加 Windows 单元测试和可手动验证脚本，覆盖首次 UAC、已授权 helper、用户取消 UAC、helper 超时、helper 失败和恢复路径。
-- [ ] 更新安全文档，明确这是显式 UAC 提权，不是绕过 UAC；参考 Steam++ 的提权边界思想，不复制 SteamTools 源码。
+- [x] 新增 Windows privilege 包，封装管理员检测、`runas` 启动、helper 路径定位和 helper 响应等待。
+- [x] 增加隐藏 helper 入口，只允许执行 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca` 白名单命令。
+- [x] 采用同一可执行文件 hidden helper + `ShellExecute/runas` 的等价 AppHost 路径；独立 helper manifest / installer 打包转入后续桌面集成与发布工程。
+- [x] 将 `start --mode hosts` 在非管理员时改为自动请求 helper；管理员进程仍走当前直接路径。
+- [x] 将 hosts 写入、Root CA 写入、restore、cert uninstall 接入 helper，保持 rollback 和 `system_change` 输出一致。
+- [x] 增加 helper IPC 的 token、父进程 PID、命令白名单、路径约束和超时保护。
+- [x] 增加 privilege 边界单元测试和 engine helper 分支测试；真实 UAC、取消授权和普通 PowerShell 路径通过 smoke 文档手动验证。
+- [x] 更新安全文档，明确这是显式 UAC 提权，不是绕过 UAC；参考 Steam++ 的提权边界思想，不复制 SteamTools 源码。
 
 #### 验收标准
 
@@ -260,6 +260,7 @@
 - helper 不能执行任意 shell 命令，不能写入非项目允许的系统路径，不能接收 Cookie、代理密码或其他用户秘密。
 - `stop` / `restore` 在普通启动路径下也能通过 helper 恢复项目 hosts 修改。
 - 管理员 PowerShell 下仍保持 v0.6.2 的静默机器级证书写入路径。
+- 非管理员 helper 只支持默认 Windows hosts 路径、默认项目 runtime/cert 目录下的 rollback 与证书；自定义系统路径需要管理员进程或后续受控桌面集成。
 
 #### 说明
 
@@ -429,7 +430,7 @@
 
 短期：
 
-- 聚焦 `v0.6.3`，实现 Windows elevated helper / AppHost，让普通启动路径可以主动触发一次 UAC，并完成 Root CA、hosts、restore 的受限系统修改。
+- 聚焦 `v0.7.0`，完成通用加速核心重构和可能改名的迁移准备，把 Steam 规则 / profile 收敛为内置 provider，而不是核心唯一目标。
 
 中期：
 
@@ -445,7 +446,7 @@
 |---|---|---|
 | Hosts 模式 system resolver 自绕回 | 反代连接回本机导致访问失败 | v0.5 强制 Hosts 出站解析避开 system resolver |
 | Root CA 用户不信任 | 安全信任问题 | 默认明确提示、显式安装、显式卸载、文档说明 |
-| 提权 / 证书写入体验割裂 | 无法达到 Steam++ 式一键体验 | v0.6.3 实现受限 elevated helper / AppHost，由程序主动请求一次 UAC，不绕过系统安全边界 |
+| 提权 / 证书写入体验割裂 | 无法达到 Steam++ 式一键体验 | v0.6.3 已实现受限 elevated helper，由程序主动请求一次 UAC，不绕过系统安全边界；独立 AppHost / installer 留给后续发布工程 |
 | hosts 写入失败 | 用户网络异常 | 标记区块、rollback、restore、管理员权限检查 |
 | 80 / 443 端口占用 | 一键启动失败 | 启动前检查并提示占用进程或替代测试端口 |
 | Steam 域名变化 | 覆盖不足 | 规则分组、手动 smoke、规则版本化评估 |

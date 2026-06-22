@@ -1,0 +1,130 @@
+//go:build windows
+
+package privilege
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"golang.org/x/sys/windows"
+)
+
+func IsElevated() bool {
+	return windows.GetCurrentProcessToken().IsElevated()
+}
+
+func runElevatedHelper(ctx context.Context, req HelperRequest) (HelperResponse, error) {
+	helperCtx, cancel, err := helperContext(ctx)
+	if err != nil {
+		return HelperResponse{}, err
+	}
+	defer cancel()
+
+	dir, err := os.MkdirTemp("", "steam-accelerator-helper-*")
+	if err != nil {
+		return HelperResponse{}, fmt.Errorf("create helper temp dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	token, err := randomToken()
+	if err != nil {
+		return HelperResponse{}, err
+	}
+	req.Version = helperVersion
+	req.Token = token
+	req.ParentPID = os.Getpid()
+
+	requestPath := filepath.Join(dir, "request.json")
+	responsePath := filepath.Join(dir, "response.json")
+	if err := writeHelperRequest(requestPath, req); err != nil {
+		return HelperResponse{}, err
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return HelperResponse{}, fmt.Errorf("locate executable for elevated helper: %w", err)
+	}
+	args := windows.ComposeCommandLine([]string{
+		"__helper",
+		"--request", requestPath,
+		"--response", responsePath,
+		"--token", token,
+		"--parent", strconv.Itoa(req.ParentPID),
+	})
+	cwd, _ := os.Getwd()
+	if err := shellExecuteRunas(exe, args, cwd); err != nil {
+		if errors.Is(err, windows.ERROR_CANCELLED) {
+			return HelperResponse{}, fmt.Errorf("elevated helper authorization was canceled")
+		}
+		return HelperResponse{}, fmt.Errorf("start elevated helper: %w", err)
+	}
+	return waitForHelperResponse(helperCtx, responsePath)
+}
+
+func shellExecuteRunas(exe, args, cwd string) error {
+	verb, err := windows.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
+	}
+	file, err := windows.UTF16PtrFromString(exe)
+	if err != nil {
+		return err
+	}
+	params, err := windows.UTF16PtrFromString(args)
+	if err != nil {
+		return err
+	}
+	var cwdPtr *uint16
+	if cwd != "" {
+		cwdPtr, err = windows.UTF16PtrFromString(cwd)
+		if err != nil {
+			return err
+		}
+	}
+	return windows.ShellExecute(0, verb, file, params, cwdPtr, windows.SW_SHOWNORMAL)
+}
+
+func helperStatus() string {
+	return fmt.Sprintf("helper pid=%d elevated=%t", os.Getpid(), IsElevated())
+}
+
+func waitForHelperResponse(ctx context.Context, responsePath string) (HelperResponse, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return HelperResponse{}, fmt.Errorf("elevated helper timed out or was canceled: %w", ctx.Err())
+		case <-ticker.C:
+			resp, err := readHelperResponse(responsePath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return HelperResponse{}, err
+			}
+			if !resp.OK {
+				if resp.Error == "" {
+					resp.Error = "helper failed"
+				}
+				return resp, fmt.Errorf("elevated helper: %s", resp.Error)
+			}
+			return resp, nil
+		}
+	}
+}
+
+func randomToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate helper token: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}

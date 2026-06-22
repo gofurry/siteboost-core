@@ -8,5 +8,5 @@ const (
 	ModulePath = "github.com/gofurry/go-steam-core"
 
 	// Version is the development version before the first tagged release.
-	Version = "v0.6.2"
+	Version = "v0.6.3"
 )

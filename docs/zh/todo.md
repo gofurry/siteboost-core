@@ -2,9 +2,10 @@
 
 ## 短期任务
 
-- 推进 `v0.6.0` 真实 Steam 访问验收，覆盖商店、社区、登录、聊天、静态资源和 WebSocket。
-- 基于已实现的默认 Steam 出站 profile 做真实访问验证，并继续补齐 chat、static、api、cdn 等分组。
-- 基于 Steam 兼容性清单完成至少一轮 Windows 真实 smoke 记录。
+- 推进 `v0.7.0` 通用加速核心重构和命名迁移准备。
+- 审计代码、配置、CLI、状态输出和文档中的 Steam 专用命名与硬编码假设。
+- 设计 provider / rule pack / outbound profile / takeover mode / restore state 的通用模型。
+- 增加一个非 Steam 示例 provider，证明核心可支持其他站点或服务的本地加速。
 - 增加 malformed request、dial failure 和 upstream failure 等代理边界测试。
 - 在下一轮文档整理时增加配置示例文件。
 - 在公共 API 设计稳定前，继续保持运行时实现为 internal。
@@ -24,6 +25,7 @@
 ## 已知限制
 
 - 当前已实现 ProxyOnly、PAC、System Proxy、Windows Hosts、证书与反代能力。
+- Windows 普通 PowerShell 已支持通过显式 UAC helper 完成默认 Hosts / Root CA / restore 系统修改；自定义 hosts / cert / rollback 路径仍需要管理员进程或后续受控桌面集成。
 - Hosts 文件不能表达通配符，当前 Hosts 模式只写入 exact 域名。
 - Linux 桌面系统代理处理延后。
 - DNSIntercept、VPN / TUN、JS 注入不进入 v1.0 范围，但进入 v1.x 高级能力路线。

@@ -8,7 +8,8 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - 默认只代理 Steam 规则域名。
 - ProxyOnly 模式不解密 HTTPS。
 - 只在用户显式启动 Hosts 模式或执行 `cert install` 时安装本地 Root CA。
-- `start --mode hosts` 在 `cert.auto_install` 为 true 时会把 Root CA 检查/安装纳入启动流程，并限制在配置的 Windows Root store。默认 `cert.store_scope: machine`，适用于管理员运行 Hosts 模式；`user` 作为兼容退路。核心不会绕过 UAC、企业策略，也不会接受任意系统修改命令。
+- 只在用户显式启动 Hosts 模式、执行 `restore` 或执行证书命令且确实需要系统写入时请求 Windows UAC。
+- `start --mode hosts` 在 `cert.auto_install` 为 true 时会把 Root CA 检查/安装纳入启动流程，并限制在配置的 Windows Root store。默认 `cert.store_scope: machine`；普通 Windows 进程需要系统写入时会通过显式 UAC helper 完成，`user` 作为兼容退路。核心不会绕过 UAC、企业策略，也不会接受任意系统修改命令。
 - `cert install` 和自动安装流程都会先检查本项目 Root CA 是否已存在，避免重复执行安装动作。
 - 默认不修改 hosts，必须显式启动 `mode: hosts`。
 - 默认不暴露公网代理入口。
@@ -31,6 +32,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - 支持独立 `restore`。
 - 文档写明手动恢复方式。
 - 只修改项目拥有的配置项或 hosts 标记区块。
+- 提权 helper 必须保持窄命令面。v0.6.3 helper 只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca`，校验 token 和父进程 PID，限制默认 hosts 路径与项目 runtime / cert 目录，并对请求设置超时。
 
 ## 证书风险
 
@@ -45,7 +47,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 
 `restore` 只恢复系统代理或删除 hosts 项目标记区块，不会自动卸载用户显式安装的 Root CA。
 
-v0.6.2 的证书安装默认范围是 Windows `LocalMachine\Root`；`cert.store_scope: user` 可切回当前用户 Root store。macOS / Linux 会明确返回 unsupported。
+v0.6.3 的证书安装默认范围是 Windows `LocalMachine\Root`；普通 PowerShell 通过显式 UAC helper 完成机器级写入，管理员 PowerShell 走直接路径；`cert.store_scope: user` 可切回当前用户 Root store。macOS / Linux 会明确返回 unsupported。
 
 ## SteamTools 边界
 

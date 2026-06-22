@@ -74,7 +74,8 @@ cert:
   # Hosts 模式启动时会检查 Root CA 信任状态。auto_install 为 true 时，
   # start --mode hosts 会在本地 Root CA 未受信时自动执行安装流程。
   auto_install: true
-  # machine 使用 LocalMachine\Root，是管理员运行 Hosts 模式时的默认路径。
+  # machine 使用 LocalMachine\Root，是 Windows Hosts 模式默认路径。
+  # 普通 PowerShell 会在需要系统写入时通过受限 helper 请求一次 UAC。
   # user 使用 CurrentUser\Root，作为兼容退路。
   store_scope: "machine"
 
@@ -243,7 +244,7 @@ hosts:
   https_listen_addr: "127.0.0.1:443"
 ```
 
-默认情况下，`start --mode hosts` 会检查本项目 Root CA；如果尚未受信，会安装到 Windows `LocalMachine\Root`。这是管理员运行 Hosts 模式时的低打扰路径，可以避开 CurrentUser 根证书安装常见的首次确认框。核心不会绕过 UAC、企业策略，也不会接受任意系统修改命令。如果 Root CA 已安装，启动会静默跳过安装步骤。
+默认情况下，`start --mode hosts` 会检查本项目 Root CA；如果尚未受信，会安装到 Windows `LocalMachine\Root`。管理员 PowerShell 会走静默直接路径；普通 PowerShell 会在需要写 Root CA 或 Windows hosts 时，由主进程通过受限 helper 主动请求一次 Windows UAC 授权。核心不会绕过 UAC、企业策略，也不会接受任意系统修改命令。如果 Root CA 已安装，启动会静默跳过安装步骤。
 
 只有明确需要 `CurrentUser\Root` 时才配置 `cert.store_scope: "user"`；这个兼容路径仍可能出现 Windows 根证书确认框。
 
@@ -258,13 +259,15 @@ go run ./cmd/steam-accelerator cert install
 go run ./cmd/steam-accelerator start --mode hosts
 ```
 
-`cert install` 会先按证书 thumbprint 检查配置的 Windows Root store；如果本项目 Root CA 已安装，会直接返回，不会重复执行安装动作。
+`cert install` 会先按证书 thumbprint 检查配置的 Windows Root store；如果本项目 Root CA 已安装，会直接返回，不会重复执行安装动作。普通 PowerShell 下写入默认 `machine` store 时同样会通过 helper 请求 UAC；`cert uninstall` 也是显式用户动作。
 
-Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `resolver`、`resolver_servers`、`rule_set`、`upstream_profiles`、`system_change` 和 `startup_probes`。`stop` 或 `restore` 会删除项目标记区块，但不会卸载受信的 Root CA。卸载证书请执行：
+Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `resolver`、`resolver_servers`、`rule_set`、`upstream_profiles`、`system_change` 和 `startup_probes`。普通 PowerShell 通过 helper 成功时，`system_change` 的 detail 中会出现 `helper=elevated`。`stop` 或 `restore` 会删除项目标记区块，但不会卸载受信的 Root CA；普通 PowerShell 下恢复 hosts 也可能再次请求 UAC。卸载证书请执行：
 
 ```bash
 go run ./cmd/steam-accelerator cert uninstall
 ```
+
+受限 helper 只接受默认 Windows hosts 路径，以及默认项目 runtime / cert 目录下的 rollback 与证书文件。若你通过 YAML 配置了自定义 `hosts.path`、`runtime.rollback_path` 或 `cert.dir` 并从普通 PowerShell 启动，helper 会拒绝该请求；这类高级路径请使用管理员 PowerShell 或后续桌面集成提供的受控权限流程。
 
 如果浏览器或 Steam 内置浏览器仍显示 `upstream request failed`，响应体和日志会带出站诊断摘要，例如 DoH 解析失败、某个候选 IP 的 TCP 连接失败，或 TLS 握手失败。下一步应根据该错误判断是 DNS/DoH、ForwardDestination 可达性、证书/SNI，还是规则/profile 覆盖问题。
 
@@ -297,4 +300,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.6.0 中仍明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.6.3 中仍明确不支持，会返回 unsupported。

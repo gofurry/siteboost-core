@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/pac"
+	"github.com/gofurry/go-steam-core/internal/privilege"
 	"github.com/gofurry/go-steam-core/internal/proxy"
 	"github.com/gofurry/go-steam-core/internal/resolver"
 	"github.com/gofurry/go-steam-core/internal/reverse"
@@ -27,14 +31,15 @@ var (
 	hasRollbackState   = systemproxy.HasState
 	preflightHosts     = hosts.Preflight
 	applyHosts         = hosts.Apply
-	restoreHosts       = hosts.Restore
+	restoreHosts       = privilege.RestoreHosts
 	isCertInstalled    = func(ctx context.Context, cfg certstore.Config) (bool, error) {
 		return certstore.New(cfg).IsInstalled(ctx)
 	}
-	ensureCertTrusted = func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
-		return certstore.New(cfg).EnsureTrusted(ctx)
-	}
-	runStartupProbes = func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+	ensureCertTrusted    = privilege.EnsureCertTrusted
+	prepareHostsStart    = privilege.PrepareHostsStart
+	prepareHostsElevated = privilege.PrepareHostsStartElevated
+	shouldUseHostHelper  = privilege.ShouldUseHelper
+	runStartupProbes     = func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
 		return dialer.ProbeHTTPS(ctx, upstream.DefaultSteamProbeTargets(), upstream.ProbeOptions{})
 	}
 )
@@ -137,23 +142,6 @@ func (e *Engine) Start(ctx context.Context) error {
 	if e.cfg.Mode == config.ModeHosts {
 		certCfg := certstore.ConfigFromApp(e.cfg)
 		certManager := certstore.New(certCfg)
-		certOK, err = isCertInstalled(ctx, certCfg)
-		if err != nil {
-			return fmt.Errorf("check root CA install: %w", err)
-		}
-		if !certOK {
-			if !e.cfg.Cert.AutoInstall {
-				return fmt.Errorf("local root CA is not installed; run `steam-accelerator cert install` first or enable cert.auto_install")
-			}
-			trust, err := ensureCertTrusted(ctx, certCfg)
-			if err != nil {
-				return fmt.Errorf("install local root CA: %w", err)
-			}
-			certOK = true
-			systemChanges = append(systemChanges, certTrustChange(trust))
-		} else {
-			systemChanges = append(systemChanges, SystemChange{Component: "root_ca", Action: "check", Status: "already_trusted", Detail: fmt.Sprintf("store=%s", certCfg.StoreScope)})
-		}
 		entries, skipped, err := hosts.EntriesFromRules(matcher.Rules(), e.cfg.Hosts.MapIP)
 		if err != nil {
 			return fmt.Errorf("build hosts entries: %w", err)
@@ -162,10 +150,6 @@ func (e *Engine) Start(ctx context.Context) error {
 			e.logger.Info("hosts mode skipped wildcard rules", "count", len(skipped))
 		}
 		hostsCfg := hosts.ConfigFromApp(e.cfg, entries)
-		if err := preflightHosts(ctx, hostsCfg); err != nil {
-			return fmt.Errorf("preflight hosts mode: %w", err)
-		}
-		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "preflight", Status: "ok"})
 		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(upstreamCfg.Profiles) > 0 {
 			startupProbes = runStartupProbes(ctx, directDialer)
 			logStartupProbes(e.logger, startupProbes)
@@ -175,11 +159,21 @@ func (e *Engine) Start(ctx context.Context) error {
 			return fmt.Errorf("start hosts reverse proxy: %w", err)
 		}
 		systemChanges = append(systemChanges, SystemChange{Component: "reverse_proxy", Action: "listen", Status: "ok"})
-		if err := applyHosts(ctx, hostsCfg); err != nil {
+		prepare, err := e.prepareHostsForStart(ctx, certManager, certCfg, hostsCfg, shouldUseHostHelper())
+		if err != nil {
 			_ = reverseServer.Stop(context.Background())
-			return fmt.Errorf("apply hosts: %w", err)
+			return err
 		}
-		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "apply", Status: "ok", Detail: fmt.Sprintf("entries=%d", len(entries))})
+		certOK = prepare.CertTrusted
+		systemChanges = append(systemChanges, certTrustChange(prepare.Cert))
+		preflightDetail := ""
+		applyDetail := fmt.Sprintf("entries=%d", prepare.Entries)
+		if prepare.Cert.ViaHelper {
+			preflightDetail = "helper=elevated"
+			applyDetail += ",helper=elevated"
+		}
+		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "preflight", Status: "ok", Detail: preflightDetail})
+		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "apply", Status: "ok", Detail: applyDetail})
 	} else {
 		proxyServer = proxy.New(proxy.ConfigFromApp(e.cfg), matcher, dialer, e.logger)
 		if err := proxyServer.Start(); err != nil {
@@ -350,6 +344,71 @@ func usesDirectUpstream(upstreamType string) bool {
 	return upstreamType == "" || upstreamType == config.UpstreamDirect
 }
 
+func (e *Engine) prepareHostsForStart(ctx context.Context, certManager *certstore.Manager, certCfg certstore.Config, hostsCfg hosts.Config, preferHelper bool) (privilege.PrepareHostsResult, error) {
+	if preferHelper {
+		return prepareHostsWithHelper(ctx, certManager, certCfg, hostsCfg, e.cfg.Cert.AutoInstall)
+	}
+	prepare, err := prepareHostsDirect(ctx, certCfg, hostsCfg, e.cfg.Cert.AutoInstall)
+	if err == nil {
+		return prepare, nil
+	}
+	if !shouldRetryHostsWithHelper(err) {
+		return privilege.PrepareHostsResult{}, err
+	}
+	e.logger.Info("direct hosts system change failed; retrying with elevated helper", "error", err)
+	prepare, helperErr := prepareHostsWithHelper(ctx, certManager, certCfg, hostsCfg, e.cfg.Cert.AutoInstall)
+	if helperErr != nil {
+		return privilege.PrepareHostsResult{}, fmt.Errorf("%w; elevated helper retry failed: %v", err, helperErr)
+	}
+	return prepare, nil
+}
+
+func prepareHostsWithHelper(ctx context.Context, certManager *certstore.Manager, certCfg certstore.Config, hostsCfg hosts.Config, autoInstall bool) (privilege.PrepareHostsResult, error) {
+	if _, err := certManager.EnsureRootCA(); err != nil {
+		return privilege.PrepareHostsResult{}, fmt.Errorf("ensure local root CA before elevated helper: %w", err)
+	}
+	return prepareHostsElevated(ctx, certCfg, hostsCfg, autoInstall)
+}
+
+func prepareHostsDirect(ctx context.Context, certCfg certstore.Config, hostsCfg hosts.Config, autoInstall bool) (privilege.PrepareHostsResult, error) {
+	certOK, err := isCertInstalled(ctx, certCfg)
+	if err != nil {
+		return privilege.PrepareHostsResult{}, fmt.Errorf("check root CA install: %w", err)
+	}
+	var trust certstore.TrustResult
+	if !certOK {
+		if !autoInstall {
+			return privilege.PrepareHostsResult{}, fmt.Errorf("local root CA is not installed; run `steam-accelerator cert install` first or enable cert.auto_install")
+		}
+		trust, err = ensureCertTrusted(ctx, certCfg)
+		if err != nil {
+			return privilege.PrepareHostsResult{}, fmt.Errorf("install local root CA: %w", err)
+		}
+	} else {
+		trust = certstore.TrustResult{StoreScope: certCfg.StoreScope, AlreadyTrusted: true}
+	}
+	if err := preflightHosts(ctx, hostsCfg); err != nil {
+		return privilege.PrepareHostsResult{}, fmt.Errorf("preflight hosts mode: %w", err)
+	}
+	if err := applyHosts(ctx, hostsCfg); err != nil {
+		return privilege.PrepareHostsResult{}, fmt.Errorf("apply hosts: %w", err)
+	}
+	return privilege.PrepareHostsResult{Cert: trust, CertTrusted: true, Entries: len(hostsCfg.Entries)}, nil
+}
+
+func shouldRetryHostsWithHelper(err error) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if os.IsPermission(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "administrator")
+}
+
 func cloneResolverConfig(cfg resolver.Config) resolver.Config {
 	cfg.Servers = append([]string(nil), cfg.Servers...)
 	return cfg
@@ -377,6 +436,9 @@ func certTrustChange(trust certstore.TrustResult) SystemChange {
 	}
 	if trust.Changed {
 		change.Detail += ",installed"
+	}
+	if trust.ViaHelper {
+		change.Detail += ",helper=elevated"
 	}
 	return change
 }
