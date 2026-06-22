@@ -21,6 +21,11 @@ func IsElevated() bool {
 	return windows.GetCurrentProcessToken().IsElevated()
 }
 
+func HasSystemPrivileges() bool {
+	admin, err := isAdministratorToken()
+	return err == nil && IsElevated() && admin
+}
+
 func runElevatedHelper(ctx context.Context, req HelperRequest) (HelperResponse, error) {
 	helperCtx, cancel, err := helperContext(ctx)
 	if err != nil {
@@ -93,7 +98,7 @@ func shellExecuteRunas(exe, args, cwd string) error {
 }
 
 func helperStatus() string {
-	admin, adminErr := isAdministrator()
+	admin, adminErr := isAdministratorToken()
 	integrity, integrityErr := integrityLevel()
 	if adminErr != nil {
 		admin = false
@@ -104,7 +109,7 @@ func helperStatus() string {
 	return fmt.Sprintf("helper pid=%d elevated=%t admin=%t integrity=%s", os.Getpid(), IsElevated(), admin, integrity)
 }
 
-func isAdministrator() (bool, error) {
+func isAdministratorToken() (bool, error) {
 	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
 		return false, err

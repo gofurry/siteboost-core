@@ -60,7 +60,7 @@ type HelperResponse struct {
 }
 
 func ShouldUseHelper() bool {
-	return runtime.GOOS == "windows" && !IsElevated()
+	return runtime.GOOS == "windows" && !HasSystemPrivileges()
 }
 
 func PrepareHostsStart(ctx context.Context, certCfg certstore.Config, hostsCfg hosts.Config, autoInstall bool) (PrepareHostsResult, error) {
@@ -192,8 +192,8 @@ func RunHelper(args []string, stdout, stderr io.Writer) error {
 }
 
 func executeHelperRequest(ctx context.Context, req HelperRequest) (HelperResponse, error) {
-	if runtime.GOOS == "windows" && !IsElevated() {
-		return HelperResponse{}, fmt.Errorf("elevated helper did not receive an administrator token")
+	if runtime.GOOS == "windows" && !HasSystemPrivileges() {
+		return HelperResponse{}, fmt.Errorf("elevated helper did not receive an administrator token: %s", helperStatus())
 	}
 	switch req.Command {
 	case CommandPrepareHostsStart:
@@ -335,7 +335,7 @@ func certConfigFromRequest(req CertRequest) certstore.Config {
 }
 
 func shouldUseCertHelper(cfg certstore.Config) bool {
-	if runtime.GOOS != "windows" || IsElevated() {
+	if runtime.GOOS != "windows" || HasSystemPrivileges() {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(cfg.StoreScope), config.CertStoreMachine) || strings.TrimSpace(cfg.StoreScope) == ""

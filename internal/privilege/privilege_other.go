@@ -12,6 +12,10 @@ func IsElevated() bool {
 	return false
 }
 
+func HasSystemPrivileges() bool {
+	return false
+}
+
 func runElevatedHelper(context.Context, HelperRequest) (HelperResponse, error) {
 	return HelperResponse{}, fmt.Errorf("%w on this platform", errHelperNotAvailable)
 }
