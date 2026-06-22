@@ -29,6 +29,8 @@ const (
 	appHostServiceName = "SiteBoostCoreAppHost"
 	appHostPipeName    = `\\.\pipe\SiteBoostCoreAppHost`
 	appHostMaxFrame    = 1 << 20
+
+	errorServiceMarkedForDelete syscall.Errno = 1072
 )
 
 func IsElevated() bool {
@@ -593,6 +595,12 @@ func InstallAppHostService(ctx context.Context) error {
 		query, queryErr := service.Query()
 		if err := configureAppHostService(service, exe); err != nil {
 			_ = service.Close()
+			if isServiceMarkedForDelete(err) {
+				if waitErr := waitForAppHostServiceDeleted(ctx, manager, 20*time.Second); waitErr != nil {
+					return fmt.Errorf("wait for deleted apphost service before reinstall: %w", waitErr)
+				}
+				return createAppHostService(ctx, manager, exe)
+			}
 			return err
 		}
 		_ = service.Close()
@@ -603,15 +611,65 @@ func InstallAppHostService(ctx context.Context) error {
 		}
 		return StartAppHostService(ctx)
 	}
+	if isServiceMarkedForDelete(err) {
+		if waitErr := waitForAppHostServiceDeleted(ctx, manager, 20*time.Second); waitErr != nil {
+			return fmt.Errorf("wait for deleted apphost service before reinstall: %w", waitErr)
+		}
+		return createAppHostService(ctx, manager, exe)
+	}
 	if !errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 		return fmt.Errorf("open apphost service: %w", err)
 	}
-	service, err = manager.CreateService(appHostServiceName, exe, newAppHostServiceConfig(""), "__apphost-service")
+	return createAppHostService(ctx, manager, exe)
+}
+
+func createAppHostService(ctx context.Context, manager *mgr.Mgr, exe string) error {
+	service, err := manager.CreateService(appHostServiceName, exe, newAppHostServiceConfig(""), "__apphost-service")
 	if err != nil {
-		return fmt.Errorf("create apphost service: %w", err)
+		if isServiceMarkedForDelete(err) {
+			if waitErr := waitForAppHostServiceDeleted(ctx, manager, 20*time.Second); waitErr != nil {
+				return fmt.Errorf("wait for deleted apphost service before create: %w", waitErr)
+			}
+			service, err = manager.CreateService(appHostServiceName, exe, newAppHostServiceConfig(""), "__apphost-service")
+			if err != nil {
+				return fmt.Errorf("create apphost service: %w", err)
+			}
+		} else {
+			return fmt.Errorf("create apphost service: %w", err)
+		}
 	}
 	defer service.Close()
 	return StartAppHostService(ctx)
+}
+
+func isServiceMarkedForDelete(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, errorServiceMarkedForDelete) || strings.Contains(strings.ToLower(err.Error()), "marked for deletion")
+}
+
+func waitForAppHostServiceDeleted(ctx context.Context, manager *mgr.Mgr, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		service, err := manager.OpenService(appHostServiceName)
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return nil
+		}
+		if err != nil && !isServiceMarkedForDelete(err) {
+			return fmt.Errorf("open apphost service while waiting for deletion: %w", err)
+		}
+		if service != nil {
+			_ = service.Close()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("apphost service is still marked for deletion; close Services.msc or any process holding the service handle and retry")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func configureAppHostService(service *mgr.Service, exe string) error {
@@ -666,13 +724,20 @@ func UninstallAppHostService(ctx context.Context) error {
 	defer manager.Disconnect()
 	service, err := manager.OpenService(appHostServiceName)
 	if err != nil {
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return nil
+		}
+		if isServiceMarkedForDelete(err) {
+			return waitForAppHostServiceDeleted(ctx, manager, 20*time.Second)
+		}
 		return fmt.Errorf("open apphost service: %w", err)
 	}
-	defer service.Close()
 	if err := service.Delete(); err != nil {
+		_ = service.Close()
 		return fmt.Errorf("delete apphost service: %w", err)
 	}
-	return nil
+	_ = service.Close()
+	return waitForAppHostServiceDeleted(ctx, manager, 20*time.Second)
 }
 
 func StartAppHostService(ctx context.Context) error {
