@@ -11,7 +11,7 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
 
-The current v0.6.3 line includes a runnable local acceleration core. It supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected loopback control interface. Hosts + Direct mode uses built-in DoH defaults for real Steam IP lookup to avoid local hosts loopback, and now includes a default Steam outbound profile: community domains prefer `steamcommunity-a.akamaihd.net`, store / checkout / help / login / media domains prefer `cdn-a.akamaihd.net`, and common static/CDN hosts such as `community.steamstatic.com` and `steamcdn-a.akamaihd.net` are covered. The original Steam HTTP Host is preserved and TLS SNI follows the profile target. Startup probes expose DoH/TCP/TLS/HTTP smoke status in `start` and `status`. A normal Windows PowerShell can request one UAC prompt through a narrow helper to complete machine-scope root CA writes, hosts writes, and restore actions. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
+The current v0.6.4-dev line includes a runnable local acceleration core. It supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected runtime control interface. Hosts + Direct mode uses built-in DoH defaults for real Steam IP lookup to avoid local hosts loopback, and now includes a default Steam outbound profile: community domains prefer `steamcommunity-a.akamaihd.net`, store / checkout / help / login / media domains prefer `cdn-a.akamaihd.net`, and common static/CDN hosts such as `community.steamstatic.com` and `steamcdn-a.akamaihd.net` are covered. The original Steam HTTP Host is preserved and TLS SNI follows the profile target. Startup probes expose DoH/TCP/TLS/HTTP smoke status in `start` and `status`. Windows system writes now use a Steam++-style AppHost Service path: install `SiteBoostCoreAppHost` once with administrator authorization, then normal PowerShell runs can request narrow root CA, hosts, and restore actions through the local named pipe `\\.\pipe\SiteBoostCoreAppHost`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -29,7 +29,7 @@ Current capabilities:
 - Windows hosts marker block setup and restore.
 - Local root CA generation plus Windows machine/user certificate-store install/uninstall.
 - Local HTTP/HTTPS reverse proxy with dynamic site certificates for Hosts mode.
-- Windows Hosts one-click flow with root CA auto-install, a narrow UAC helper, hosts preflight, rollback, and system-change status output.
+- Windows Hosts one-click flow with root CA auto-install, AppHost named pipe IPC, hosts preflight, rollback, and system-change status output.
 - Hosts + Direct default DoH outbound resolution, hosts preflight, and resolver status output.
 - Hosts + Direct default Steam outbound profile with ForwardDestination, TLS SNI, candidate IP, and original-domain fallback support.
 - Hosts + Direct startup probes for DoH resolution, TCP 443, TLS handshake, and lightweight HTTPS smoke status.
@@ -89,18 +89,20 @@ go run ./cmd/steam-accelerator start --mode pac
 go run ./cmd/steam-accelerator start --mode system
 ```
 
-Windows Hosts mode checks and installs the local root CA inside the start flow by default. Administrator PowerShell uses the silent direct path; a normal PowerShell asks for one UAC authorization through the narrow helper when root CA or Windows hosts writes are needed:
+Windows Hosts mode checks and installs the local root CA inside the start flow by default. Administrator PowerShell uses the silent direct path. For the Steam++-style daily path, build a fixed local binary first, run `apphost install` once from an Administrator PowerShell, and keep using that same binary path; later normal PowerShell runs request restricted root CA, hosts, and restore actions through the AppHost named pipe:
 
 ```bash
-go run ./cmd/steam-accelerator start --mode hosts
+go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
+./bin/steam-accelerator.exe apphost install
+./bin/steam-accelerator.exe start --mode hosts
 ```
 
 From another terminal:
 
 ```bash
-go run ./cmd/steam-accelerator status
-go run ./cmd/steam-accelerator stop
-go run ./cmd/steam-accelerator restore
+./bin/steam-accelerator.exe status
+./bin/steam-accelerator.exe stop
+./bin/steam-accelerator.exe restore
 ```
 
 Run the basic module example:
@@ -169,9 +171,10 @@ The implementation order is foundation-first:
 7. `v0.6.0`: real Steam outbound profiles, smoke tests, and rule coverage.
 8. `v0.6.1`: Windows certificate and one-click flow packaging.
 9. `v0.6.2`: Windows machine-scope certificate default.
-10. `v0.6.3`: Windows narrow elevated helper one-click start.
-11. `v0.7.0`: general acceleration core refactor and rename preparation.
-12. `v1.0.0`: stable API and integration release.
+10. `v0.6.3`: Windows privileged helper foundation.
+11. `v0.6.4`: Windows AppHost Service and named pipe IPC.
+12. `v0.7.0`: general acceleration core refactor and rename preparation.
+13. `v1.0.0`: stable API and integration release.
 
 See [ROADMAP.md](./ROADMAP.md) for the canonical Chinese plan.
 

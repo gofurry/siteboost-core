@@ -4,7 +4,7 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 仍为 `v0.6.3`，但主干已包含 `v0.6.4-dev` 级别的 Windows AppHost Service 自动启动能力
+> 当前代码阶段：`version.go` 已进入 `v0.6.4-dev`，主干包含 Windows AppHost Service 自动启动与 named pipe IPC 能力
 
 ## 当前定位
 
@@ -60,8 +60,10 @@ stop / restore 恢复系统修改
 - 已实现同一二进制隐藏 `__helper`，但默认路线已从短 helper 迁移到 AppHost Service。
 - 已实现 Windows `SiteBoostCoreAppHost` 服务：
   - `apphost install|start|stop|status|uninstall|run`。
-  - 服务监听 `127.0.0.1:26505`。
-  - 系统修改请求走 AppHost RPC。
+  - 服务通过 Windows named pipe `\\.\pipe\SiteBoostCoreAppHost` 接收请求。
+  - named pipe 使用 DACL 限制本机交互用户接入，并拒绝远程客户端。
+  - AppHost 请求会校验 pipe 客户端 PID 必须等于请求中的 `parent_pid`，并校验客户端进程路径必须等于当前 AppHost 二进制。
+  - 系统修改请求走 AppHost named pipe RPC。
   - 安装为 `StartAutomatic` + `DelayedAutoStart`。
   - 重启电脑后应由 Windows Service Control Manager 自动拉起。
   - 普通 PowerShell 后续应能无管理员执行 `start --mode hosts`。
@@ -71,7 +73,7 @@ stop / restore 恢复系统修改
 - `version.go`、Go module、CLI、配置字段和大量包名仍带 Steam 专用命名。
 - 运行时基本仍在 `internal/`，公共 Go API 尚未稳定。
 - AppHost Service 自动启动代码已实现并构建通过，但仍需要在真实 Windows 机器上完成 `install -> reboot -> no-admin start` 验收。
-- AppHost RPC 当前是 loopback HTTP，命令面受限，但还缺少更强的本地 IPC ACL / token / named pipe 安全设计。
+- AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
 - GitHub 还没有真实 provider，下一阶段只做骨架占位和架构验证。
 - hosts 只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept 或更高级接管模式。
 - macOS / Linux Hosts 与证书安装未落地。
@@ -123,14 +125,15 @@ stop / restore 恢复系统修改
 - [x] 将 AppHost 配置为 `StartAutomatic` + `DelayedAutoStart`。
 - [x] 将 Windows 系统修改默认改为走 AppHost RPC，而不是短生命周期 `runas` helper。
 - [x] `apphost install` 对旧 Manual 服务执行配置升级并重启服务。
+- [x] 将 AppHost IPC 从早期本地 HTTP 原型迁移到 Windows named pipe。
+- [x] 为 AppHost named pipe 增加 DACL、本机连接限制、pipe client PID 校验和客户端二进制路径校验。
 - [ ] 在真实 Windows 管理员 PowerShell 中执行 `apphost install` 并记录输出。
 - [ ] 验证 `apphost status` 输出 `start_type=automatic delayed_auto_start=true`。
 - [ ] 重启 Windows 后验证服务自动运行。
 - [ ] 普通 PowerShell 执行 `start --mode hosts`，验证不再要求管理员终端。
 - [ ] 验证 `stop` / `restore` 在普通 PowerShell 下通过 AppHost 恢复 hosts。
-- [ ] 记录失败场景：服务未安装、服务未运行、端口 `127.0.0.1:26505` 被占用、AppHost 请求失败。
-- [ ] 评估 AppHost 常驻 loopback TCP 端口的产品化风险，确认是否迁移到 named pipe / ACL IPC 或按需启动。
-- [ ] 设计下一版 AppHost IPC 加固方案：本地 named pipe / DACL / 请求 token / 用户会话绑定。
+- [ ] 记录失败场景：服务未安装、服务未运行、named pipe 无法连接、AppHost 请求失败。
+- [ ] 设计下一版 AppHost IPC 加固方案：用户会话绑定、请求审计、按需启动。
 
 #### Acceptance Criteria
 
@@ -225,8 +228,8 @@ stop / restore 恢复系统修改
 
 #### Tasks
 
-- [ ] 将 AppHost loopback HTTP 评估迁移到 named pipe / Unix socket / 平台 ACL IPC。
-- [ ] 为 AppHost 请求增加认证或会话绑定，避免任意本地进程滥用系统修改接口。
+- [x] 将 AppHost IPC 迁移到 Windows named pipe + DACL + pipe client PID + 客户端二进制路径校验。
+- [ ] 为 AppHost 请求增加用户会话绑定和审计日志，继续降低任意本地进程滥用系统修改接口的风险。
 - [ ] 增加 AppHost install/upgrade/uninstall 集成 smoke 脚本。
 - [ ] 增加 rollback state schema version 和迁移测试。
 - [ ] 增加诊断命令：端口占用、hosts 区块、证书 thumbprint、AppHost health、resolver health。
@@ -307,7 +310,7 @@ stop / restore 恢复系统修改
 短期：
 
 - 完成 `v0.6.4` Windows AppHost Service 真实验收。
-- 修正文档中仍描述短 helper 为默认路线的旧内容。
+- 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
 - 进入 `v0.7.0` provider 架构重构。
 
 中期：
@@ -328,7 +331,7 @@ stop / restore 恢复系统修改
 
 | 风险 | 影响 | 应对 |
 |---|---|---|
-| AppHost loopback HTTP 常驻端口缺少强认证 | 本地恶意进程可能请求受限系统修改，且常驻端口会增加攻击面 | v0.6.4 先验证行为，v0.9 前评估迁移 named pipe / DACL / token / 会话绑定或按需启动 |
+| AppHost named pipe 仍缺少用户会话绑定 | 同一交互用户下的本地恶意进程仍可能尝试请求受限系统修改 | 已有 DACL、远程拒绝、pipe client PID、客户端二进制路径校验和命令白名单；后续补用户会话绑定、审计日志和按需启动 |
 | AppHost 服务安装 / 自动启动未实测 | 普通用户无管理员启动闭环可能失败 | v0.6.4 必须完成 `install -> reboot -> no-admin start` 验收 |
 | Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 先做命名审计和兼容迁移 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |

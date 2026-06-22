@@ -15,13 +15,14 @@
 - 远端仓库已经改为 `gofurry/siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 仍是 `v0.6.3`。
-- 主干代码已包含 `v0.6.4-dev` 级别的 Windows AppHost Service：
+- `version.go` 已是 `v0.6.4-dev`。
+- 主干代码已包含 Windows AppHost Service 与 named pipe IPC：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务名：`SiteBoostCoreAppHost`。
-  - 本地监听：`127.0.0.1:26505`。
+  - IPC：Windows named pipe `\\.\pipe\SiteBoostCoreAppHost`。
   - 安装为 `StartAutomatic` + `DelayedAutoStart`。
-  - 系统修改请求默认走 AppHost RPC。
+  - 系统修改请求默认走 AppHost named pipe RPC。
+  - named pipe 使用 DACL、本机连接限制、pipe client PID 和客户端二进制路径校验。
 
 当前 Steam 能力已经比较完整：
 
@@ -39,7 +40,7 @@
 - Steam 命名和假设仍大量存在。
 - GitHub 尚未实现真实 provider。
 - AppHost 自动启动闭环需要实机验证。
-- AppHost IPC 还需要从常驻 `127.0.0.1:26505` loopback HTTP 进一步评估到 named pipe / ACL / token / 按需启动等更安全形态。
+- AppHost IPC 已迁移到 Windows named pipe；后续还需要评估用户会话绑定、审计日志和按需启动。
 
 ## 总体方向
 
@@ -77,7 +78,7 @@
 - 重启电脑后服务自动运行。
 - 普通 PowerShell 执行 `start --mode hosts` 成功。
 - 普通 PowerShell 执行 `stop` / `restore` 成功。
-- 评估常驻 `127.0.0.1:26505` 端口是否只作为实验方案保留，还是迁移到更安全的 IPC。
+- 验证 named pipe IPC 在普通 PowerShell 下能完成 Root CA、hosts 和 restore 请求。
 
 ### v0.7.0 - Provider 架构与通用站点骨架
 

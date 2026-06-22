@@ -79,18 +79,26 @@ go run ./cmd/steam-accelerator restore
 
 ## Windows Hosts and HTTPS Reverse Proxy Check
 
-These checks modify the Windows `LocalMachine\Root` certificate store by default and the Windows hosts file. Starting in v0.6.3, a normal PowerShell requests one Windows UAC prompt through the narrow helper; Administrator PowerShell keeps the silent direct path. Run `stop` plus `cert uninstall` after testing.
+These checks modify the Windows `LocalMachine\Root` certificate store by default and the Windows hosts file. Starting in v0.6.4, the recommended flow is to build a fixed local binary and run `apphost install` once from an Administrator PowerShell; later normal PowerShell runs must use the same binary path and request restricted system changes through the AppHost named pipe. Administrator PowerShell keeps the silent direct path. Run `stop` plus `cert uninstall` after testing.
 
-Optional pre-install for this project's root CA. When `cert.auto_install` is true, `start --mode hosts` can install it automatically during startup; from a normal PowerShell, this command also requests UAC through the helper:
+Initialize AppHost:
 
 ```bash
-go run ./cmd/steam-accelerator cert install
+go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
+./bin/steam-accelerator.exe apphost install
+./bin/steam-accelerator.exe apphost status
+```
+
+Optional pre-install for this project's root CA. When `cert.auto_install` is true, `start --mode hosts` can install it automatically during startup; from a normal PowerShell, this command requests restricted system changes through AppHost:
+
+```bash
+./bin/steam-accelerator.exe cert install
 ```
 
 Start with high ports to avoid occupying 80 / 443:
 
 ```bash
-go run ./cmd/steam-accelerator start --mode hosts \
+./bin/steam-accelerator.exe start --mode hosts \
   --hosts-http 127.0.0.1:28080 \
   --hosts-https 127.0.0.1:28443 \
   --state ./tmp/runtime.json
@@ -99,12 +107,12 @@ go run ./cmd/steam-accelerator start --mode hosts \
 Check status from another terminal:
 
 ```bash
-go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
+./bin/steam-accelerator.exe status --state ./tmp/runtime.json
 ```
 
 The default Hosts + Direct loop should show `resolver: doh`, `resolver_servers:`, `rule_set: steam-web@2026.06.22`, `upstream_profiles: 4`, and `startup_probes:` in status output. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block. Starting in v0.6.0, the default outbound profile also makes `steamcommunity.com` prefer `steamcommunity-a.akamaihd.net`, `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` prefer `cdn-a.akamaihd.net`, and covers `community.steamstatic.com` plus `steamcdn-a.akamaihd.net`, while preserving the original HTTP Host.
 
-`system_change:` lines should show the root CA check/install, hosts preflight, reverse-proxy listeners, and hosts apply result. When the normal PowerShell helper path succeeds, root CA or hosts details should include `helper=elevated`. `startup_probes: ok=6 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
+`system_change:` lines should show the root CA check/install, hosts preflight, reverse-proxy listeners, and hosts apply result. When the normal PowerShell AppHost path succeeds, root CA or hosts details should include `helper=elevated`. `startup_probes: ok=6 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
 
 If a page returns `upstream request failed`, the response body should include more than that generic message. It should append a summary such as `direct upstream resolve ... failed`, `resolve steamcommunity-a.akamaihd.net:443 failed`, `tcp 1.2.3.4:443 failed`, or `tls 1.2.3.4:443 failed`. That summary is the key check for locating whether failure happened in DoH, ForwardDestination resolution, direct TCP reachability, or TLS handshake.
 
@@ -123,11 +131,11 @@ curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
 Stop and uninstall the CA:
 
 ```bash
-go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
-go run ./cmd/steam-accelerator cert uninstall
+./bin/steam-accelerator.exe stop --state ./tmp/runtime.json
+./bin/steam-accelerator.exe cert uninstall
 ```
 
-When testing from a normal PowerShell, `stop` / `restore` for hosts recovery and `cert uninstall` for machine-scope root CA removal may request UAC again. If the user cancels UAC, the command should return a clear error and should not create a new hosts marker block or a new partial rollback state.
+When testing from a normal PowerShell, `stop` / `restore` for hosts recovery and `cert uninstall` for machine-scope root CA removal go through AppHost. If AppHost is missing or stopped, the command should return a clear error and should not create a new hosts marker block or a new partial rollback state.
 
 ## Expected Output
 
@@ -149,7 +157,7 @@ The basic example should print the project name and module path.
 - The current OS is not Windows or macOS for PAC/System Proxy modes.
 - Ports 80 / 443 are already in use for Hosts mode.
 - Hosts mode was started before `cert install`, with `cert.auto_install` set to false.
-- Windows hosts preflight or writing failed; a normal PowerShell should trigger the UAC helper, while custom `hosts.path` / `runtime.rollback_path` / `cert.dir` values require an Administrator terminal or default paths.
+- Windows hosts preflight or writing failed; a normal PowerShell should go through AppHost named pipe, and AppHost must be installed once from an Administrator PowerShell. Custom `hosts.path` / `runtime.rollback_path` / `cert.dir` values require an Administrator terminal or default paths.
 - `upstream request failed` followed by `direct upstream resolve ... failed`: DoH/DNS failed or was blocked.
 - `upstream request failed` followed by `resolve steamcommunity-a.akamaihd.net:443 failed` or `resolve cdn-a.akamaihd.net:443 failed`: the default Steam profile ForwardDestination failed to resolve.
 - `upstream request failed` followed by `tcp ... failed`: candidate real IPs or ForwardDestination IPs are not directly reachable.

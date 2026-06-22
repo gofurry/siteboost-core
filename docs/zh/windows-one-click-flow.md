@@ -1,6 +1,6 @@
 # Windows 一键系统修改流程
 
-本文记录 v0.6.3 Windows Hosts 模式的系统修改边界。
+本文记录 v0.6.4-dev Windows Hosts 模式的系统修改边界。
 
 ## 边界
 
@@ -14,19 +14,19 @@
 - 通过 `stop` 或 `restore` 恢复项目拥有的 hosts 修改。
 - 只通过显式 `cert uninstall` 卸载本项目 Root CA。
 
-核心不会绕过 UAC、企业策略或文件系统权限。普通 PowerShell 下，主进程会通过 Windows `ShellExecute/runas` 拉起同一可执行文件的隐藏 `__helper` 入口，请求一次显式 UAC 授权。提权侧只暴露很窄的白名单命令，不接受任意 shell、任意文件写入、代理凭据、Cookie 或用户秘密。
+核心不会绕过 UAC、企业策略或文件系统权限。默认路线是先通过管理员 PowerShell 执行一次 `apphost install`，安装 `SiteBoostCoreAppHost` Windows Service。服务以受控高权限上下文运行，后续普通 PowerShell 通过 Windows named pipe `\\.\pipe\SiteBoostCoreAppHost` 请求受限系统修改。提权侧只暴露很窄的白名单命令，不接受任意 shell、任意文件写入、代理凭据、Cookie 或用户秘密。
 
-## v0.6.3 行为
+## v0.6.4 行为
 
 `cert.auto_install` 默认是 `true`，`cert.store_scope` 默认是 `machine`。Hosts 模式下：
 
 1. `start --mode hosts` 先启动本地 HTTP / HTTPS reverse proxy。
 2. 管理员进程直接检查并写入 Root CA / hosts。
-3. 普通进程通过 helper 执行 `prepare-hosts-start`，在同一次 UAC 授权内完成 Root CA 信任检查/安装、hosts preflight 和 hosts 写入。
+3. 普通进程通过 AppHost named pipe 执行 `prepare-hosts-start`，完成 Root CA 信任检查/安装、hosts preflight 和 hosts 写入。
 4. 如果 `cert.auto_install` 为 false，启动会停止并提示先执行 `cert install`。
-5. `stop` / `restore` 恢复 hosts，以及 `cert install` / `cert uninstall` 写机器级证书库时，也会在普通进程下通过 helper 请求 UAC。
+5. `stop` / `restore` 恢复 hosts，以及 `cert install` / `cert uninstall` 写机器级证书库时，也会在普通进程下通过 AppHost named pipe 请求受限系统修改。
 
-默认 `machine` 会写入 `LocalMachine\Root`，这是管理员运行 Hosts 模式时的低打扰路径，也可以避开 `CurrentUser\Root` 常见的首次确认框。普通 PowerShell 仍需要用户确认 UAC；这是显式系统授权，不是静默绕过。只有明确需要当前用户证书库时才配置 `cert.store_scope: user`。
+默认 `machine` 会写入 `LocalMachine\Root`，这是管理员运行 Hosts 模式时的低打扰路径，也可以避开 `CurrentUser\Root` 常见的首次确认框。首次安装 AppHost Service 仍需要用户确认管理员授权；这是显式系统授权，不是静默绕过。只有明确需要当前用户证书库时才配置 `cert.store_scope: user`。
 
 `status` 会打印 `system_change:` 行，调用方可以看到哪些系统动作已执行：
 
@@ -37,16 +37,16 @@ system_change: component=reverse_proxy action=listen status=ok
 system_change: component=hosts action=apply status=ok detail=entries=13
 ```
 
-普通 PowerShell 通过 helper 成功时，Root CA 或 hosts 行会带上 `helper=elevated`：
+普通 PowerShell 通过 AppHost 成功时，Root CA 或 hosts 行会带上 `helper=elevated`：
 
 ```text
 system_change: component=root_ca action=install status=ok detail=store=machine,installed,helper=elevated
 system_change: component=hosts action=apply status=ok detail=entries=13,helper=elevated
 ```
 
-## Helper 契约
+## AppHost 契约
 
-当前 helper 契约保持很窄：
+当前 AppHost 契约保持很窄：
 
 | 命令 | 输入 | 输出 | 说明 |
 |---|---|---|---|
@@ -55,14 +55,17 @@ system_change: component=hosts action=apply status=ok detail=entries=13,helper=e
 | `restore-hosts` | rollback path | 恢复结果 | 只允许项目标记区块 |
 | `untrust-root-ca` | 证书目录、store scope | 卸载结果 | 必须是显式用户动作 |
 
-请求通过临时 JSON request / response 文件传递，并校验：
+请求通过 Windows named pipe 传递，并校验：
 
-- helper request version。
-- 随机 token。
-- 父进程 PID。
+- request version。
+- 随机 token 非空。
+- pipe client PID 必须等于请求中的父进程 PID。
+- pipe client 二进制路径必须等于已安装 AppHost 的二进制路径。
+- named pipe DACL。
+- 拒绝远程客户端连接。
 - 命令白名单。
 - 默认 Windows hosts 路径。
 - 默认项目 runtime / cert 目录下的 rollback 与证书路径。
 - 超时。
 
-因此，非管理员 helper 不支持任意 `hosts.path`、`runtime.rollback_path` 或 `cert.dir`。需要自定义路径时，请使用管理员进程或后续受控桌面集成。
+因此，AppHost 不支持任意 `hosts.path`、`runtime.rollback_path` 或 `cert.dir`。需要自定义路径时，请使用管理员进程或后续受控桌面集成。

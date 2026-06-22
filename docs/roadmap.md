@@ -13,8 +13,8 @@ Current facts:
 - The remote repository is `gofurry/siteboost-core`.
 - The Go module is still `github.com/gofurry/go-steam-core`.
 - The CLI is still `steam-accelerator`.
-- `version.go` still reports `v0.6.3`.
-- The main branch already contains `v0.6.4-dev` level Windows AppHost Service work.
+- `version.go` reports `v0.6.4-dev`.
+- The main branch contains Windows AppHost Service and named pipe IPC work.
 
 Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Reverse Proxy path has been manually validated in a China-network environment for Steam store, community, help, chat/login, static assets, and common CDN hosts. GitHub is not implemented as a real acceleration provider yet; it should first appear as a skeleton provider for architecture validation.
 
@@ -45,10 +45,11 @@ Validate the Steam++-style privilege boundary:
 
 - one administrator `apphost install`
 - automatic service startup after reboot
+- named pipe IPC at `\\.\pipe\SiteBoostCoreAppHost`
+- pipe DACL, local-client-only pipe mode, pipe client PID checks, and client executable path checks
 - normal PowerShell `start --mode hosts`
 - normal PowerShell `stop` / `restore`
 - clear diagnostics when the service is missing, stopped, or unhealthy
-- whether the experimental always-on `127.0.0.1:26505` loopback HTTP endpoint should move to a safer IPC mechanism before productization
 
 ### v0.7.0 - Provider Architecture and Generic Site Skeleton
 

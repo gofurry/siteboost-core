@@ -25,7 +25,7 @@
 ## 已知限制
 
 - 当前已实现 ProxyOnly、PAC、System Proxy、Windows Hosts、证书与反代能力。
-- Windows 普通 PowerShell 已支持通过显式 UAC helper 完成默认 Hosts / Root CA / restore 系统修改；自定义 hosts / cert / rollback 路径仍需要管理员进程或后续受控桌面集成。
+- Windows 普通 PowerShell 已支持通过已安装 AppHost named pipe 完成默认 Hosts / Root CA / restore 系统修改；自定义 hosts / cert / rollback 路径仍需要管理员进程或后续受控桌面集成。
 - Hosts 文件不能表达通配符，当前 Hosts 模式只写入 exact 域名。
 - Linux 桌面系统代理处理延后。
 - DNSIntercept、VPN / TUN、JS 注入不进入 v1.0 范围，但进入 v1.x 高级能力路线。

@@ -25,7 +25,7 @@
 ## Known Limitations
 
 - ProxyOnly, PAC, System Proxy, Windows Hosts, certificate management, and reverse proxy are implemented.
-- Normal Windows PowerShell can use an explicit UAC helper for default Hosts / root CA / restore system changes; custom hosts, cert, or rollback paths still require an elevated process or a future controlled desktop integration.
+- Normal Windows PowerShell can use the installed AppHost named pipe for default Hosts / root CA / restore system changes; custom hosts, cert, or rollback paths still require an elevated process or a future controlled desktop integration.
 - Hosts files cannot express wildcard domains; current Hosts mode writes exact domains only.
 - Linux desktop system proxy handling is deferred.
 - DNSIntercept, VPN / TUN, and JS injection are out of v1.0 scope but are part of the staged v1.x advanced roadmap.

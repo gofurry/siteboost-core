@@ -1,14 +1,11 @@
 package privilege
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,12 +19,12 @@ import (
 
 const (
 	helperVersion = 1
-	appHostAddr   = "127.0.0.1:26505"
 
 	CommandPrepareHostsStart = "prepare-hosts-start"
 	CommandTrustRootCA       = "trust-root-ca"
 	CommandUntrustRootCA     = "untrust-root-ca"
 	CommandRestoreHosts      = "restore-hosts"
+	CommandAppHostHealth     = "apphost-health"
 
 	defaultHelperTimeout = 2 * time.Minute
 )
@@ -168,49 +165,7 @@ func runPrivilegedRequest(ctx context.Context, req HelperRequest) (HelperRespons
 }
 
 func runAppHostRequest(ctx context.Context, req HelperRequest) (HelperResponse, error) {
-	if runtime.GOOS != "windows" {
-		return HelperResponse{}, fmt.Errorf("%w on this platform", errHelperNotAvailable)
-	}
-	if err := ensureAppHostStarted(ctx); err != nil {
-		return HelperResponse{}, err
-	}
-	req.Version = helperVersion
-	req.ParentPID = os.Getpid()
-	if strings.TrimSpace(req.Token) == "" {
-		req.Token = fmt.Sprintf("apphost-%d-%d", os.Getpid(), time.Now().UnixNano())
-	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return HelperResponse{}, fmt.Errorf("encode apphost request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+appHostAddr+"/v1/request", bytes.NewReader(body))
-	if err != nil {
-		return HelperResponse{}, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	client := http.Client{Timeout: defaultHelperTimeout}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return HelperResponse{}, fmt.Errorf("connect windows apphost: %w", err)
-	}
-	defer resp.Body.Close()
-	var helperResp HelperResponse
-	if err := json.NewDecoder(resp.Body).Decode(&helperResp); err != nil {
-		return HelperResponse{}, fmt.Errorf("parse apphost response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		if helperResp.Error == "" {
-			helperResp.Error = resp.Status
-		}
-		return helperResp, fmt.Errorf("windows apphost: %s", helperResp.Error)
-	}
-	if !helperResp.OK {
-		if helperResp.Error == "" {
-			helperResp.Error = "apphost request failed"
-		}
-		return helperResp, fmt.Errorf("windows apphost: %s", helperResp.Error)
-	}
-	return helperResp, nil
+	return runAppHostRequestPlatform(ctx, req)
 }
 
 func RunHelper(args []string, stdout, stderr io.Writer) error {
@@ -248,101 +203,13 @@ func RunHelper(args []string, stdout, stderr io.Writer) error {
 	return err
 }
 
-func RunAppHostConsole(ctx context.Context, stdout io.Writer) error {
-	if runtime.GOOS == "windows" && !HasSystemPrivileges() {
-		return fmt.Errorf("windows apphost requires system privileges: %s", helperStatus())
-	}
-	server := newAppHostServer(stdout)
-	return server.run(ctx)
-}
-
-type appHostServer struct {
-	stdout io.Writer
-}
-
-func newAppHostServer(stdout io.Writer) *appHostServer {
-	if stdout == nil {
-		stdout = io.Discard
-	}
-	return &appHostServer{stdout: stdout}
-}
-
-func (s *appHostServer) run(ctx context.Context) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/v1/request", s.handleRequest)
-	server := http.Server{
-		Addr:              appHostAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		fmt.Fprintf(s.stdout, "windows apphost listening on %s\n", appHostAddr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-			return
-		}
-		errCh <- nil
-	}()
-	select {
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return err
-		}
-		return nil
-	case err := <-errCh:
-		return err
-	}
-}
-
-func (s *appHostServer) handleRequest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeAppHostHTTPResponse(w, http.StatusMethodNotAllowed, HelperResponse{OK: false, Error: "method not allowed"})
-		return
-	}
-	defer r.Body.Close()
-	var req HelperRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-		writeAppHostHTTPResponse(w, http.StatusBadRequest, HelperResponse{OK: false, Error: fmt.Sprintf("parse request: %v", err)})
-		return
-	}
-	if err := validateAppHostRequest(req); err != nil {
-		writeAppHostHTTPResponse(w, http.StatusBadRequest, HelperResponse{OK: false, Error: err.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), defaultHelperTimeout)
-	defer cancel()
-	resp, err := executeHelperRequest(ctx, req)
-	if err != nil {
-		resp = HelperResponse{OK: false, Error: fmt.Sprintf("%s: %v", helperStatus(), err)}
-	}
-	if !resp.OK {
-		writeAppHostHTTPResponse(w, http.StatusInternalServerError, resp)
-		return
-	}
-	writeAppHostHTTPResponse(w, http.StatusOK, resp)
-}
-
-func writeAppHostHTTPResponse(w http.ResponseWriter, code int, resp HelperResponse) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
 func executeHelperRequest(ctx context.Context, req HelperRequest) (HelperResponse, error) {
 	if runtime.GOOS == "windows" && !HasSystemPrivileges() {
 		return HelperResponse{}, fmt.Errorf("elevated helper did not receive an administrator token: %s", helperStatus())
 	}
 	switch req.Command {
+	case CommandAppHostHealth:
+		return HelperResponse{OK: true}, nil
 	case CommandPrepareHostsStart:
 		result, err := prepareHostsStartDirect(ctx, certConfigFromRequest(req.Cert), req.Hosts, req.AutoInstall)
 		if err != nil {
@@ -417,18 +284,29 @@ func validateHelperRequest(req HelperRequest, token string, parentPID int) error
 	return validatePrivilegedRequest(req)
 }
 
-func validateAppHostRequest(req HelperRequest) error {
+func validateAppHostRequest(req HelperRequest, clientPID int) error {
 	if req.Version != helperVersion {
 		return fmt.Errorf("unsupported apphost request version %d", req.Version)
 	}
 	if req.ParentPID <= 0 {
 		return fmt.Errorf("invalid apphost parent pid")
 	}
+	if strings.TrimSpace(req.Token) == "" {
+		return fmt.Errorf("invalid apphost token")
+	}
+	if clientPID <= 0 {
+		return fmt.Errorf("invalid apphost client pid")
+	}
+	if req.ParentPID != clientPID {
+		return fmt.Errorf("apphost client pid mismatch: request parent=%d pipe client=%d", req.ParentPID, clientPID)
+	}
 	return validatePrivilegedRequest(req)
 }
 
 func validatePrivilegedRequest(req HelperRequest) error {
 	switch req.Command {
+	case CommandAppHostHealth:
+		return nil
 	case CommandPrepareHostsStart:
 		if err := validateCertRequest(req.Cert); err != nil {
 			return err

@@ -5,6 +5,7 @@ package privilege
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -25,6 +26,10 @@ func ensureAppHostStarted(context.Context) error {
 }
 
 func RunAppHostService([]string, io.Writer, io.Writer) error {
+	return fmt.Errorf("%w on this platform", errHelperNotAvailable)
+}
+
+func RunAppHostConsole(context.Context, io.Writer) error {
 	return fmt.Errorf("%w on this platform", errHelperNotAvailable)
 }
 
@@ -49,6 +54,10 @@ func AppHostServiceStatus(context.Context) (string, error) {
 }
 
 func runElevatedHelper(context.Context, HelperRequest) (HelperResponse, error) {
+	return HelperResponse{}, fmt.Errorf("%w on this platform", errHelperNotAvailable)
+}
+
+func runAppHostRequestPlatform(context.Context, HelperRequest) (HelperResponse, error) {
 	return HelperResponse{}, fmt.Errorf("%w on this platform", errHelperNotAvailable)
 }
 

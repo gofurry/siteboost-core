@@ -16,6 +16,21 @@ func TestValidateHelperRequestAcceptsPrepareHostsStart(t *testing.T) {
 	}
 }
 
+func TestValidateAppHostRequestAcceptsMatchingPipeClientPID(t *testing.T) {
+	req := validPrepareRequest()
+	if err := validateAppHostRequest(req, req.ParentPID); err != nil {
+		t.Fatalf("validateAppHostRequest() error = %v", err)
+	}
+}
+
+func TestValidateAppHostRequestRejectsPipeClientPIDMismatch(t *testing.T) {
+	req := validPrepareRequest()
+	err := validateAppHostRequest(req, req.ParentPID+1)
+	if err == nil || !strings.Contains(err.Error(), "client pid mismatch") {
+		t.Fatalf("validateAppHostRequest() error = %v, want client pid mismatch", err)
+	}
+}
+
 func TestValidateHelperRequestRejectsInvalidToken(t *testing.T) {
 	req := validPrepareRequest()
 	req.Token = "other"

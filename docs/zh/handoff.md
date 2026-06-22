@@ -16,8 +16,8 @@
 - 本地目录仍是 `E:\Git\开源\go-steam-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 仍显示 `v0.6.3`。
-- 主干代码实际已经进入 `v0.6.4-dev` 级别，因为已包含 AppHost Service 自动启动能力。
+- `version.go` 已显示 `v0.6.4-dev`。
+- 主干代码已经进入 `v0.6.4-dev` 阶段，包含 AppHost Service 自动启动与 named pipe IPC 能力。
 - 本仓库定位为实验场和迁移来源；正式 Go library 会另起新仓库维护。
 - 最近关键提交：
   - `e748d5f feat(windows): auto start apphost service`
@@ -70,11 +70,12 @@
 
 - CLI：`apphost install|start|stop|status|uninstall|run`
 - 隐藏入口：`__apphost-service`
-- 本地监听：`127.0.0.1:26505`
+- IPC：Windows named pipe `\\.\pipe\SiteBoostCoreAppHost`
+- named pipe 使用 DACL、本机连接限制、pipe client PID 和客户端二进制路径校验
 - 服务启动类型：`StartAutomatic`
 - 服务延迟启动：`DelayedAutoStart`
 - 已安装旧服务时会升级配置并重启服务
-- Windows 系统修改默认走 AppHost RPC，包括 Root CA、hosts、restore 等受限操作
+- Windows 系统修改默认走 AppHost named pipe RPC，包括 Root CA、hosts、restore 等受限操作
 
 目标体验：
 
@@ -95,7 +96,7 @@
 ## 当前仍存在的风险
 
 - AppHost `install -> reboot -> no-admin start` 还需要真实 Windows 机器验收。
-- AppHost RPC 当前是常驻 `127.0.0.1:26505` loopback HTTP，命令面受限，但还缺少更强的 IPC ACL / token / named pipe / 用户会话绑定设计；这适合作为实验验证路径，不应直接视为最终产品化安全形态。
+- AppHost RPC 使用 Windows named pipe，命令面受限，并带 DACL、本机连接限制、pipe client PID 和客户端二进制路径校验；后续仍需要评估用户会话绑定、审计日志和按需启动。
 - `version.go`、Go module、CLI、配置字段、包名和 docs 仍大量带 Steam 专用命名。
 - 公共 Go API 尚未抽出，核心仍主要在 `internal/`；正式 public API 应在未来新仓库内冻结。
 - rollback state schema 没有版本化迁移。
@@ -198,14 +199,14 @@ https://help.steampowered.com/
 ## 下一阶段建议顺序
 
 1. 完成 `v0.6.4` AppHost 真实验收，并把输出补进 smoke 文档。
-2. 更新 README、smoke、security、windows-one-click-flow，把默认路径从短 `runas` helper 改成 AppHost Service。
-3. 做 Steam 专用命名审计，不急着改 module，先列迁移表。
-4. 设计 `Provider` 接口和 provider registry。
-5. 把 Steam rules、profiles、startup probes、smoke targets 收敛为 `provider/steam`。
-6. 增加 `provider/github` skeleton，只声明 experimental，不承诺真实加速。
-7. 让 reverse / resolver / upstream 只依赖通用 matcher 和 outbound profile，不依赖 Steam 语义。
-8. 整理未来独立 Go library 的 API 草案和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
-9. 设计 AppHost IPC 加固：优先评估 named pipe / DACL / token / 用户会话绑定。
+2. 做 Steam 专用命名审计，不急着改 module，先列迁移表。
+3. 设计 `Provider` 接口和 provider registry。
+4. 把 Steam rules、profiles、startup probes、smoke targets 收敛为 `provider/steam`。
+5. 增加 `provider/github` skeleton，只声明 experimental，不承诺真实加速。
+6. 让 reverse / resolver / upstream 只依赖通用 matcher 和 outbound profile，不依赖 Steam 语义。
+7. 整理未来独立 Go library 的 API 草案和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+8. 继续设计 AppHost IPC 加固：优先评估用户会话绑定、审计日志和按需启动。
+9. 逐步把内部 `helper` 命名收敛为 AppHost / privileged request 语义，避免误导后续维护者。
 10. 进入 release engineering：CI matrix、rollback schema version、installer、服务升级 / 卸载、签名规划。
 11. 在验证充分后新建正式 Go library 仓库，从本仓库迁移已验证的 resolver、reverse、certstore、privilege、provider 和 diagnostics 能力。
 

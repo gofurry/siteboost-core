@@ -5,11 +5,12 @@ package privilege
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,7 +25,11 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-const appHostServiceName = "SiteBoostCoreAppHost"
+const (
+	appHostServiceName = "SiteBoostCoreAppHost"
+	appHostPipeName    = `\\.\pipe\SiteBoostCoreAppHost`
+	appHostMaxFrame    = 1 << 20
+)
 
 func IsElevated() bool {
 	return windows.GetCurrentProcessToken().IsElevated()
@@ -149,19 +154,359 @@ func ensureAppHostStarted(ctx context.Context) error {
 }
 
 func appHostHealth(ctx context.Context) error {
-	reqCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	pipeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://"+appHostAddr+"/healthz", nil)
+	req := HelperRequest{
+		Version:   helperVersion,
+		Token:     "health",
+		ParentPID: os.Getpid(),
+		Command:   CommandAppHostHealth,
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	respBody, err := appHostPipeRoundTrip(pipeCtx, body)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected apphost health status: %s", resp.Status)
+	var resp HelperResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("apphost health failed: %s", resp.Error)
+	}
+	return nil
+}
+
+func runAppHostRequestPlatform(ctx context.Context, req HelperRequest) (HelperResponse, error) {
+	if err := ensureAppHostStarted(ctx); err != nil {
+		return HelperResponse{}, err
+	}
+	token, err := randomToken()
+	if err != nil {
+		return HelperResponse{}, err
+	}
+	req.Version = helperVersion
+	req.ParentPID = os.Getpid()
+	req.Token = token
+	body, err := json.Marshal(req)
+	if err != nil {
+		return HelperResponse{}, fmt.Errorf("encode apphost request: %w", err)
+	}
+	respBody, err := appHostPipeRoundTrip(ctx, body)
+	if err != nil {
+		return HelperResponse{}, err
+	}
+	var helperResp HelperResponse
+	if err := json.Unmarshal(respBody, &helperResp); err != nil {
+		return HelperResponse{}, fmt.Errorf("parse apphost response: %w", err)
+	}
+	if !helperResp.OK {
+		if helperResp.Error == "" {
+			helperResp.Error = "apphost request failed"
+		}
+		return helperResp, fmt.Errorf("windows apphost: %s", helperResp.Error)
+	}
+	return helperResp, nil
+}
+
+func appHostPipeRoundTrip(ctx context.Context, body []byte) ([]byte, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, defaultHelperTimeout)
+	defer cancel()
+	handle, err := openAppHostPipe(reqCtx)
+	if err != nil {
+		return nil, fmt.Errorf("connect windows apphost pipe: %w", err)
+	}
+	defer windows.CloseHandle(handle)
+	if err := writePipeFrame(handle, body); err != nil {
+		return nil, fmt.Errorf("write apphost request: %w", err)
+	}
+	resp, err := readPipeFrame(handle, appHostMaxFrame)
+	if err != nil {
+		return nil, fmt.Errorf("read apphost response: %w", err)
+	}
+	return resp, nil
+}
+
+func openAppHostPipe(ctx context.Context) (windows.Handle, error) {
+	name, err := windows.UTF16PtrFromString(appHostPipeName)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return windows.InvalidHandle, fmt.Errorf("%w: %v", err, lastErr)
+			}
+			return windows.InvalidHandle, err
+		}
+		handle, err := windows.CreateFile(
+			name,
+			windows.GENERIC_READ|windows.GENERIC_WRITE,
+			0,
+			nil,
+			windows.OPEN_EXISTING,
+			windows.FILE_ATTRIBUTE_NORMAL,
+			0,
+		)
+		if err == nil {
+			return handle, nil
+		}
+		lastErr = err
+		if !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) &&
+			!errors.Is(err, windows.ERROR_PATH_NOT_FOUND) &&
+			!errors.Is(err, windows.ERROR_PIPE_BUSY) {
+			return windows.InvalidHandle, err
+		}
+		select {
+		case <-ctx.Done():
+			return windows.InvalidHandle, fmt.Errorf("%w: %v", ctx.Err(), lastErr)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func RunAppHostConsole(ctx context.Context, stdout io.Writer) error {
+	if !HasSystemPrivileges() {
+		return fmt.Errorf("windows apphost requires system privileges: %s", helperStatus())
+	}
+	server := newAppHostServer(stdout)
+	return server.run(ctx)
+}
+
+type appHostServer struct {
+	stdout io.Writer
+}
+
+func newAppHostServer(stdout io.Writer) *appHostServer {
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	return &appHostServer{stdout: stdout}
+}
+
+func (s *appHostServer) run(ctx context.Context) error {
+	fmt.Fprintf(s.stdout, "windows apphost listening on named pipe %s\n", appHostPipeName)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
+		pipe, err := createAppHostPipe()
+		if err != nil {
+			return err
+		}
+		connected := make(chan error, 1)
+		go func() {
+			err := windows.ConnectNamedPipe(pipe, nil)
+			if err == nil || errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
+				connected <- nil
+				return
+			}
+			connected <- err
+		}()
+		select {
+		case <-ctx.Done():
+			_ = windows.CloseHandle(pipe)
+			select {
+			case <-connected:
+			case <-time.After(time.Second):
+			}
+			return nil
+		case err := <-connected:
+			if err != nil {
+				_ = windows.CloseHandle(pipe)
+				return fmt.Errorf("connect apphost pipe: %w", err)
+			}
+			go s.handlePipe(pipe)
+		}
+	}
+}
+
+func createAppHostPipe() (windows.Handle, error) {
+	name, err := windows.UTF16PtrFromString(appHostPipeName)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	attrs, err := appHostPipeSecurityAttributes()
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	handle, err := windows.CreateNamedPipe(
+		name,
+		windows.PIPE_ACCESS_DUPLEX,
+		windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT|windows.PIPE_REJECT_REMOTE_CLIENTS,
+		windows.PIPE_UNLIMITED_INSTANCES,
+		appHostMaxFrame,
+		appHostMaxFrame,
+		0,
+		attrs,
+	)
+	if err != nil {
+		return windows.InvalidHandle, fmt.Errorf("create apphost named pipe: %w", err)
+	}
+	return handle, nil
+}
+
+func appHostPipeSecurityAttributes() (*windows.SecurityAttributes, error) {
+	sd, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)")
+	if err != nil {
+		return nil, fmt.Errorf("create apphost pipe security descriptor: %w", err)
+	}
+	return &windows.SecurityAttributes{
+		Length:             uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+		SecurityDescriptor: sd,
+	}, nil
+}
+
+func (s *appHostServer) handlePipe(pipe windows.Handle) {
+	defer windows.CloseHandle(pipe)
+	defer windows.DisconnectNamedPipe(pipe)
+	resp := s.handlePipeRequest(pipe)
+	body, err := json.Marshal(resp)
+	if err != nil {
+		fmt.Fprintf(s.stdout, "encode apphost pipe response: %v\n", err)
+		return
+	}
+	if err := writePipeFrame(pipe, body); err != nil {
+		fmt.Fprintf(s.stdout, "write apphost pipe response: %v\n", err)
+	}
+}
+
+func (s *appHostServer) handlePipeRequest(pipe windows.Handle) HelperResponse {
+	var clientPID uint32
+	if err := windows.GetNamedPipeClientProcessId(pipe, &clientPID); err != nil {
+		return HelperResponse{OK: false, Error: fmt.Sprintf("get apphost pipe client pid: %v", err)}
+	}
+	if err := validateAppHostClientProcess(clientPID); err != nil {
+		return HelperResponse{OK: false, Error: err.Error()}
+	}
+	body, err := readPipeFrame(pipe, appHostMaxFrame)
+	if err != nil {
+		return HelperResponse{OK: false, Error: fmt.Sprintf("read apphost pipe request: %v", err)}
+	}
+	var req HelperRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return HelperResponse{OK: false, Error: fmt.Sprintf("parse apphost pipe request: %v", err)}
+	}
+	if err := validateAppHostRequest(req, int(clientPID)); err != nil {
+		return HelperResponse{OK: false, Error: err.Error()}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultHelperTimeout)
+	defer cancel()
+	resp, err := executeHelperRequest(ctx, req)
+	if err != nil {
+		return HelperResponse{OK: false, Error: fmt.Sprintf("%s: %v", helperStatus(), err)}
+	}
+	return resp
+}
+
+func validateAppHostClientProcess(clientPID uint32) error {
+	clientPath, err := processImagePath(clientPID)
+	if err != nil {
+		return fmt.Errorf("query apphost client process: %w", err)
+	}
+	selfPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("query apphost executable: %w", err)
+	}
+	clientPath = normalizeExecutablePath(clientPath)
+	selfPath = normalizeExecutablePath(selfPath)
+	if !strings.EqualFold(clientPath, selfPath) {
+		return fmt.Errorf("apphost client executable mismatch: client=%q apphost=%q", clientPath, selfPath)
+	}
+	return nil
+}
+
+func processImagePath(pid uint32) (string, error) {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return "", err
+	}
+	defer windows.CloseHandle(handle)
+	size := uint32(windows.MAX_LONG_PATH)
+	buf := make([]uint16, size)
+	if err := windows.QueryFullProcessImageName(handle, 0, &buf[0], &size); err != nil {
+		return "", err
+	}
+	return windows.UTF16ToString(buf[:size]), nil
+}
+
+func normalizeExecutablePath(path string) string {
+	if strings.HasPrefix(path, `\\?\`) {
+		path = strings.TrimPrefix(path, `\\?\`)
+	}
+	abs, err := filepath.Abs(path)
+	if err == nil {
+		path = abs
+	}
+	eval, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		path = eval
+	}
+	return filepath.Clean(path)
+}
+
+func readPipeFrame(handle windows.Handle, max uint32) ([]byte, error) {
+	var header [4]byte
+	if err := readPipeFull(handle, header[:]); err != nil {
+		return nil, err
+	}
+	size := binary.BigEndian.Uint32(header[:])
+	if size == 0 {
+		return nil, fmt.Errorf("empty pipe frame")
+	}
+	if size > max {
+		return nil, fmt.Errorf("pipe frame too large: %d > %d", size, max)
+	}
+	body := make([]byte, size)
+	if err := readPipeFull(handle, body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func writePipeFrame(handle windows.Handle, body []byte) error {
+	if len(body) == 0 {
+		return fmt.Errorf("empty pipe frame")
+	}
+	if len(body) > appHostMaxFrame {
+		return fmt.Errorf("pipe frame too large: %d > %d", len(body), appHostMaxFrame)
+	}
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(body)))
+	if err := writePipeFull(handle, header[:]); err != nil {
+		return err
+	}
+	return writePipeFull(handle, body)
+}
+
+func readPipeFull(handle windows.Handle, buf []byte) error {
+	for len(buf) > 0 {
+		var done uint32
+		if err := windows.ReadFile(handle, buf, &done, nil); err != nil {
+			return err
+		}
+		if done == 0 {
+			return io.ErrUnexpectedEOF
+		}
+		buf = buf[done:]
+	}
+	return nil
+}
+
+func writePipeFull(handle windows.Handle, buf []byte) error {
+	for len(buf) > 0 {
+		var done uint32
+		if err := windows.WriteFile(handle, buf, &done, nil); err != nil {
+			return err
+		}
+		if done == 0 {
+			return io.ErrShortWrite
+		}
+		buf = buf[done:]
 	}
 	return nil
 }

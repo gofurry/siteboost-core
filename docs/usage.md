@@ -18,14 +18,12 @@ Print version information:
 go run ./cmd/steam-accelerator --version
 ```
 
-Start ProxyOnly, PAC, System Proxy, or Hosts mode in the foreground:
+Start ProxyOnly, PAC, or System Proxy mode in the foreground:
 
 ```bash
 go run ./cmd/steam-accelerator start --mode proxy-only
 go run ./cmd/steam-accelerator start --mode pac
 go run ./cmd/steam-accelerator start --mode system
-go run ./cmd/steam-accelerator cert install
-go run ./cmd/steam-accelerator start --mode hosts
 ```
 
 In another terminal:
@@ -35,6 +33,8 @@ go run ./cmd/steam-accelerator status
 go run ./cmd/steam-accelerator stop
 go run ./cmd/steam-accelerator restore
 ```
+
+For Windows Hosts mode with AppHost, use a fixed binary path instead of `go run`; see the Windows Hosts section below.
 
 ## Configuration
 
@@ -76,8 +76,9 @@ cert:
   # start --mode hosts installs the local root CA if it is not trusted yet.
   auto_install: true
   # machine uses LocalMachine\Root and is the default Windows Hosts path.
-  # A normal PowerShell requests one UAC prompt through the narrow helper
-  # when system writes are needed. user uses CurrentUser\Root as a fallback.
+  # Install AppHost once from Administrator PowerShell for normal PowerShell
+  # system writes through the local named pipe. user uses CurrentUser\Root
+  # as a fallback.
   store_scope: "machine"
 
 resolver:
@@ -245,30 +246,34 @@ hosts:
   https_listen_addr: "127.0.0.1:443"
 ```
 
-By default, `start --mode hosts` checks this project's root CA and installs it into the Windows `LocalMachine\Root` store if it is not trusted yet. Administrator PowerShell uses the silent direct path. A normal PowerShell asks for one Windows UAC authorization through the narrow helper when root CA or Windows hosts writes are needed. The core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
+By default, `start --mode hosts` checks this project's root CA and installs it into the Windows `LocalMachine\Root` store if it is not trusted yet. Administrator PowerShell uses the silent direct path. The recommended daily flow is to build a fixed local binary, run `apphost install` once from an Administrator PowerShell, then run `start --mode hosts` from a normal PowerShell using the same binary path; restricted root CA, hosts, and restore writes go through the AppHost named pipe `\\.\pipe\SiteBoostCoreAppHost`. The core does not bypass UAC, enterprise policy, or arbitrary system-change safeguards. If the root CA is already installed, startup skips the install step.
+
+Do not use `go run` for AppHost service installation. `go run` creates temporary executables, while AppHost validates that the pipe client process image matches the installed service executable path.
 
 Set `cert.store_scope: "user"` only when you explicitly want `CurrentUser\Root`; that compatibility path may still show a Windows root-certificate confirmation.
 
 ```bash
-go run ./cmd/steam-accelerator start --mode hosts
+go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
+./bin/steam-accelerator.exe apphost install
+./bin/steam-accelerator.exe start --mode hosts
 ```
 
 For an explicit/manual workflow, or if `cert.auto_install: false` is set, install the root CA first:
 
 ```bash
-go run ./cmd/steam-accelerator cert install
-go run ./cmd/steam-accelerator start --mode hosts
+./bin/steam-accelerator.exe cert install
+./bin/steam-accelerator.exe start --mode hosts
 ```
 
-`cert install` checks the configured Windows Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again. From a normal PowerShell, writing the default `machine` store also requests UAC through the helper; `cert uninstall` is always an explicit user action.
+`cert install` checks the configured Windows Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again. From a normal PowerShell, writing the default `machine` store goes through the installed AppHost Service; `cert uninstall` is always an explicit user action.
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. When the normal PowerShell helper path succeeds, `system_change` detail includes `helper=elevated`. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA; restoring hosts from a normal PowerShell may request UAC again. To uninstall it, run:
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. When the normal PowerShell AppHost path succeeds, `system_change` detail currently includes `helper=elevated` for compatibility with the existing status field. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA; restoring hosts from a normal PowerShell also uses AppHost. To uninstall it, run:
 
 ```bash
-go run ./cmd/steam-accelerator cert uninstall
+./bin/steam-accelerator.exe cert uninstall
 ```
 
-The narrow helper only accepts the default Windows hosts path plus rollback and certificate files under the default project runtime/config directories. If YAML config points `hosts.path`, `runtime.rollback_path`, or `cert.dir` to custom locations and the process is not elevated, the helper rejects the request; use an Administrator PowerShell for those advanced paths or a future controlled desktop integration.
+AppHost only accepts the default Windows hosts path plus rollback and certificate files under the default project runtime/config directories. It listens on the Windows named pipe `\\.\pipe\SiteBoostCoreAppHost`, rejects remote pipe clients, uses a DACL for local access control, checks the pipe client PID against the request parent PID, verifies the client process image matches the installed AppHost executable, and still enforces the system-change command whitelist. If YAML config points `hosts.path`, `runtime.rollback_path`, or `cert.dir` to custom locations and the process is not elevated, AppHost rejects the request; use an Administrator PowerShell for those advanced paths or a future controlled desktop integration.
 
 If the browser or Steam embedded browser still shows `upstream request failed`, the response body and logs include an outbound diagnostic summary. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, ForwardDestination reachability, certificate/SNI behavior, or missing rule/profile coverage.
 
@@ -287,7 +292,7 @@ curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
 For high-port smoke testing:
 
 ```bash
-go run ./cmd/steam-accelerator start --mode hosts \
+./bin/steam-accelerator.exe start --mode hosts \
   --hosts-http 127.0.0.1:28080 \
   --hosts-https 127.0.0.1:28443 \
   --state ./tmp/runtime.json
@@ -301,4 +306,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.3.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.4-dev.
