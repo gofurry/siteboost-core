@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,6 +19,60 @@ func TestRestoreNoRollbackState(t *testing.T) {
 	}
 	if got := strings.TrimSpace(stdout.String()); got != "not modified" {
 		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestRunStartRelaunchesHostsModeWhenHelperRequired(t *testing.T) {
+	oldShouldRelaunch := shouldRelaunchHostsStart
+	oldRelaunch := relaunchHostsStart
+	defer func() {
+		shouldRelaunchHostsStart = oldShouldRelaunch
+		relaunchHostsStart = oldRelaunch
+	}()
+
+	shouldRelaunchHostsStart = func() bool { return true }
+	var gotArgs []string
+	relaunchHostsStart = func(args []string) error {
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	statePath := filepath.Join(t.TempDir(), "runtime.json")
+	var stdout, stderr bytes.Buffer
+	err := runStart([]string{"--mode", "hosts", "--state", statePath}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStart returned error: %v; stderr=%s", err, stderr.String())
+	}
+	wantArgs := []string{"start", "--mode", "hosts", "--state", statePath, "--elevated-child"}
+	if !reflect.DeepEqual(gotArgs, wantArgs) {
+		t.Fatalf("relaunch args = %#v, want %#v", gotArgs, wantArgs)
+	}
+	if !strings.Contains(stdout.String(), "relaunching hosts mode with administrator privileges") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRunStartElevatedChildRequiresAdministratorToken(t *testing.T) {
+	oldShouldRelaunch := shouldRelaunchHostsStart
+	oldRelaunch := relaunchHostsStart
+	defer func() {
+		shouldRelaunchHostsStart = oldShouldRelaunch
+		relaunchHostsStart = oldRelaunch
+	}()
+
+	shouldRelaunchHostsStart = func() bool { return true }
+	relaunchHostsStart = func(args []string) error {
+		t.Fatalf("unexpected relaunch with args %#v", args)
+		return nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runStart([]string{"--mode", "hosts", "--elevated-child"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("runStart returned nil error")
+	}
+	if !strings.Contains(err.Error(), "administrator token") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

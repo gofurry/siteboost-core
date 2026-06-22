@@ -27,6 +27,11 @@ import (
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
 
+var (
+	shouldRelaunchHostsStart = privilege.ShouldUseHelper
+	relaunchHostsStart       = privilege.RelaunchElevated
+)
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -79,6 +84,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	allowLAN := fs.Bool("allow-lan", false, "allow non-loopback proxy listen address")
 	statePath := fs.String("state", "", "runtime state file path")
 	controlAddr := fs.String("control", "", "control listen address")
+	elevatedChild := fs.Bool("elevated-child", false, "internal: command was relaunched with administrator privileges")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -91,6 +97,14 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *nonSteam, *allowLAN, *statePath, *controlAddr)
 	if err := cfg.Validate(); err != nil {
 		return err
+	}
+
+	relaunched, err := maybeRelaunchHostsStart(cfg, args, *elevatedChild, stdout)
+	if err != nil {
+		return err
+	}
+	if relaunched {
+		return nil
 	}
 
 	if running, err := runningFromState(cfg.Runtime.StatePath); err == nil && running {
@@ -186,6 +200,24 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 		return controlErr
 	}
 	return engineErr
+}
+
+func maybeRelaunchHostsStart(cfg config.Config, args []string, elevatedChild bool, stdout io.Writer) (bool, error) {
+	if cfg.Mode != config.ModeHosts || !shouldRelaunchHostsStart() {
+		return false, nil
+	}
+	if elevatedChild {
+		return false, fmt.Errorf("hosts mode requires an administrator token; current elevated process still cannot modify Windows system settings")
+	}
+	elevatedArgs := make([]string, 0, len(args)+2)
+	elevatedArgs = append(elevatedArgs, "start")
+	elevatedArgs = append(elevatedArgs, args...)
+	elevatedArgs = append(elevatedArgs, "--elevated-child")
+	fmt.Fprintln(stdout, "relaunching hosts mode with administrator privileges...")
+	if err := relaunchHostsStart(elevatedArgs); err != nil {
+		return false, fmt.Errorf("relaunch hosts mode as administrator: %w", err)
+	}
+	return true, nil
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) error {

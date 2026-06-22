@@ -26,6 +26,22 @@ func HasSystemPrivileges() bool {
 	return err == nil && IsElevated() && admin
 }
 
+func RelaunchElevated(args []string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable for elevated relaunch: %w", err)
+	}
+	cmdline := windows.ComposeCommandLine(args)
+	cwd, _ := os.Getwd()
+	if err := shellExecuteRunas(exe, cmdline, cwd); err != nil {
+		if errors.Is(err, windows.ERROR_CANCELLED) {
+			return fmt.Errorf("administrator authorization was canceled")
+		}
+		return fmt.Errorf("start elevated process: %w", err)
+	}
+	return nil
+}
+
 func runElevatedHelper(ctx context.Context, req HelperRequest) (HelperResponse, error) {
 	helperCtx, cancel, err := helperContext(ctx)
 	if err != nil {
