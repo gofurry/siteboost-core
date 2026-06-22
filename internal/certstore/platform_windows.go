@@ -54,7 +54,13 @@ func (p windowsPlatform) IsInstalled(_ context.Context, cert *x509.Certificate, 
 func (p windowsPlatform) Install(opCtx context.Context, cert *x509.Certificate, certPath string, storeScope string) error {
 	store, err := openRootStore(storeScope, true)
 	if err != nil {
-		return err
+		if fallbackErr := installRootWithDotNetX509Store(opCtx, certPath, storeScope); fallbackErr == nil {
+			return nil
+		} else if errors.Is(err, windows.ERROR_ACCESS_DENIED) && isMachineStore(storeScope) {
+			return fmt.Errorf("%w; .NET X509Store fallback failed: %v; rerun as Administrator or set cert.store_scope: user", err, fallbackErr)
+		} else {
+			return fmt.Errorf("%w; .NET X509Store fallback failed: %v", err, fallbackErr)
+		}
 	}
 	defer windows.CertCloseStore(store, 0)
 
@@ -80,7 +86,11 @@ func (p windowsPlatform) Install(opCtx context.Context, cert *x509.Certificate, 
 func (p windowsPlatform) Uninstall(opCtx context.Context, cert *x509.Certificate, storeScope string) error {
 	store, err := openRootStore(storeScope, true)
 	if err != nil {
-		return err
+		if fallbackErr := uninstallRootWithDotNetX509Store(opCtx, Thumbprint(cert), storeScope); fallbackErr == nil {
+			return nil
+		} else {
+			return fmt.Errorf("%w; .NET X509Store fallback failed: %v", err, fallbackErr)
+		}
 	}
 	defer windows.CertCloseStore(store, 0)
 
