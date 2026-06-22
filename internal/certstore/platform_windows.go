@@ -6,10 +6,16 @@ import (
 	"context"
 	"crypto/sha1"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/gofurry/go-steam-core/internal/config"
@@ -45,49 +51,52 @@ func (p windowsPlatform) IsInstalled(_ context.Context, cert *x509.Certificate, 
 	return true, nil
 }
 
-func (p windowsPlatform) Install(_ context.Context, cert *x509.Certificate, certPath string, storeScope string) error {
+func (p windowsPlatform) Install(opCtx context.Context, cert *x509.Certificate, certPath string, storeScope string) error {
 	store, err := openRootStore(storeScope, true)
 	if err != nil {
 		return err
 	}
 	defer windows.CertCloseStore(store, 0)
 
-	ctx, err := certificateContext(cert)
+	certCtx, err := certificateContext(cert)
 	if err != nil {
 		return err
 	}
-	defer windows.CertFreeCertificateContext(ctx)
+	defer windows.CertFreeCertificateContext(certCtx)
 
-	var added *windows.CertContext
-	if err := windows.CertAddCertificateContextToStore(store, ctx, windows.CERT_STORE_ADD_REPLACE_EXISTING, &added); err != nil {
-		if errors.Is(err, windows.ERROR_ACCESS_DENIED) && isMachineStore(storeScope) {
-			return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w; rerun as Administrator or set cert.store_scope: user", windowsStoreLabel(storeScope), err)
+	if err := windows.CertAddCertificateContextToStore(store, certCtx, windows.CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, nil); err != nil {
+		if fallbackErr := installRootWithDotNetX509Store(opCtx, certPath, storeScope); fallbackErr == nil {
+			return nil
+		} else if errors.Is(err, windows.ERROR_ACCESS_DENIED) && isMachineStore(storeScope) {
+			return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w; .NET X509Store fallback failed: %v; rerun as Administrator or set cert.store_scope: user", windowsStoreLabel(storeScope), err, fallbackErr)
+		} else {
+			return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w; .NET X509Store fallback failed: %v", windowsStoreLabel(storeScope), err, fallbackErr)
 		}
-		return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w", windowsStoreLabel(storeScope), err)
-	}
-	if added != nil {
-		_ = windows.CertFreeCertificateContext(added)
 	}
 	_ = certPath
 	return nil
 }
 
-func (p windowsPlatform) Uninstall(_ context.Context, cert *x509.Certificate, storeScope string) error {
+func (p windowsPlatform) Uninstall(opCtx context.Context, cert *x509.Certificate, storeScope string) error {
 	store, err := openRootStore(storeScope, true)
 	if err != nil {
 		return err
 	}
 	defer windows.CertCloseStore(store, 0)
 
-	ctx, err := findCertBySHA1(store, cert)
+	certCtx, err := findCertBySHA1(store, cert)
 	if err != nil {
 		if errors.Is(err, cryptENotFound) {
 			return nil
 		}
 		return err
 	}
-	if err := windows.CertDeleteCertificateFromStore(ctx); err != nil {
-		return fmt.Errorf("uninstall root CA from %s Root store with Windows certificate store API: %w", windowsStoreLabel(storeScope), err)
+	if err := windows.CertDeleteCertificateFromStore(certCtx); err != nil {
+		if fallbackErr := uninstallRootWithDotNetX509Store(opCtx, Thumbprint(cert), storeScope); fallbackErr == nil {
+			return nil
+		} else {
+			return fmt.Errorf("uninstall root CA from %s Root store with Windows certificate store API: %w; .NET X509Store fallback failed: %v", windowsStoreLabel(storeScope), err, fallbackErr)
+		}
 	}
 	return nil
 }
@@ -121,7 +130,7 @@ func windowsRootStoreOpenFlags(storeScope string, writable bool) (uint32, error)
 	}
 	flags := location | windows.CERT_STORE_OPEN_EXISTING_FLAG
 	if writable {
-		flags |= windows.CERT_STORE_MAXIMUM_ALLOWED_FLAG
+		flags = location
 	} else {
 		flags |= windows.CERT_STORE_READONLY_FLAG
 	}
@@ -192,4 +201,102 @@ func findCertBySHA1(store windows.Handle, cert *x509.Certificate) (*windows.Cert
 		return nil, fmt.Errorf("find root CA by thumbprint: %w", err)
 	}
 	return ctx, nil
+}
+
+func installRootWithDotNetX509Store(ctx context.Context, certPath string, storeScope string) error {
+	if strings.TrimSpace(certPath) == "" {
+		return fmt.Errorf("certificate path is empty")
+	}
+	absCertPath, err := filepath.Abs(certPath)
+	if err != nil {
+		return fmt.Errorf("resolve certificate path: %w", err)
+	}
+	const script = `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$certPath = $env:SITEBOOST_CERT_PATH
+$locationName = $env:SITEBOOST_CERT_STORE_LOCATION
+if ([string]::IsNullOrWhiteSpace($certPath)) { throw 'SITEBOOST_CERT_PATH is empty' }
+if ([string]::IsNullOrWhiteSpace($locationName)) { throw 'SITEBOOST_CERT_STORE_LOCATION is empty' }
+$location = [Enum]::Parse([System.Security.Cryptography.X509Certificates.StoreLocation], $locationName)
+$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
+$store = [System.Security.Cryptography.X509Certificates.X509Store]::new([System.Security.Cryptography.X509Certificates.StoreName]::Root, $location)
+try {
+    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    $found = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $cert.Thumbprint, $false)
+    if ($found.Count -eq 0) {
+        $store.Add($cert)
+    }
+}
+finally {
+    if ($store -ne $null) { $store.Close() }
+    if ($cert -ne $null) { $cert.Dispose() }
+}
+`
+	return runPowerShellEncoded(ctx, script,
+		"SITEBOOST_CERT_PATH="+absCertPath,
+		"SITEBOOST_CERT_STORE_LOCATION="+windowsStoreLabel(storeScope),
+	)
+}
+
+func uninstallRootWithDotNetX509Store(ctx context.Context, thumbprint string, storeScope string) error {
+	if strings.TrimSpace(thumbprint) == "" {
+		return fmt.Errorf("certificate thumbprint is empty")
+	}
+	const script = `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$thumbprint = $env:SITEBOOST_CERT_THUMBPRINT
+$locationName = $env:SITEBOOST_CERT_STORE_LOCATION
+if ([string]::IsNullOrWhiteSpace($thumbprint)) { throw 'SITEBOOST_CERT_THUMBPRINT is empty' }
+if ([string]::IsNullOrWhiteSpace($locationName)) { throw 'SITEBOOST_CERT_STORE_LOCATION is empty' }
+$location = [Enum]::Parse([System.Security.Cryptography.X509Certificates.StoreLocation], $locationName)
+$store = [System.Security.Cryptography.X509Certificates.X509Store]::new([System.Security.Cryptography.X509Certificates.StoreName]::Root, $location)
+try {
+    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    $found = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumbprint, $false)
+    foreach ($cert in $found) {
+        $store.Remove($cert)
+    }
+}
+finally {
+    if ($store -ne $null) { $store.Close() }
+}
+`
+	return runPowerShellEncoded(ctx, script,
+		"SITEBOOST_CERT_THUMBPRINT="+thumbprint,
+		"SITEBOOST_CERT_STORE_LOCATION="+windowsStoreLabel(storeScope),
+	)
+}
+
+func runPowerShellEncoded(ctx context.Context, script string, extraEnv ...string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, "powershell.exe",
+		"-NoLogo",
+		"-NoProfile",
+		"-NonInteractive",
+		"-ExecutionPolicy", "Bypass",
+		"-EncodedCommand", powerShellEncodedCommand(script),
+	)
+	cmd.Env = append(os.Environ(), extraEnv...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	text := strings.TrimSpace(string(out))
+	if text != "" {
+		return fmt.Errorf("%w: %s", err, text)
+	}
+	return err
+}
+
+func powerShellEncodedCommand(script string) string {
+	encoded := utf16.Encode([]rune(script))
+	buf := make([]byte, len(encoded)*2)
+	for i, r := range encoded {
+		binary.LittleEndian.PutUint16(buf[i*2:], r)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
 }

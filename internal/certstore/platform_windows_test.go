@@ -30,15 +30,15 @@ func TestWindowsRootStoreOpenFlags(t *testing.T) {
 			name:      "machine writable",
 			scope:     config.CertStoreMachine,
 			writable:  true,
-			wantSet:   windows.CERT_SYSTEM_STORE_LOCAL_MACHINE | windows.CERT_STORE_OPEN_EXISTING_FLAG | windows.CERT_STORE_MAXIMUM_ALLOWED_FLAG,
-			wantClear: windows.CERT_STORE_READONLY_FLAG,
+			wantSet:   windows.CERT_SYSTEM_STORE_LOCAL_MACHINE,
+			wantClear: windows.CERT_STORE_READONLY_FLAG | windows.CERT_STORE_OPEN_EXISTING_FLAG | windows.CERT_STORE_MAXIMUM_ALLOWED_FLAG,
 		},
 		{
 			name:      "user writable",
 			scope:     config.CertStoreUser,
 			writable:  true,
-			wantSet:   windows.CERT_SYSTEM_STORE_CURRENT_USER | windows.CERT_STORE_OPEN_EXISTING_FLAG | windows.CERT_STORE_MAXIMUM_ALLOWED_FLAG,
-			wantClear: windows.CERT_STORE_READONLY_FLAG,
+			wantSet:   windows.CERT_SYSTEM_STORE_CURRENT_USER,
+			wantClear: windows.CERT_STORE_READONLY_FLAG | windows.CERT_STORE_OPEN_EXISTING_FLAG | windows.CERT_STORE_MAXIMUM_ALLOWED_FLAG,
 		},
 	}
 
@@ -58,5 +58,13 @@ func TestWindowsRootStoreOpenFlags(t *testing.T) {
 				t.Fatalf("windowsRootStoreOpenFlags() = %#x, unexpectedly set %#x", got, got&tt.wantClear)
 			}
 		})
+	}
+}
+
+func TestPowerShellEncodedCommandUsesUTF16LE(t *testing.T) {
+	t.Parallel()
+
+	if got, want := powerShellEncodedCommand("abc"), "YQBiAGMA"; got != want {
+		t.Fatalf("powerShellEncodedCommand() = %q, want %q", got, want)
 	}
 }
