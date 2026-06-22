@@ -199,8 +199,21 @@ func runAppHostRequestPlatform(ctx context.Context, req HelperRequest) (HelperRe
 	}
 	respBody, err := appHostPipeRoundTrip(ctx, body)
 	if err != nil {
+		if isAppHostPipeDisconnect(err) {
+			if restartErr := restartAppHostService(ctx); restartErr != nil {
+				return HelperResponse{}, fmt.Errorf("%w; apphost restart failed: %v", err, restartErr)
+			}
+			respBody, err = appHostPipeRoundTrip(ctx, body)
+			if err == nil {
+				return parseAppHostResponse(respBody)
+			}
+		}
 		return HelperResponse{}, err
 	}
+	return parseAppHostResponse(respBody)
+}
+
+func parseAppHostResponse(respBody []byte) (HelperResponse, error) {
 	var helperResp HelperResponse
 	if err := json.Unmarshal(respBody, &helperResp); err != nil {
 		return HelperResponse{}, fmt.Errorf("parse apphost response: %w", err)
@@ -212,6 +225,20 @@ func runAppHostRequestPlatform(ctx context.Context, req HelperRequest) (HelperRe
 		return helperResp, fmt.Errorf("windows apphost: %s", helperResp.Error)
 	}
 	return helperResp, nil
+}
+
+func isAppHostPipeDisconnect(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, windows.ERROR_BROKEN_PIPE) ||
+		errors.Is(err, windows.ERROR_PIPE_NOT_CONNECTED) ||
+		strings.Contains(strings.ToLower(err.Error()), "no process is on the other end of the pipe")
+}
+
+func restartAppHostService(ctx context.Context) error {
+	_ = StopAppHostService(ctx)
+	return StartAppHostService(ctx)
 }
 
 func appHostPipeRoundTrip(ctx context.Context, body []byte) ([]byte, error) {
@@ -273,10 +300,18 @@ func openAppHostPipe(ctx context.Context) (windows.Handle, error) {
 
 func RunAppHostConsole(ctx context.Context, stdout io.Writer) error {
 	if !HasSystemPrivileges() {
+		appHostLogf("apphost rejected: insufficient privileges: %s", helperStatus())
 		return fmt.Errorf("windows apphost requires system privileges: %s", helperStatus())
 	}
+	appHostLogf("apphost console starting: %s", helperStatus())
 	server := newAppHostServer(stdout)
-	return server.run(ctx)
+	err := server.run(ctx)
+	if err != nil {
+		appHostLogf("apphost console stopped with error: %v", err)
+	} else {
+		appHostLogf("apphost console stopped")
+	}
+	return err
 }
 
 type appHostServer struct {
@@ -336,20 +371,34 @@ func createAppHostPipe() (windows.Handle, error) {
 	if err != nil {
 		return windows.InvalidHandle, err
 	}
-	handle, err := windows.CreateNamedPipe(
+	mode := uint32(windows.PIPE_TYPE_BYTE | windows.PIPE_READMODE_BYTE | windows.PIPE_WAIT | windows.PIPE_REJECT_REMOTE_CLIENTS)
+	handle, err := createAppHostPipeHandle(name, mode, attrs)
+	if err != nil && isUnsupportedPipeRejectRemoteClients(err) {
+		appHostLogf("PIPE_REJECT_REMOTE_CLIENTS unsupported, retrying without it: %v", err)
+		mode = windows.PIPE_TYPE_BYTE | windows.PIPE_READMODE_BYTE | windows.PIPE_WAIT
+		handle, err = createAppHostPipeHandle(name, mode, attrs)
+	}
+	if err != nil {
+		return windows.InvalidHandle, fmt.Errorf("create apphost named pipe: %w", err)
+	}
+	return handle, nil
+}
+
+func createAppHostPipeHandle(name *uint16, mode uint32, attrs *windows.SecurityAttributes) (windows.Handle, error) {
+	return windows.CreateNamedPipe(
 		name,
 		windows.PIPE_ACCESS_DUPLEX,
-		windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT|windows.PIPE_REJECT_REMOTE_CLIENTS,
+		mode,
 		windows.PIPE_UNLIMITED_INSTANCES,
 		appHostMaxFrame,
 		appHostMaxFrame,
 		0,
 		attrs,
 	)
-	if err != nil {
-		return windows.InvalidHandle, fmt.Errorf("create apphost named pipe: %w", err)
-	}
-	return handle, nil
+}
+
+func isUnsupportedPipeRejectRemoteClients(err error) bool {
+	return errors.Is(err, windows.ERROR_INVALID_FUNCTION) || errors.Is(err, windows.ERROR_INVALID_PARAMETER)
 }
 
 func appHostPipeSecurityAttributes() (*windows.SecurityAttributes, error) {
@@ -366,43 +415,82 @@ func appHostPipeSecurityAttributes() (*windows.SecurityAttributes, error) {
 func (s *appHostServer) handlePipe(pipe windows.Handle) {
 	defer windows.CloseHandle(pipe)
 	defer windows.DisconnectNamedPipe(pipe)
-	resp := s.handlePipeRequest(pipe)
-	body, err := json.Marshal(resp)
-	if err != nil {
-		fmt.Fprintf(s.stdout, "encode apphost pipe response: %v\n", err)
-		return
-	}
-	if err := writePipeFrame(pipe, body); err != nil {
-		fmt.Fprintf(s.stdout, "write apphost pipe response: %v\n", err)
-	}
+	resp := HelperResponse{OK: false, Error: "apphost request did not run"}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			resp = HelperResponse{OK: false, Error: fmt.Sprintf("apphost request panic: %v", recovered)}
+			appHostLogf("%s", resp.Error)
+		}
+		body, err := json.Marshal(resp)
+		if err != nil {
+			appHostLogf("encode apphost pipe response: %v", err)
+			fmt.Fprintf(s.stdout, "encode apphost pipe response: %v\n", err)
+			return
+		}
+		if err := writePipeFrame(pipe, body); err != nil {
+			appHostLogf("write apphost pipe response: %v", err)
+			fmt.Fprintf(s.stdout, "write apphost pipe response: %v\n", err)
+			return
+		}
+		if err := windows.FlushFileBuffers(pipe); err != nil {
+			appHostLogf("flush apphost pipe response: %v", err)
+			fmt.Fprintf(s.stdout, "flush apphost pipe response: %v\n", err)
+		}
+	}()
+	resp = s.handlePipeRequest(pipe)
 }
 
 func (s *appHostServer) handlePipeRequest(pipe windows.Handle) HelperResponse {
 	var clientPID uint32
 	if err := windows.GetNamedPipeClientProcessId(pipe, &clientPID); err != nil {
+		appHostLogf("get apphost pipe client pid failed: %v", err)
 		return HelperResponse{OK: false, Error: fmt.Sprintf("get apphost pipe client pid: %v", err)}
 	}
 	if err := validateAppHostClientProcess(clientPID); err != nil {
+		appHostLogf("validate apphost client pid=%d failed: %v", clientPID, err)
 		return HelperResponse{OK: false, Error: err.Error()}
 	}
 	body, err := readPipeFrame(pipe, appHostMaxFrame)
 	if err != nil {
+		appHostLogf("read apphost pipe request failed: %v", err)
 		return HelperResponse{OK: false, Error: fmt.Sprintf("read apphost pipe request: %v", err)}
 	}
 	var req HelperRequest
 	if err := json.Unmarshal(body, &req); err != nil {
+		appHostLogf("parse apphost pipe request failed: %v", err)
 		return HelperResponse{OK: false, Error: fmt.Sprintf("parse apphost pipe request: %v", err)}
 	}
+	appHostLogf("apphost request command=%s parent_pid=%d client_pid=%d", req.Command, req.ParentPID, clientPID)
 	if err := validateAppHostRequest(req, int(clientPID)); err != nil {
+		appHostLogf("validate apphost request command=%s failed: %v", req.Command, err)
 		return HelperResponse{OK: false, Error: err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultHelperTimeout)
 	defer cancel()
 	resp, err := executeHelperRequest(ctx, req)
 	if err != nil {
+		appHostLogf("execute apphost request command=%s failed: %v", req.Command, err)
 		return HelperResponse{OK: false, Error: fmt.Sprintf("%s: %v", helperStatus(), err)}
 	}
+	appHostLogf("apphost request command=%s ok", req.Command)
 	return resp
+}
+
+func appHostLogf(format string, args ...any) {
+	base := os.Getenv("ProgramData")
+	if strings.TrimSpace(base) == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "SiteBoostCore")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "apphost.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
 }
 
 func validateAppHostClientProcess(clientPID uint32) error {
@@ -558,11 +646,15 @@ func (windowsAppHostService) Execute(args []string, requests <-chan svc.ChangeRe
 			case svc.Stop, svc.Shutdown:
 				status <- svc.Status{State: svc.StopPending}
 				cancel()
-				err := <-errCh
-				if err != nil {
+				select {
+				case err := <-errCh:
+					if err != nil {
+						return false, 1
+					}
+					return false, 0
+				case <-time.After(10 * time.Second):
 					return false, 1
 				}
-				return false, 0
 			default:
 				status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 			}
@@ -758,6 +850,14 @@ func StartAppHostService(ctx context.Context) error {
 	if err == nil && query.State == svc.Running {
 		return nil
 	}
+	if err == nil && query.State == svc.StartPending {
+		return waitForServiceState(ctx, service, svc.Running, 10*time.Second)
+	}
+	if err == nil && query.State == svc.StopPending {
+		if err := waitForServiceState(ctx, service, svc.Stopped, 10*time.Second); err != nil {
+			return err
+		}
+	}
 	if err := service.Start(); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already") {
 		return fmt.Errorf("start apphost service: %w", err)
 	}
@@ -781,6 +881,9 @@ func StopAppHostService(ctx context.Context) error {
 	query, err := service.Query()
 	if err == nil && query.State == svc.Stopped {
 		return nil
+	}
+	if err == nil && query.State == svc.StopPending {
+		return waitForServiceState(ctx, service, svc.Stopped, 10*time.Second)
 	}
 	_, err = service.Control(svc.Stop)
 	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "not active") {
@@ -808,16 +911,37 @@ func AppHostServiceStatus(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("query apphost service: %w", err)
 	}
 	cfg, err := service.Config()
+	status := serviceStateName(query.State)
 	if err != nil {
-		return serviceStateName(query.State), nil
+		return status, nil
 	}
-	return fmt.Sprintf("%s start_type=%s delayed_auto_start=%t pid=%d", serviceStateName(query.State), serviceStartTypeName(cfg.StartType), cfg.DelayedAutoStart, query.ProcessId), nil
+	status = fmt.Sprintf("%s start_type=%s delayed_auto_start=%t pid=%d", status, serviceStartTypeName(cfg.StartType), cfg.DelayedAutoStart, query.ProcessId)
+	if query.State == svc.Running {
+		healthCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		if err := appHostHealth(healthCtx); err != nil {
+			status += fmt.Sprintf(" health=failed:%s", compactStatusDetail(err.Error()))
+		} else {
+			status += " health=ok"
+		}
+	}
+	return status, nil
+}
+
+func compactStatusDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	detail = strings.ReplaceAll(detail, "\r", " ")
+	detail = strings.ReplaceAll(detail, "\n", " ")
+	if len(detail) > 160 {
+		detail = detail[:157] + "..."
+	}
+	return detail
 }
 
 func waitForServiceState(ctx context.Context, service *mgr.Service, want svc.State, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var last svc.State
-	for time.Now().Before(deadline) {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -828,6 +952,9 @@ func waitForServiceState(ctx context.Context, service *mgr.Service, want svc.Sta
 		last = query.State
 		if query.State == want {
 			return nil
+		}
+		if !time.Now().Before(deadline) {
+			break
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

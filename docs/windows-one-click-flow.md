@@ -70,4 +70,4 @@ Requests are passed through the Windows named pipe `\\.\pipe\SiteBoostCoreAppHos
 - rollback and certificate paths under the default project runtime/config directories;
 - timeout.
 
-The pipe is created with a DACL for local access control and `PIPE_REJECT_REMOTE_CLIENTS`. Because of that boundary, AppHost does not support arbitrary `hosts.path`, `runtime.rollback_path`, or `cert.dir` values from a normal process. Use an elevated process or future controlled desktop integration for custom paths.
+The pipe is created with a DACL for local access control and enables `PIPE_REJECT_REMOTE_CLIENTS` when the platform supports it. Because of that boundary, AppHost does not support arbitrary `hosts.path`, `runtime.rollback_path`, or `cert.dir` values from a normal process. Use an elevated process or future controlled desktop integration for custom paths.

@@ -272,7 +272,7 @@ Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact S
 ./bin/steam-accelerator.exe cert uninstall
 ```
 
-AppHost 只接受默认 Windows hosts 路径，以及默认项目 runtime / cert 目录下的 rollback 与证书文件。它使用 Windows named pipe `\\.\pipe\SiteBoostCoreAppHost`，拒绝远程 pipe 客户端，通过 DACL 做本机访问控制，校验 pipe client PID 必须等于请求中的父进程 PID，并校验客户端进程路径必须等于已安装 AppHost 的二进制路径，同时继续执行系统修改命令白名单。若你通过 YAML 配置了自定义 `hosts.path`、`runtime.rollback_path` 或 `cert.dir` 并从普通 PowerShell 启动，AppHost 会拒绝该请求；这类高级路径请使用管理员 PowerShell 或后续桌面集成提供的受控权限流程。
+AppHost 只接受默认 Windows hosts 路径，以及默认项目 runtime / cert 目录下的 rollback 与证书文件。它使用 Windows named pipe `\\.\pipe\SiteBoostCoreAppHost`，通过 DACL 做本机访问控制，平台支持时启用远程客户端拒绝，校验 pipe client PID 必须等于请求中的父进程 PID，并校验客户端进程路径必须等于已安装 AppHost 的二进制路径，同时继续执行系统修改命令白名单。若你通过 YAML 配置了自定义 `hosts.path`、`runtime.rollback_path` 或 `cert.dir` 并从普通 PowerShell 启动，AppHost 会拒绝该请求；这类高级路径请使用管理员 PowerShell 或后续桌面集成提供的受控权限流程。
 
 如果浏览器或 Steam 内置浏览器仍显示 `upstream request failed`，响应体和日志会带出站诊断摘要，例如 DoH 解析失败、某个候选 IP 的 TCP 连接失败，或 TLS 握手失败。下一步应根据该错误判断是 DNS/DoH、ForwardDestination 可达性、证书/SNI，还是规则/profile 覆盖问题。
 

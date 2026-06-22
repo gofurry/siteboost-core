@@ -61,7 +61,7 @@ stop / restore 恢复系统修改
 - 已实现 Windows `SiteBoostCoreAppHost` 服务：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务通过 Windows named pipe `\\.\pipe\SiteBoostCoreAppHost` 接收请求。
-  - named pipe 使用 DACL 限制本机交互用户接入，并拒绝远程客户端。
+  - named pipe 使用 DACL 限制交互用户接入，并在平台支持时启用远程客户端拒绝。
   - AppHost 请求会校验 pipe 客户端 PID 必须等于请求中的 `parent_pid`，并校验客户端进程路径必须等于当前 AppHost 二进制。
   - 系统修改请求走 AppHost named pipe RPC。
   - 安装为 `StartAutomatic` + `DelayedAutoStart`。

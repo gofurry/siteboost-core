@@ -62,7 +62,7 @@ system_change: component=hosts action=apply status=ok detail=entries=13,helper=e
 - pipe client PID 必须等于请求中的父进程 PID。
 - pipe client 二进制路径必须等于已安装 AppHost 的二进制路径。
 - named pipe DACL。
-- 拒绝远程客户端连接。
+- 平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`。
 - 命令白名单。
 - 默认 Windows hosts 路径。
 - 默认项目 runtime / cert 目录下的 rollback 与证书路径。
