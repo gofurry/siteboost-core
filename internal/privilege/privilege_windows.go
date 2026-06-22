@@ -245,22 +245,68 @@ func InstallAppHostService(ctx context.Context) error {
 
 	service, err := manager.OpenService(appHostServiceName)
 	if err == nil {
-		defer service.Close()
-		if err := StartAppHostService(ctx); err != nil {
+		query, queryErr := service.Query()
+		if err := configureAppHostService(service, exe); err != nil {
+			_ = service.Close()
 			return err
 		}
-		return nil
+		_ = service.Close()
+		if queryErr == nil && query.State == svc.Running {
+			if err := StopAppHostService(ctx); err != nil {
+				return fmt.Errorf("restart apphost service after config update: %w", err)
+			}
+		}
+		return StartAppHostService(ctx)
 	}
-	service, err = manager.CreateService(appHostServiceName, exe, mgr.Config{
-		DisplayName: "SiteBoost Core AppHost",
-		Description: "Privileged local apphost for SiteBoost Core hosts and certificate system changes.",
-		StartType:   mgr.StartManual,
-	}, "__apphost-service")
+	if !errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+		return fmt.Errorf("open apphost service: %w", err)
+	}
+	service, err = manager.CreateService(appHostServiceName, exe, newAppHostServiceConfig(""), "__apphost-service")
 	if err != nil {
 		return fmt.Errorf("create apphost service: %w", err)
 	}
 	defer service.Close()
 	return StartAppHostService(ctx)
+}
+
+func configureAppHostService(service *mgr.Service, exe string) error {
+	cfg, err := service.Config()
+	if err != nil {
+		return fmt.Errorf("query apphost service config: %w", err)
+	}
+	next := cfg
+	desired := newAppHostServiceConfig(appHostServiceCommandLine(exe))
+	next.DisplayName = desired.DisplayName
+	next.Description = desired.Description
+	next.StartType = desired.StartType
+	next.DelayedAutoStart = desired.DelayedAutoStart
+	next.BinaryPathName = desired.BinaryPathName
+	if next.ServiceType == 0 {
+		next.ServiceType = windows.SERVICE_WIN32_OWN_PROCESS
+	}
+	if next.ErrorControl == 0 {
+		next.ErrorControl = mgr.ErrorNormal
+	}
+	if err := service.UpdateConfig(next); err != nil {
+		return fmt.Errorf("update apphost service config: %w", err)
+	}
+	return nil
+}
+
+func newAppHostServiceConfig(binaryPathName string) mgr.Config {
+	return mgr.Config{
+		ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
+		StartType:        mgr.StartAutomatic,
+		ErrorControl:     mgr.ErrorNormal,
+		BinaryPathName:   binaryPathName,
+		DisplayName:      "SiteBoost Core AppHost",
+		Description:      "Privileged local apphost for SiteBoost Core hosts and certificate system changes.",
+		DelayedAutoStart: true,
+	}
+}
+
+func appHostServiceCommandLine(exe string) string {
+	return syscall.EscapeArg(exe) + " " + syscall.EscapeArg("__apphost-service")
 }
 
 func UninstallAppHostService(ctx context.Context) error {
@@ -351,7 +397,11 @@ func AppHostServiceStatus(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("query apphost service: %w", err)
 	}
-	return serviceStateName(query.State), nil
+	cfg, err := service.Config()
+	if err != nil {
+		return serviceStateName(query.State), nil
+	}
+	return fmt.Sprintf("%s start_type=%s delayed_auto_start=%t pid=%d", serviceStateName(query.State), serviceStartTypeName(cfg.StartType), cfg.DelayedAutoStart, query.ProcessId), nil
 }
 
 func waitForServiceState(ctx context.Context, service *mgr.Service, want svc.State, timeout time.Duration) error {
@@ -392,6 +442,19 @@ func serviceStateName(state svc.State) string {
 		return "paused"
 	default:
 		return fmt.Sprintf("unknown(%d)", state)
+	}
+}
+
+func serviceStartTypeName(startType uint32) string {
+	switch startType {
+	case mgr.StartAutomatic:
+		return "automatic"
+	case mgr.StartManual:
+		return "manual"
+	case mgr.StartDisabled:
+		return "disabled"
+	default:
+		return fmt.Sprintf("unknown(%d)", startType)
 	}
 }
 
