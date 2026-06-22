@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -27,25 +26,6 @@ import (
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
-
-var (
-	shouldRelaunchHostsStart = privilege.ShouldUseHelper
-	relaunchHostsStart       = privilege.RelaunchElevated
-)
-
-const startHandoffTimeout = 45 * time.Second
-
-type startHandoffResponse struct {
-	OK        bool                  `json:"ok"`
-	Error     string                `json:"error,omitempty"`
-	State     *runtimecontrol.State `json:"state,omitempty"`
-	StatePath string                `json:"state_path,omitempty"`
-}
-
-type startHandoffWriter struct {
-	path string
-	done bool
-}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -73,8 +53,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runRestore(args[1:], stdout, stderr)
 	case "cert":
 		err = runCert(args[1:], stdout, stderr)
+	case "apphost":
+		err = runAppHost(args[1:], stdout, stderr)
 	case "__helper":
 		err = privilege.RunHelper(args[1:], stdout, stderr)
+	case "__apphost-service":
+		err = privilege.RunAppHostService(args[1:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -86,7 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runStart(args []string, stdout, stderr io.Writer) (err error) {
+func runStart(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "path to YAML config")
@@ -99,18 +83,10 @@ func runStart(args []string, stdout, stderr io.Writer) (err error) {
 	allowLAN := fs.Bool("allow-lan", false, "allow non-loopback proxy listen address")
 	statePath := fs.String("state", "", "runtime state file path")
 	controlAddr := fs.String("control", "", "control listen address")
-	elevatedChild := fs.Bool("elevated-child", false, "internal: command was relaunched with administrator privileges")
-	handoffPath := fs.String("handoff", "", "internal: elevated startup handoff path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	visited := visitedFlags(fs)
-	handoff := startHandoffWriter{path: *handoffPath}
-	defer func() {
-		if err != nil {
-			_ = handoff.fail(err)
-		}
-	}()
 
 	cfg, err := config.LoadFile(*configPath)
 	if err != nil {
@@ -119,14 +95,6 @@ func runStart(args []string, stdout, stderr io.Writer) (err error) {
 	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *nonSteam, *allowLAN, *statePath, *controlAddr)
 	if err := cfg.Validate(); err != nil {
 		return err
-	}
-
-	relaunched, err := maybeRelaunchHostsStart(cfg, args, *elevatedChild, stdout)
-	if err != nil {
-		return err
-	}
-	if relaunched {
-		return nil
 	}
 
 	if running, err := runningFromState(cfg.Runtime.StatePath); err == nil && running {
@@ -184,13 +152,6 @@ func runStart(args []string, stdout, stderr io.Writer) (err error) {
 		_ = eng.Stop(stopCtx)
 		return err
 	}
-	if err := handoff.started(state, cfg.Runtime.StatePath); err != nil {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), cfg.Proxy.ShutdownTimeout.Std())
-		defer stopCancel()
-		_ = control.Stop(stopCtx)
-		_ = eng.Stop(stopCtx)
-		return fmt.Errorf("write startup handoff: %w", err)
-	}
 	defer runtimecontrol.RemoveState(cfg.Runtime.StatePath)
 
 	fmt.Fprintf(stdout, "%s started\n", steamcore.ProjectName)
@@ -229,126 +190,6 @@ func runStart(args []string, stdout, stderr io.Writer) (err error) {
 		return controlErr
 	}
 	return engineErr
-}
-
-func maybeRelaunchHostsStart(cfg config.Config, args []string, elevatedChild bool, stdout io.Writer) (bool, error) {
-	if cfg.Mode != config.ModeHosts || !shouldRelaunchHostsStart() {
-		return false, nil
-	}
-	if elevatedChild {
-		return false, fmt.Errorf("hosts mode requires an administrator token; current elevated process still cannot modify Windows system settings")
-	}
-	dir, err := os.MkdirTemp("", "steam-accelerator-start-*")
-	if err != nil {
-		return false, fmt.Errorf("create startup handoff directory: %w", err)
-	}
-	defer os.RemoveAll(dir)
-	handoffPath := filepath.Join(dir, "handoff.json")
-	elevatedArgs := make([]string, 0, len(args)+4)
-	elevatedArgs = append(elevatedArgs, "start")
-	elevatedArgs = append(elevatedArgs, args...)
-	elevatedArgs = append(elevatedArgs, "--elevated-child")
-	elevatedArgs = append(elevatedArgs, "--handoff", handoffPath)
-	fmt.Fprintln(stdout, "relaunching hosts mode with administrator privileges...")
-	if err := relaunchHostsStart(elevatedArgs); err != nil {
-		return false, fmt.Errorf("relaunch hosts mode as administrator: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), startHandoffTimeout)
-	defer cancel()
-	resp, err := waitForStartHandoff(ctx, handoffPath)
-	if err != nil {
-		return false, fmt.Errorf("wait for elevated hosts mode startup: %w", err)
-	}
-	if !resp.OK {
-		if resp.Error == "" {
-			resp.Error = "unknown error"
-		}
-		return false, fmt.Errorf("elevated hosts mode failed: %s", resp.Error)
-	}
-	printElevatedStartSummary(stdout, resp)
-	return true, nil
-}
-
-func (w *startHandoffWriter) started(state runtimecontrol.State, statePath string) error {
-	if w.path == "" {
-		return nil
-	}
-	if err := writeStartHandoff(w.path, startHandoffResponse{OK: true, State: &state, StatePath: statePath}); err != nil {
-		return err
-	}
-	w.done = true
-	return nil
-}
-
-func (w *startHandoffWriter) fail(err error) error {
-	if w.path == "" || w.done || err == nil {
-		return nil
-	}
-	if writeErr := writeStartHandoff(w.path, startHandoffResponse{OK: false, Error: err.Error()}); writeErr != nil {
-		return writeErr
-	}
-	w.done = true
-	return nil
-}
-
-func writeStartHandoff(path string, resp startHandoffResponse) error {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-func waitForStartHandoff(ctx context.Context, path string) (startHandoffResponse, error) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return startHandoffResponse{}, fmt.Errorf("timed out waiting for elevated process to report startup")
-		case <-ticker.C:
-			data, err := os.ReadFile(path)
-			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					continue
-				}
-				return startHandoffResponse{}, err
-			}
-			var resp startHandoffResponse
-			if err := json.Unmarshal(data, &resp); err != nil {
-				return startHandoffResponse{}, err
-			}
-			return resp, nil
-		}
-	}
-}
-
-func printElevatedStartSummary(w io.Writer, resp startHandoffResponse) {
-	fmt.Fprintln(w, "elevated hosts mode started")
-	if resp.State != nil {
-		if resp.State.PID > 0 {
-			fmt.Fprintf(w, "pid: %d\n", resp.State.PID)
-		}
-		if resp.State.HostsHTTP != "" {
-			fmt.Fprintf(w, "hosts_http: %s\n", resp.State.HostsHTTP)
-		}
-		if resp.State.HostsHTTPS != "" {
-			fmt.Fprintf(w, "hosts_https: %s\n", resp.State.HostsHTTPS)
-		}
-	}
-	if resp.StatePath != "" {
-		fmt.Fprintf(w, "state: %s\n", resp.StatePath)
-	}
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) error {
@@ -521,6 +362,51 @@ func runCert(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		fmt.Fprintln(stdout, "uninstalled")
+	}
+	return nil
+}
+
+func runAppHost(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		printUsage(stderr)
+		return fmt.Errorf("apphost subcommand is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	switch args[0] {
+	case "install":
+		if err := privilege.InstallAppHostService(ctx); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "apphost installed and started")
+	case "uninstall":
+		if err := privilege.UninstallAppHostService(ctx); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "apphost uninstalled")
+	case "start":
+		if err := privilege.StartAppHostService(ctx); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "apphost started")
+	case "stop":
+		if err := privilege.StopAppHostService(ctx); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "apphost stopped")
+	case "status":
+		status, err := privilege.AppHostServiceStatus(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "apphost: %s\n", status)
+	case "run":
+		runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return privilege.RunAppHostConsole(runCtx, stdout)
+	default:
+		printUsage(stderr)
+		return fmt.Errorf("unsupported apphost subcommand %q", args[0])
 	}
 	return nil
 }
@@ -734,5 +620,6 @@ Usage:
   steam-accelerator restore [--config path] [--rollback path]
   steam-accelerator cert install [--config path] [--cert-dir path]
   steam-accelerator cert uninstall [--config path] [--cert-dir path]
+  steam-accelerator apphost install|start|stop|status|uninstall|run
 `, steamcore.ProjectName, steamcore.Version)
 }

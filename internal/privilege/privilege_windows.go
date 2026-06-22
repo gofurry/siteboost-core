@@ -8,20 +8,32 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 )
+
+const appHostServiceName = "SiteBoostCoreAppHost"
 
 func IsElevated() bool {
 	return windows.GetCurrentProcessToken().IsElevated()
 }
 
 func HasSystemPrivileges() bool {
+	if integrity, err := integrityLevel(); err == nil && integrity == "system" {
+		return true
+	}
 	admin, err := isAdministratorToken()
 	return err == nil && IsElevated() && admin
 }
@@ -111,6 +123,276 @@ func shellExecuteRunas(exe, args, cwd string) error {
 		}
 	}
 	return windows.ShellExecute(0, verb, file, params, cwdPtr, windows.SW_SHOWNORMAL)
+}
+
+func ensureAppHostStarted(ctx context.Context) error {
+	if err := appHostHealth(ctx); err == nil {
+		return nil
+	}
+	if err := StartAppHostService(ctx); err != nil {
+		return fmt.Errorf("windows apphost is not running; install it once with `steam-accelerator apphost install` from an Administrator terminal: %w", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := appHostHealth(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("windows apphost service started but did not become ready: %w", lastErr)
+}
+
+func appHostHealth(ctx context.Context) error {
+	reqCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://"+appHostAddr+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected apphost health status: %s", resp.Status)
+	}
+	return nil
+}
+
+func RunAppHostService(args []string, stdout, stderr io.Writer) error {
+	_ = args
+	isService, err := svc.IsWindowsService()
+	if err != nil {
+		return fmt.Errorf("detect windows service mode: %w", err)
+	}
+	if isService {
+		return svc.Run(appHostServiceName, windowsAppHostService{})
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	fmt.Fprintln(stdout, "running windows apphost in console mode")
+	if err := RunAppHostConsole(ctx, stdout); err != nil {
+		fmt.Fprintf(stderr, "windows apphost stopped: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+type windowsAppHostService struct{}
+
+func (windowsAppHostService) Execute(args []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+	_ = args
+	status <- svc.Status{State: svc.StartPending}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- RunAppHostConsole(ctx, io.Discard)
+	}()
+	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	for {
+		select {
+		case req := <-requests:
+			switch req.Cmd {
+			case svc.Interrogate:
+				status <- req.CurrentStatus
+			case svc.Stop, svc.Shutdown:
+				status <- svc.Status{State: svc.StopPending}
+				cancel()
+				err := <-errCh
+				if err != nil {
+					return false, 1
+				}
+				return false, 0
+			default:
+				status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+			}
+		case err := <-errCh:
+			cancel()
+			if err != nil {
+				return false, 1
+			}
+			return false, 0
+		}
+	}
+}
+
+func InstallAppHostService(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable for apphost service: %w", err)
+	}
+	manager, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connect service manager: %w", err)
+	}
+	defer manager.Disconnect()
+
+	service, err := manager.OpenService(appHostServiceName)
+	if err == nil {
+		defer service.Close()
+		if err := StartAppHostService(ctx); err != nil {
+			return err
+		}
+		return nil
+	}
+	service, err = manager.CreateService(appHostServiceName, exe, mgr.Config{
+		DisplayName: "SiteBoost Core AppHost",
+		Description: "Privileged local apphost for SiteBoost Core hosts and certificate system changes.",
+		StartType:   mgr.StartManual,
+	}, "__apphost-service")
+	if err != nil {
+		return fmt.Errorf("create apphost service: %w", err)
+	}
+	defer service.Close()
+	return StartAppHostService(ctx)
+}
+
+func UninstallAppHostService(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_ = StopAppHostService(ctx)
+	manager, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connect service manager: %w", err)
+	}
+	defer manager.Disconnect()
+	service, err := manager.OpenService(appHostServiceName)
+	if err != nil {
+		return fmt.Errorf("open apphost service: %w", err)
+	}
+	defer service.Close()
+	if err := service.Delete(); err != nil {
+		return fmt.Errorf("delete apphost service: %w", err)
+	}
+	return nil
+}
+
+func StartAppHostService(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	manager, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connect service manager: %w", err)
+	}
+	defer manager.Disconnect()
+	service, err := manager.OpenService(appHostServiceName)
+	if err != nil {
+		return fmt.Errorf("open apphost service: %w", err)
+	}
+	defer service.Close()
+	query, err := service.Query()
+	if err == nil && query.State == svc.Running {
+		return nil
+	}
+	if err := service.Start(); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already") {
+		return fmt.Errorf("start apphost service: %w", err)
+	}
+	return waitForServiceState(ctx, service, svc.Running, 10*time.Second)
+}
+
+func StopAppHostService(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	manager, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connect service manager: %w", err)
+	}
+	defer manager.Disconnect()
+	service, err := manager.OpenService(appHostServiceName)
+	if err != nil {
+		return fmt.Errorf("open apphost service: %w", err)
+	}
+	defer service.Close()
+	query, err := service.Query()
+	if err == nil && query.State == svc.Stopped {
+		return nil
+	}
+	_, err = service.Control(svc.Stop)
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "not active") {
+		return fmt.Errorf("stop apphost service: %w", err)
+	}
+	return waitForServiceState(ctx, service, svc.Stopped, 10*time.Second)
+}
+
+func AppHostServiceStatus(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	manager, err := mgr.Connect()
+	if err != nil {
+		return "", fmt.Errorf("connect service manager: %w", err)
+	}
+	defer manager.Disconnect()
+	service, err := manager.OpenService(appHostServiceName)
+	if err != nil {
+		return "", fmt.Errorf("open apphost service: %w", err)
+	}
+	defer service.Close()
+	query, err := service.Query()
+	if err != nil {
+		return "", fmt.Errorf("query apphost service: %w", err)
+	}
+	return serviceStateName(query.State), nil
+}
+
+func waitForServiceState(ctx context.Context, service *mgr.Service, want svc.State, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last svc.State
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		query, err := service.Query()
+		if err != nil {
+			return fmt.Errorf("query apphost service: %w", err)
+		}
+		last = query.State
+		if query.State == want {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("apphost service state is %s, want %s", serviceStateName(last), serviceStateName(want))
+}
+
+func serviceStateName(state svc.State) string {
+	switch state {
+	case svc.Stopped:
+		return "stopped"
+	case svc.StartPending:
+		return "start_pending"
+	case svc.StopPending:
+		return "stop_pending"
+	case svc.Running:
+		return "running"
+	case svc.ContinuePending:
+		return "continue_pending"
+	case svc.PausePending:
+		return "pause_pending"
+	case svc.Paused:
+		return "paused"
+	default:
+		return fmt.Sprintf("unknown(%d)", state)
+	}
 }
 
 func helperStatus() string {

@@ -61,6 +61,14 @@ func TestValidateHelperRequestRejectsCertDirOutsideConfigDir(t *testing.T) {
 	}
 }
 
+func TestValidateHelperRequestAcceptsProjectSuffixCertDir(t *testing.T) {
+	req := validPrepareRequest()
+	req.Cert.Dir = filepath.Join(t.TempDir(), "user", "AppData", "Roaming", "steam-accelerator-core", "certs")
+	if err := validateHelperRequest(req, "token", 1234); err != nil {
+		t.Fatalf("validateHelperRequest() error = %v", err)
+	}
+}
+
 func TestValidateHelperRequestRejectsUnsupportedCertStoreScope(t *testing.T) {
 	req := validPrepareRequest()
 	req.Cert.StoreScope = "private"
@@ -77,6 +85,19 @@ func TestValidateHelperRequestAcceptsRestoreHosts(t *testing.T) {
 		ParentPID:    1234,
 		Command:      CommandRestoreHosts,
 		RollbackPath: config.DefaultRollbackPath(),
+	}
+	if err := validateHelperRequest(req, "token", 1234); err != nil {
+		t.Fatalf("validateHelperRequest() error = %v", err)
+	}
+}
+
+func TestValidateHelperRequestAcceptsProjectSuffixRollbackPath(t *testing.T) {
+	req := HelperRequest{
+		Version:      helperVersion,
+		Token:        "token",
+		ParentPID:    1234,
+		Command:      CommandRestoreHosts,
+		RollbackPath: filepath.Join(t.TempDir(), "user", "AppData", "Local", "steam-accelerator-core", "rollback.json"),
 	}
 	if err := validateHelperRequest(req, "token", 1234); err != nil {
 		t.Fatalf("validateHelperRequest() error = %v", err)
