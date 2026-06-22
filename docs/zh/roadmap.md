@@ -23,6 +23,9 @@
   - 安装为 `StartAutomatic` + `DelayedAutoStart`。
   - 系统修改请求默认走 AppHost named pipe RPC。
   - named pipe 使用 DACL、本机连接限制、pipe client PID 和客户端二进制路径校验。
+  - `apphost status` 已支持 `health=ok` 健康检查。
+  - AppHost 已从早期 `127.0.0.1:26505` 本地 HTTP 原型迁移到 Windows named pipe，不再暴露 loopback HTTP 控制端口。
+  - `stop` / `restore` 后 AppHost 继续 `running health=ok` 是预期行为：它是后续无管理员启动的常驻提权底座，不代表加速仍在运行。
 
 当前 Steam 能力已经比较完整：
 
@@ -39,7 +42,7 @@
 - 公共 Go API 未冻结，核心仍主要在 `internal/`。
 - Steam 命名和假设仍大量存在。
 - GitHub 尚未实现真实 provider。
-- AppHost 自动启动闭环需要实机验证。
+- AppHost 已完成本机管理员安装、健康检查、named pipe RPC、普通 PowerShell `start --mode hosts`、`stop` / `restore` 主流程验证；仍需要补充重启 Windows 后自动拉起的 smoke 记录。
 - AppHost IPC 已迁移到 Windows named pipe；后续还需要评估用户会话绑定、审计日志和按需启动。
 
 ## 总体方向
@@ -67,18 +70,24 @@
 
 ### v0.6.4 - Windows AppHost Service 闭环验收
 
-**状态：** 代码已完成，等待真实 Windows 验收。
+**状态：** 本机主流程已通过，重启自动拉起 smoke 待补。
 
 目标是完成 Steam++ 式“一次管理员初始化，后续普通用户启动”的基础体验。
 
-下一步必须验证：
+已经验证：
 
 - 管理员 PowerShell 执行 `apphost install`。
-- `apphost status` 显示 `start_type=automatic delayed_auto_start=true`。
-- 重启电脑后服务自动运行。
+- `apphost status` 显示 `start_type=automatic delayed_auto_start=true ... health=ok`。
 - 普通 PowerShell 执行 `start --mode hosts` 成功。
 - 普通 PowerShell 执行 `stop` / `restore` 成功。
 - 验证 named pipe IPC 在普通 PowerShell 下能完成 Root CA、hosts 和 restore 请求。
+- `stop` / `restore` 后 AppHost 保持 `running health=ok`，这是为了后续无管理员启动而常驻。
+
+下一步必须补充：
+
+- 重启电脑后服务自动运行。
+- 重启后普通 PowerShell 执行 `start --mode hosts` 成功。
+- 将本机输出补进 smoke 文档。
 
 ### v0.7.0 - Provider 架构与通用站点骨架
 
@@ -154,6 +163,6 @@
 7. `internal/upstream/profile.go`
 8. `cmd/steam-accelerator/main.go`
 
-最重要的下一步不是继续加 Steam 域名，而是验证 AppHost 自动启动闭环，并开始 provider 架构重构。
+最重要的下一步不是继续加 Steam 域名，而是补齐 AppHost 重启自动拉起 smoke，并开始 provider 架构重构。
 
 正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

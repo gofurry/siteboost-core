@@ -15,6 +15,7 @@ Current facts:
 - The CLI is still `steam-accelerator`.
 - `version.go` reports `v0.6.4-dev`.
 - The main branch contains Windows AppHost Service and named pipe IPC work.
+- Local real-machine validation has passed for AppHost health, named pipe RPC, normal-user `start --mode hosts`, `stop`, and `restore`. Reboot auto-start still needs one explicit smoke record.
 
 Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Reverse Proxy path has been manually validated in a China-network environment for Steam store, community, help, chat/login, static assets, and common CDN hosts. GitHub is not implemented as a real acceleration provider yet; it should first appear as a skeleton provider for architecture validation.
 
@@ -39,16 +40,18 @@ HTTP and SOCKS5 upstreams are optional enhancements. They are not the default ac
 
 ### v0.6.4 - Windows AppHost Service Validation
 
-**Status:** Code completed, real-machine validation pending.
+**Status:** Main local flow validated; reboot auto-start smoke pending.
 
 Validate the Steam++-style privilege boundary:
 
 - one administrator `apphost install`
-- automatic service startup after reboot
 - named pipe IPC at `\\.\pipe\SiteBoostCoreAppHost`
 - pipe DACL, local-client-only pipe mode, pipe client PID checks, and client executable path checks
 - normal PowerShell `start --mode hosts`
 - normal PowerShell `stop` / `restore`
+- `apphost status` health check reporting `health=ok`
+- AppHost remaining `running` after `stop` / `restore` by design, because it is the privileged standby service and not the active acceleration state
+- automatic service startup after reboot, still to be recorded
 - clear diagnostics when the service is missing, stopped, or unhealthy
 
 ### v0.7.0 - Provider Architecture and Generic Site Skeleton

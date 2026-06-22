@@ -4,7 +4,7 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 已进入 `v0.6.4-dev`，主干包含 Windows AppHost Service 自动启动与 named pipe IPC 能力
+> 当前代码阶段：`version.go` 已进入 `v0.6.4-dev`，主干包含 Windows AppHost Service 自动启动与 named pipe IPC 能力；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore` 主流程验证，重启自动拉起仍需补充 smoke 记录
 
 ## 当前定位
 
@@ -67,12 +67,16 @@ stop / restore 恢复系统修改
   - 安装为 `StartAutomatic` + `DelayedAutoStart`。
   - 重启电脑后应由 Windows Service Control Manager 自动拉起。
   - 普通 PowerShell 后续应能无管理员执行 `start --mode hosts`。
+  - `apphost status` 已支持 `health=ok` 健康检查。
+  - AppHost IPC 已从早期 `127.0.0.1:26505` 本地 HTTP 原型迁移到 Windows named pipe，不再暴露 loopback HTTP 控制端口。
+  - `stop` / `restore` 只关闭加速状态和恢复系统修改，不停止 AppHost；AppHost 常驻是为了后续普通用户一键启动，彻底移除需要管理员执行 `apphost uninstall`。
+  - AppHost 服务绑定安装时的固定二进制路径；移动 exe、换路径或重建发布位置后，需要管理员重新执行 `apphost install` 更新服务路径。
 
 ### 当前限制
 
 - `version.go`、Go module、CLI、配置字段和大量包名仍带 Steam 专用命名。
 - 运行时基本仍在 `internal/`，公共 Go API 尚未稳定。
-- AppHost Service 自动启动代码已实现并构建通过，但仍需要在真实 Windows 机器上完成 `install -> reboot -> no-admin start` 验收。
+- AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 `start --mode hosts`、`stop` / `restore` 主流程验证；仍需要补充 `install -> reboot -> no-admin start` 的重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
 - GitHub 还没有真实 provider，下一阶段只做骨架占位和架构验证。
 - hosts 只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept 或更高级接管模式。
@@ -107,13 +111,15 @@ stop / restore 恢复系统修改
 
 ### v0.6.4 - Windows AppHost Service 闭环验收
 
-**状态：** 代码已完成，等待真实机器验收
+**状态：** 主流程已在本机通过，重启自动拉起 smoke 待补
 **范围：** Windows / User-facing / Security-Safety / Testing
 **目标：** 把 Steam++ 式 Root/AppHost 权限边界变成可重复的一键初始化与无管理员日常启动体验。
 
 #### Focus
 
 - 一次管理员安装 AppHost。
+- AppHost 作为常驻提权底座，通过 Windows named pipe 接收白名单系统修改请求。
+- 普通用户启动、停止和恢复 Hosts 模式。
 - 重启后自动启动 AppHost。
 - 普通 PowerShell 无管理员启动 Hosts 模式。
 - AppHost 安全边界和故障恢复。
@@ -127,19 +133,23 @@ stop / restore 恢复系统修改
 - [x] `apphost install` 对旧 Manual 服务执行配置升级并重启服务。
 - [x] 将 AppHost IPC 从早期本地 HTTP 原型迁移到 Windows named pipe。
 - [x] 为 AppHost named pipe 增加 DACL、本机连接限制、pipe client PID 校验和客户端二进制路径校验。
-- [ ] 在真实 Windows 管理员 PowerShell 中执行 `apphost install` 并记录输出。
-- [ ] 验证 `apphost status` 输出 `start_type=automatic delayed_auto_start=true`。
+- [x] 修复 Windows 服务删除后 `marked for deletion` 场景的等待与提示。
+- [x] 修复 named pipe 响应写入后客户端偶发 `No process is on the other end of the pipe`。
+- [x] 在真实 Windows 管理员 PowerShell 中执行 `apphost install` 并验证服务可运行。
+- [x] 验证 `apphost status` 输出 `start_type=automatic delayed_auto_start=true ... health=ok`。
+- [x] 普通 PowerShell 执行 `start --mode hosts`，验证不再要求管理员终端。
+- [x] 验证 `stop` / `restore` 在普通 PowerShell 下通过 AppHost 恢复 hosts；AppHost 保持 `running health=ok` 是预期行为。
 - [ ] 重启 Windows 后验证服务自动运行。
-- [ ] 普通 PowerShell 执行 `start --mode hosts`，验证不再要求管理员终端。
-- [ ] 验证 `stop` / `restore` 在普通 PowerShell 下通过 AppHost 恢复 hosts。
-- [ ] 记录失败场景：服务未安装、服务未运行、named pipe 无法连接、AppHost 请求失败。
+- [ ] 将本机输出整理进 smoke 文档：安装、健康检查、普通用户 start、stop、restore、重启后 start。
+- [ ] 继续补充失败场景文档：服务未安装、服务未运行、named pipe 无法连接、AppHost 请求失败、二进制路径变更。
 - [ ] 设计下一版 AppHost IPC 加固方案：用户会话绑定、请求审计、按需启动。
 
 #### Acceptance Criteria
 
 - 首次安装只需要一次管理员授权。
+- AppHost 常驻运行但不表示加速正在运行；加速状态由 `start/stop/restore/status` 管理。
+- 普通用户可以执行 `start --mode hosts`、`stop` 和 `restore`。
 - 重启后 AppHost 自动运行。
-- 普通用户可以执行 `start --mode hosts` 和 `stop`。
 - AppHost 失败时错误信息能指导用户安装、启动或恢复。
 - AppHost 不接受任意 shell、任意路径写入或敏感凭据。
 
@@ -309,7 +319,7 @@ stop / restore 恢复系统修改
 
 短期：
 
-- 完成 `v0.6.4` Windows AppHost Service 真实验收。
+- 补齐 `v0.6.4` Windows AppHost Service 重启自动拉起 smoke 记录。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
 - 进入 `v0.7.0` provider 架构重构。
 
@@ -332,7 +342,7 @@ stop / restore 恢复系统修改
 | 风险 | 影响 | 应对 |
 |---|---|---|
 | AppHost named pipe 仍缺少用户会话绑定 | 同一交互用户下的本地恶意进程仍可能尝试请求受限系统修改 | 已有 DACL、远程拒绝、pipe client PID、客户端二进制路径校验和命令白名单；后续补用户会话绑定、审计日志和按需启动 |
-| AppHost 服务安装 / 自动启动未实测 | 普通用户无管理员启动闭环可能失败 | v0.6.4 必须完成 `install -> reboot -> no-admin start` 验收 |
+| AppHost 重启后自动拉起 smoke 未记录 | 电脑重启后的无管理员启动闭环可能仍有遗漏 | 已完成安装、health、named pipe、普通用户 start/stop/restore；下一步补 `reboot -> apphost status -> no-admin start` |
 | Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 先做命名审计和兼容迁移 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |
 | hosts 无法覆盖 wildcard | 部分域名无法接管 | v1.x DNSIntercept / TUN 作为高级能力 |
