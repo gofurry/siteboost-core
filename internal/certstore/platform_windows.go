@@ -54,13 +54,7 @@ func (p windowsPlatform) IsInstalled(_ context.Context, cert *x509.Certificate, 
 func (p windowsPlatform) Install(opCtx context.Context, cert *x509.Certificate, certPath string, storeScope string) error {
 	store, err := openRootStore(storeScope, true)
 	if err != nil {
-		if fallbackErr := installRootWithDotNetX509Store(opCtx, certPath, storeScope); fallbackErr == nil {
-			return nil
-		} else if errors.Is(err, windows.ERROR_ACCESS_DENIED) && isMachineStore(storeScope) {
-			return fmt.Errorf("%w; .NET X509Store fallback failed: %v; rerun as Administrator or set cert.store_scope: user", err, fallbackErr)
-		} else {
-			return fmt.Errorf("%w; .NET X509Store fallback failed: %v", err, fallbackErr)
-		}
+		return installRootWithFallbacks(opCtx, certPath, storeScope, err)
 	}
 	defer windows.CertCloseStore(store, 0)
 
@@ -71,13 +65,7 @@ func (p windowsPlatform) Install(opCtx context.Context, cert *x509.Certificate, 
 	defer windows.CertFreeCertificateContext(certCtx)
 
 	if err := windows.CertAddCertificateContextToStore(store, certCtx, windows.CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, nil); err != nil {
-		if fallbackErr := installRootWithDotNetX509Store(opCtx, certPath, storeScope); fallbackErr == nil {
-			return nil
-		} else if errors.Is(err, windows.ERROR_ACCESS_DENIED) && isMachineStore(storeScope) {
-			return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w; .NET X509Store fallback failed: %v; rerun as Administrator or set cert.store_scope: user", windowsStoreLabel(storeScope), err, fallbackErr)
-		} else {
-			return fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w; .NET X509Store fallback failed: %v", windowsStoreLabel(storeScope), err, fallbackErr)
-		}
+		return installRootWithFallbacks(opCtx, certPath, storeScope, fmt.Errorf("install root CA in %s Root store with Windows certificate store API: %w", windowsStoreLabel(storeScope), err))
 	}
 	_ = certPath
 	return nil
@@ -102,11 +90,7 @@ func (p windowsPlatform) Uninstall(opCtx context.Context, cert *x509.Certificate
 		return err
 	}
 	if err := windows.CertDeleteCertificateFromStore(certCtx); err != nil {
-		if fallbackErr := uninstallRootWithDotNetX509Store(opCtx, Thumbprint(cert), storeScope); fallbackErr == nil {
-			return nil
-		} else {
-			return fmt.Errorf("uninstall root CA from %s Root store with Windows certificate store API: %w; .NET X509Store fallback failed: %v", windowsStoreLabel(storeScope), err, fallbackErr)
-		}
+		return uninstallRootWithFallbacks(opCtx, Thumbprint(cert), storeScope, fmt.Errorf("uninstall root CA from %s Root store with Windows certificate store API: %w", windowsStoreLabel(storeScope), err))
 	}
 	return nil
 }
@@ -211,6 +195,36 @@ func findCertBySHA1(store windows.Handle, cert *x509.Certificate) (*windows.Cert
 		return nil, fmt.Errorf("find root CA by thumbprint: %w", err)
 	}
 	return ctx, nil
+}
+
+func installRootWithFallbacks(ctx context.Context, certPath string, storeScope string, cause error) error {
+	if fallbackErr := installRootWithDotNetX509Store(ctx, certPath, storeScope); fallbackErr == nil {
+		return nil
+	} else if isMachineStore(storeScope) {
+		if userErr := installRootWithDotNetX509Store(ctx, certPath, config.CertStoreUser); userErr == nil {
+			return nil
+		} else if errors.Is(cause, windows.ERROR_ACCESS_DENIED) {
+			return fmt.Errorf("%w; .NET X509Store fallback failed: %v; CurrentUser Root fallback failed: %v; rerun as Administrator or set cert.store_scope: user", cause, fallbackErr, userErr)
+		} else {
+			return fmt.Errorf("%w; .NET X509Store fallback failed: %v; CurrentUser Root fallback failed: %v", cause, fallbackErr, userErr)
+		}
+	} else {
+		return fmt.Errorf("%w; .NET X509Store fallback failed: %v", cause, fallbackErr)
+	}
+}
+
+func uninstallRootWithFallbacks(ctx context.Context, thumbprint string, storeScope string, cause error) error {
+	if fallbackErr := uninstallRootWithDotNetX509Store(ctx, thumbprint, storeScope); fallbackErr == nil {
+		return nil
+	} else if isMachineStore(storeScope) {
+		if userErr := uninstallRootWithDotNetX509Store(ctx, thumbprint, config.CertStoreUser); userErr == nil {
+			return nil
+		} else {
+			return fmt.Errorf("%w; .NET X509Store fallback failed: %v; CurrentUser Root fallback failed: %v", cause, fallbackErr, userErr)
+		}
+	} else {
+		return fmt.Errorf("%w; .NET X509Store fallback failed: %v", cause, fallbackErr)
+	}
 }
 
 func installRootWithDotNetX509Store(ctx context.Context, certPath string, storeScope string) error {

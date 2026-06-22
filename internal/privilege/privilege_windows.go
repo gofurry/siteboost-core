@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -92,7 +93,55 @@ func shellExecuteRunas(exe, args, cwd string) error {
 }
 
 func helperStatus() string {
-	return fmt.Sprintf("helper pid=%d elevated=%t", os.Getpid(), IsElevated())
+	admin, adminErr := isAdministrator()
+	integrity, integrityErr := integrityLevel()
+	if adminErr != nil {
+		admin = false
+	}
+	if integrityErr != nil {
+		integrity = "unknown"
+	}
+	return fmt.Sprintf("helper pid=%d elevated=%t admin=%t integrity=%s", os.Getpid(), IsElevated(), admin, integrity)
+}
+
+func isAdministrator() (bool, error) {
+	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false, err
+	}
+	return windows.Token(0).IsMember(adminSID)
+}
+
+func integrityLevel() (string, error) {
+	var size uint32
+	err := windows.GetTokenInformation(windows.GetCurrentProcessToken(), windows.TokenIntegrityLevel, nil, 0, &size)
+	if err != nil && !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+		return "", err
+	}
+	if size == 0 {
+		return "", fmt.Errorf("token integrity level size is zero")
+	}
+	buf := make([]byte, size)
+	if err := windows.GetTokenInformation(windows.GetCurrentProcessToken(), windows.TokenIntegrityLevel, &buf[0], uint32(len(buf)), &size); err != nil {
+		return "", err
+	}
+	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buf[0]))
+	if label.Label.Sid == nil || label.Label.Sid.SubAuthorityCount() == 0 {
+		return "", fmt.Errorf("token integrity SID is empty")
+	}
+	rid := label.Label.Sid.SubAuthority(uint32(label.Label.Sid.SubAuthorityCount() - 1))
+	switch {
+	case rid >= 0x4000:
+		return "system", nil
+	case rid >= 0x3000:
+		return "high", nil
+	case rid >= 0x2000:
+		return "medium", nil
+	case rid >= 0x1000:
+		return "low", nil
+	default:
+		return fmt.Sprintf("rid-0x%x", rid), nil
+	}
 }
 
 func waitForHelperResponse(ctx context.Context, responsePath string) (HelperResponse, error) {
