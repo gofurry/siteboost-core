@@ -130,7 +130,12 @@ func isAdministratorToken() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return windows.Token(0).IsMember(adminSID)
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
+		return false, err
+	}
+	defer token.Close()
+	return token.IsMember(adminSID)
 }
 
 func integrityLevel() (string, error) {
