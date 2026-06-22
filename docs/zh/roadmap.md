@@ -6,7 +6,9 @@
 
 ## 当前阶段
 
-当前仓库已经从 `go-steam-core` 的 Steam 专用方向开始过渡到 `siteboost-core` 的通用站点加速方向。
+当前仓库已经从 `go-steam-core` 的 Steam 专用方向开始过渡到 `siteboost-core` 的通用站点加速实验方向。
+
+需要特别注意：这个仓库是实验性验证仓库，不是未来正式 Go 开源库本体。后续会新建一个独立仓库专门维护通用 Go 加速库；新仓库可以直接借鉴、拆分或复用本仓库验证过的核心内容。
 
 当前事实：
 
@@ -31,23 +33,24 @@
 - Steam 商店、社区、帮助、登录 / 聊天、静态资源的 Windows 中国网络手动通过记录。
 - 出站失败诊断、启动探测、`system_change` 输出和规则版本输出。
 
-当前仍不是稳定通用库：
+当前仍不是稳定通用库，也不计划在本仓库内直接变成稳定通用库：
 
 - 公共 Go API 未冻结，核心仍主要在 `internal/`。
 - Steam 命名和假设仍大量存在。
 - GitHub 尚未实现真实 provider。
 - AppHost 自动启动闭环需要实机验证。
-- AppHost IPC 还需要从 loopback HTTP 进一步评估到 named pipe / ACL / token 等更安全形态。
+- AppHost IPC 还需要从常驻 `127.0.0.1:26505` loopback HTTP 进一步评估到 named pipe / ACL / token / 按需启动等更安全形态。
 
 ## 总体方向
 
-目标不是只做 Steam，而是做一个类似 Steam++ 网络加速模块的 Go 核心：
+目标不是只做 Steam，而是在本实验仓库里验证一个类似 Steam++ 网络加速模块的 Go 核心：
 
 - Steam 是第一个稳定 provider。
 - GitHub 先做 skeleton provider，用来验证架构，不立刻承诺真实加速。
 - 后续支持更多站点和服务。
-- 最终把核心能力抽成一个通用 Go library。
-- CLI / 桌面壳 / sidecar 只是这个 library 的调用方。
+- 功能和架构验证后，新建独立仓库维护正式通用 Go library。
+- 本仓库负责沉淀可迁移核心能力、真实 smoke、失败经验和安全边界。
+- CLI / 桌面壳 / sidecar 在本仓库中主要作为实验入口和验证工具。
 
 通用核心应抽象出：
 
@@ -74,6 +77,7 @@
 - 重启电脑后服务自动运行。
 - 普通 PowerShell 执行 `start --mode hosts` 成功。
 - 普通 PowerShell 执行 `stop` / `restore` 成功。
+- 评估常驻 `127.0.0.1:26505` 端口是否只作为实验方案保留，还是迁移到更安全的 IPC。
 
 ### v0.7.0 - Provider 架构与通用站点骨架
 
@@ -88,16 +92,16 @@
 - 保留旧 Steam 配置的迁移兼容。
 - 让 reverse / resolver / upstream 不再依赖 Steam 语义。
 
-### v0.8.0 - 通用 Go Library 抽离候选
+### v0.8.0 - 独立 Go Library 抽取准备
 
-目标是形成第一个 public Go API 候选。
+目标是形成未来独立 Go library 的 API 草案、迁移清单和可复用模块边界。
 
 重点任务：
 
-- 设计 `Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
-- 明确哪些包迁出 `internal/`。
-- CLI 改成 public API 调用方。
-- 提供 Steam provider 和 GitHub skeleton provider 的 Go 示例。
+- 设计未来新仓库 API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+- 明确哪些包适合迁移到新仓库，哪些只作为实验实现保留。
+- 梳理 CLI 与核心能力的边界，避免未来新库被 CLI 细节污染。
+- 提供 Steam provider 和 GitHub skeleton provider 的迁移示例。
 
 ### v0.9.0 - 高可用性、可恢复性与发布工程
 
@@ -111,20 +115,20 @@
 - 增加跨平台 CI matrix。
 - 完成 installer / release checklist。
 
-### v1.0.0-alpha.1 - API 与架构冻结候选
+### v1.0.0-alpha.1 - 实验架构冻结候选
 
-目标是冻结 v1 候选 API 和架构，允许外部工具开始试用。
+目标是冻结本实验仓库的可迁移架构边界，为未来独立 Go library 仓库提供稳定输入。
 
-### v1.0.0 - 稳定发布
+### v1.0.0 - 实验验证基线
 
-目标是发布第一个稳定通用站点本地加速核心。
+目标是发布本实验仓库的稳定验证基线，而不是把本仓库直接发布成正式通用库。
 
 稳定主线：
 
 - Steam provider 稳定。
 - Windows Hosts + DoH + AppHost 一键闭环稳定。
 - ProxyOnly / PAC / System Proxy / Hosts 都有明确支持边界。
-- Go library API 在 v1 内保持兼容。
+- 输出给未来新仓库使用的迁移清单、API 草案和真实 smoke 记录。
 
 ### v1.1+
 
@@ -150,3 +154,5 @@
 8. `cmd/steam-accelerator/main.go`
 
 最重要的下一步不是继续加 Steam 域名，而是验证 AppHost 自动启动闭环，并开始 provider 架构重构。
+
+正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

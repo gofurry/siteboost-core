@@ -4,11 +4,11 @@
 > 当前分支：`master`
 > 当前远端：`https://github.com/gofurry/siteboost-core.git`
 > 当前工作目录：`E:\Git\开源\go-steam-core`
-> 当前目标：从 Steam 专用本地加速核心演进为通用站点加速核心，并为后续抽出 Go library 做架构重构
+> 当前目标：在本实验仓库中验证 Steam++ 式本地加速闭环和多站点 provider 架构，为未来新建独立 Go library 仓库沉淀可复用核心能力
 
 ## 一句话状态
 
-这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已加入 Windows AppHost Service 代码，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验；但项目还没有完成通用 provider 架构、公共 Go API 抽离、GitHub provider 真实加速和跨平台闭环。
+这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已加入 Windows AppHost Service 代码，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；后续会新建独立仓库维护通用 Go 加速库，并从这里复用、迁移或重写已经验证过的核心能力。
 
 ## 当前事实
 
@@ -18,6 +18,7 @@
 - CLI 仍是 `steam-accelerator`。
 - `version.go` 仍显示 `v0.6.3`。
 - 主干代码实际已经进入 `v0.6.4-dev` 级别，因为已包含 AppHost Service 自动启动能力。
+- 本仓库定位为实验场和迁移来源；正式 Go library 会另起新仓库维护。
 - 最近关键提交：
   - `e748d5f feat(windows): auto start apphost service`
   - `4e1bad9 feat(windows): add privileged apphost service`
@@ -89,14 +90,14 @@
 - 当前项目采用 clean-room 实现：参考 Steam++ / Watt Toolkit 的架构思想和公开行为，不复制、不翻译、不移植 SteamTools 源码。
 - Root CA 默认走 Windows `LocalMachine\Root`，管理员上下文下可以静默安装；`CurrentUser\Root` 更容易触发系统确认弹窗。
 - GitHub 后续先做 skeleton provider，只用于验证架构扩展，不应文档承诺真实加速。
-- 下一阶段的关键不是继续堆 Steam 域名，而是做 provider 化、权限边界、诊断、恢复和 public Go API。
+- 下一阶段的关键不是继续堆 Steam 域名，而是做 provider 化、权限边界、诊断、恢复和未来独立 Go library 的迁移边界。
 
 ## 当前仍存在的风险
 
 - AppHost `install -> reboot -> no-admin start` 还需要真实 Windows 机器验收。
-- AppHost RPC 当前是 loopback HTTP，命令面受限，但还缺少更强的 IPC ACL / token / named pipe / 用户会话绑定设计。
+- AppHost RPC 当前是常驻 `127.0.0.1:26505` loopback HTTP，命令面受限，但还缺少更强的 IPC ACL / token / named pipe / 用户会话绑定设计；这适合作为实验验证路径，不应直接视为最终产品化安全形态。
 - `version.go`、Go module、CLI、配置字段、包名和 docs 仍大量带 Steam 专用命名。
-- 公共 Go API 尚未抽出，核心仍主要在 `internal/`。
+- 公共 Go API 尚未抽出，核心仍主要在 `internal/`；正式 public API 应在未来新仓库内冻结。
 - rollback state schema 没有版本化迁移。
 - installer、服务升级、卸载清理、日志位置、发布包、签名还未产品化。
 - Hosts 模式只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept 或 TUN。
@@ -203,9 +204,10 @@ https://help.steampowered.com/
 5. 把 Steam rules、profiles、startup probes、smoke targets 收敛为 `provider/steam`。
 6. 增加 `provider/github` skeleton，只声明 experimental，不承诺真实加速。
 7. 让 reverse / resolver / upstream 只依赖通用 matcher 和 outbound profile，不依赖 Steam 语义。
-8. 开始 public Go library 候选 API：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+8. 整理未来独立 Go library 的 API 草案和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
 9. 设计 AppHost IPC 加固：优先评估 named pipe / DACL / token / 用户会话绑定。
 10. 进入 release engineering：CI matrix、rollback schema version、installer、服务升级 / 卸载、签名规划。
+11. 在验证充分后新建正式 Go library 仓库，从本仓库迁移已验证的 resolver、reverse、certstore、privilege、provider 和 diagnostics 能力。
 
 ## 提醒新 session 的边界
 
@@ -215,4 +217,5 @@ https://help.steampowered.com/
 - 不要承诺 GitHub 已可加速；当前只计划 skeleton。
 - 不要把 HTTP / SOCKS5 upstream 写成默认必需能力。
 - 不要把 AppHost 描述成 UAC 绕过；它是一次管理员安装后的受控系统服务。
+- 不要把本仓库描述成未来正式 Go library；正式库会另起仓库，本仓库只做实验验证和迁移来源。
 - 每次改动后先跑相关验证，再本地提交。

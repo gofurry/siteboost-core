@@ -4,7 +4,9 @@ The canonical roadmap is maintained in [../ROADMAP.md](../ROADMAP.md). This file
 
 ## Current Position
 
-The repository has moved from a Steam-only local acceleration core toward `gofurry/siteboost-core`, a general local site acceleration core inspired by the architecture ideas behind Steam++ / Watt Toolkit.
+The repository has moved from a Steam-only local acceleration core toward `gofurry/siteboost-core`, an experimental local site acceleration core inspired by the architecture ideas behind Steam++ / Watt Toolkit.
+
+This repository is not intended to become the final public Go library itself. It is the experimental proving ground. After the core behavior and architecture are validated, a separate repository should be created for the formal reusable Go library, reusing or porting the proven pieces from this repository.
 
 Current facts:
 
@@ -18,7 +20,7 @@ Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Rever
 
 ## Direction
 
-The long-term goal is a maintainable Go library for local site acceleration. CLI and desktop shells should become thin callers of the library.
+The long-term goal is to produce enough validated implementation, smoke records, and architecture boundaries here so a future dedicated Go library repository can be created with less guesswork.
 
 The core should be split around these concepts:
 
@@ -46,14 +48,15 @@ Validate the Steam++-style privilege boundary:
 - normal PowerShell `start --mode hosts`
 - normal PowerShell `stop` / `restore`
 - clear diagnostics when the service is missing, stopped, or unhealthy
+- whether the experimental always-on `127.0.0.1:26505` loopback HTTP endpoint should move to a safer IPC mechanism before productization
 
 ### v0.7.0 - Provider Architecture and Generic Site Skeleton
 
 Refactor Steam-specific rules, outbound profiles, probes, and smoke targets into a built-in Steam provider. Add a GitHub skeleton provider marked experimental. Core reverse proxy, resolver, and upstream packages should depend on generic provider data instead of Steam-specific assumptions.
 
-### v0.8.0 - Public Go Library Candidate
+### v0.8.0 - Library Extraction Readiness
 
-Introduce the first public API candidate for:
+Prepare the future library API draft and migration inventory for:
 
 - `Config`
 - `Engine`
@@ -64,19 +67,19 @@ Introduce the first public API candidate for:
 - `Stop`
 - `Restore`
 
-The CLI should become a caller of the public API instead of assembling internal packages directly.
+The current CLI should be decoupled from core assembly enough that future extraction does not carry CLI-specific details into the new library.
 
 ### v0.9.0 - Reliability, Recovery, and Release Engineering
 
 Harden AppHost IPC, add diagnostics, version rollback state, expand CI, and prepare installer / upgrade / uninstall / signing documentation.
 
-### v1.0.0-alpha.1 - API and Architecture Freeze Candidate
+### v1.0.0-alpha.1 - Experimental Architecture Freeze Candidate
 
-Freeze the v1 public API candidate, provider schema, configuration migration path, and security boundary documentation.
+Freeze this repository's migration-ready architecture boundary, provider schema, configuration migration path, and security boundary documentation.
 
-### v1.0.0 - Stable Release
+### v1.0.0 - Experimental Validation Baseline
 
-Ship the first stable general site acceleration core. Steam remains the stable provider. Windows Hosts + DoH + AppHost is the stable one-click path. Go library APIs should remain compatible within v1.
+Ship a stable validation baseline for this experimental repository. Steam remains the stable provider. Windows Hosts + DoH + AppHost is the stable one-click path. The release should include migration notes for the future dedicated Go library repository; it is not the final library release.
 
 ### v1.1+
 
@@ -92,5 +95,6 @@ Possible post-v1 work:
 
 - Do not promise real GitHub acceleration before provider validation.
 - Do not treat an upstream proxy as required for the default loop.
+- Do not describe this repository as the final Go library repository.
 - Do not copy, translate, or port SteamTools source code.
 - Do not present AppHost as UAC bypass; it is a controlled privileged service installed with administrator authorization.

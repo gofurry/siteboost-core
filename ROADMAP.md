@@ -8,7 +8,9 @@
 
 ## 当前定位
 
-这个仓库正在从 Steam 专用本地加速核心演进为通用站点本地加速核心。短期仍以 Steam 作为唯一真实落地 provider，因为 Steam 场景已经完成了最多验证；中期会把 Steam 规则、出站 profile、接管模式、权限编排和恢复能力从核心中解耦；长期会把核心能力抽成可复用 Go library，用于支持 Steam、GitHub 以及其他站点或服务的本地加速。
+这个仓库是本地站点加速核心的实验性验证仓库。它当前以 Steam 为唯一真实落地目标，用来验证 Steam++ / Watt Toolkit 式本地加速闭环：规则接管、本地反代、Root CA、DoH、出站 profile、权限编排和恢复。后续会在本仓库内继续实验多站点 provider 形态，例如先用 GitHub skeleton 验证扩展边界，但本仓库不计划直接改造成正式 Go 开源库。
+
+正式的通用 Go 加速库会在功能和架构验证后另起新仓库维护。届时可以直接借鉴、拆分或复用本仓库中已经验证过的核心内容，包括 resolver、reverse proxy、certstore、privilege/AppHost、provider 规则模型和 diagnostics。本仓库的主要价值是作为实验场、行为样板、smoke 记录和迁移来源，而不是最终稳定库本身。
 
 项目参考 Steam++ / Watt Toolkit 的本地加速架构思想：本地反代、Hosts / PAC / System Proxy 接管、本地 Root CA、DNS / DoH、可选上游代理、提权 Root/AppHost 进程和恢复机制。项目保持 clean-room 边界：只参考架构思想和公开行为，不复制、不翻译、不移植 SteamTools 源码。
 
@@ -77,7 +79,7 @@ stop / restore 恢复系统修改
 
 ## 架构重构目标
 
-下一阶段的核心不是继续堆 Steam 规则，而是把项目重构成高可用、高可维护、可扩展的通用加速核心。
+下一阶段的核心不是继续堆 Steam 规则，而是在这个实验仓库内把已经验证过的能力整理成高可用、高可维护、可迁移的架构形态。这里的重构目标是降低 Steam 硬编码、明确模块边界、沉淀可复制经验，为未来独立 Go library 仓库做准备，而不是把当前仓库直接发布成正式库。
 
 目标包边界：
 
@@ -92,12 +94,12 @@ stop / restore 恢复系统修改
 - `runtime`：状态、控制接口、生命周期、restore。
 - `diagnostics`：脱敏日志、错误摘要、smoke 结果、支持包。
 
-公共 Go library 目标：
+未来独立 Go library 的抽取目标：
 
-- 上层工具可以通过 Go API 启动、停止、查询状态、恢复系统修改。
-- 上层工具可以注册或选择 provider，例如 Steam、GitHub。
-- CLI / 桌面壳只是 library 的薄封装，不再把核心逻辑锁死在 `cmd/steam-accelerator`。
-- `internal/` 中稳定的能力逐步迁移到 public package，但在 v1 前允许破坏性调整。
+- 新仓库提供稳定 Go API，用于启动、停止、查询状态、恢复系统修改。
+- 新仓库支持注册或选择 provider，例如 Steam、GitHub。
+- 本实验仓库需要把核心逻辑和 CLI 入口解耦到可迁移边界，便于未来复制到新仓库。
+- `internal/` 中稳定的能力先在本仓库内整理、测试和文档化；真正 public package 的冻结放到未来新仓库完成。
 
 ## 版本计划
 
@@ -127,6 +129,7 @@ stop / restore 恢复系统修改
 - [ ] 普通 PowerShell 执行 `start --mode hosts`，验证不再要求管理员终端。
 - [ ] 验证 `stop` / `restore` 在普通 PowerShell 下通过 AppHost 恢复 hosts。
 - [ ] 记录失败场景：服务未安装、服务未运行、端口 `127.0.0.1:26505` 被占用、AppHost 请求失败。
+- [ ] 评估 AppHost 常驻 loopback TCP 端口的产品化风险，确认是否迁移到 named pipe / ACL IPC 或按需启动。
 - [ ] 设计下一版 AppHost IPC 加固方案：本地 named pipe / DACL / 请求 token / 用户会话绑定。
 
 #### Acceptance Criteria
@@ -173,36 +176,36 @@ stop / restore 恢复系统修改
 
 ---
 
-### v0.8.0 - 通用 Go Library 抽离候选
+### v0.8.0 - 独立 Go Library 抽取准备
 
 **状态：** 计划中
 **范围：** API / Architecture / Developer-facing / Documentation
-**目标：** 将可复用核心能力从 CLI 项目中抽出，形成第一个 public Go API 候选。
+**目标：** 标记、整理和验证可迁移核心能力，为未来新建独立 Go library 仓库做准备。
 
 #### Focus
 
-- Public package 设计。
-- Engine 生命周期。
-- Provider 注册与选择。
+- 未来 public API 草案。
+- Engine 生命周期边界。
+- Provider 注册与选择边界。
 - 系统修改权限边界。
-- 示例与迁移文档。
+- 可迁移清单与迁移文档。
 
 #### Tasks
 
-- [ ] 设计 public API：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
-- [ ] 明确哪些包继续留在 `internal/`，哪些迁移到 `pkg/` 或根 package。
-- [ ] 提供 Go library 示例：Steam provider 一键启动、状态查询、停止恢复。
-- [ ] 提供 provider 开发示例：最小 GitHub skeleton provider。
-- [ ] 将 CLI 改成 public API 的调用方，避免 CLI 直接拼装内部实现。
-- [ ] 设计配置 schema 版本和迁移策略。
-- [ ] 更新 README：项目从 Steam 专用核心转为 site acceleration core。
+- [ ] 设计未来新仓库 API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+- [ ] 明确本仓库哪些 `internal/` 包适合迁移、哪些只作为实验实现保留。
+- [ ] 提供迁移样例：从本仓库抽取 Steam provider 一键启动、状态查询、停止恢复能力。
+- [ ] 提供 provider 开发样例：最小 GitHub skeleton provider。
+- [ ] 将 CLI 与核心拼装边界整理清楚，避免未来迁移时把命令行细节带进新库。
+- [ ] 设计配置 schema 版本和从实验仓库到正式库的迁移策略。
+- [ ] 更新 README：明确本仓库是实验验证仓库，未来正式 Go library 会另起仓库。
 
 #### Acceptance Criteria
 
-- 外部 Go 项目不需要引用 `internal/` 即可启动核心能力。
-- CLI 与 library 共享同一套 Engine 行为。
-- Public API 文档明确哪些部分仍处于 pre-v1 不稳定。
-- Steam provider 的真实 smoke 仍可作为回归标准。
+- 未来新仓库可以按迁移清单复用本仓库核心能力。
+- CLI 与核心能力的耦合点被识别并可拆分。
+- API 草案明确只是未来新仓库输入，不在本仓库承诺稳定。
+- Steam provider 的真实 smoke 仍可作为迁移回归标准。
 
 ---
 
@@ -239,17 +242,17 @@ stop / restore 恢复系统修改
 
 ---
 
-### v1.0.0-alpha.1 - API 与架构冻结候选
+### v1.0.0-alpha.1 - 实验架构冻结候选
 
 **状态：** 计划中
 **范围：** API / Architecture / Testing / Documentation
-**目标：** 冻结 v1 候选架构，收集外部集成反馈。
+**目标：** 冻结本实验仓库的可迁移架构边界，为未来独立 Go library 仓库提供稳定输入。
 
 #### Tasks
 
-- [ ] 冻结 public Go API 候选。
+- [ ] 冻结未来 Go library API 草案。
 - [ ] 冻结 provider / rule pack / outbound profile schema。
-- [ ] 冻结 CLI 主命令和配置迁移策略。
+- [ ] 冻结实验 CLI 主命令和配置迁移策略。
 - [ ] 完成 Steam provider Windows smoke 回归。
 - [ ] 明确 GitHub provider 状态：skeleton / experimental / stable 之一。
 - [ ] 完成安全边界文档：Root CA、hosts、AppHost、DoH、日志脱敏。
@@ -257,31 +260,31 @@ stop / restore 恢复系统修改
 #### Acceptance Criteria
 
 - 破坏性改动需要明确记录。
-- 外部项目可以开始试用 library API。
+- 未来新仓库可以按冻结边界启动 library 实现。
 - Steam provider 仍是已验证主线。
 
 ---
 
-### v1.0.0 - 稳定发布
+### v1.0.0 - 实验验证基线
 
 **状态：** 计划中
 **范围：** Release / API / Stability / Documentation
-**目标：** 发布第一个稳定版通用站点本地加速核心。
+**目标：** 发布本实验仓库的稳定验证基线，作为未来独立 Go library 仓库的主要迁移来源。
 
 #### Tasks
 
-- [ ] 发布稳定 Go module 和 CLI。
+- [ ] 发布本实验仓库的稳定验证版本。
 - [ ] 保证 Steam provider 的 Windows Hosts + DoH + AppHost 一键闭环。
 - [ ] 保留 ProxyOnly / PAC / System Proxy / Hosts 作为稳定接管模式。
 - [ ] 文档覆盖安装、启动、停止、恢复、卸载、证书和 AppHost。
-- [ ] 完成 CHANGELOG、release notes 和版本标签。
+- [ ] 输出给未来新仓库使用的迁移清单、CHANGELOG、release notes 和版本标签。
 
 #### Acceptance Criteria
 
 - 用户可以按文档完成一次管理员初始化和后续无管理员日常启动。
-- Go library API 在 v1 内保持兼容。
 - 默认不需要外部上游代理。
 - 高风险系统修改都有恢复路径和安全说明。
+- 未来独立 Go library 仓库可以基于本基线复用核心实现和经验。
 
 ---
 
@@ -311,12 +314,13 @@ stop / restore 恢复系统修改
 
 - 完成 Steam provider 抽离。
 - 加入 GitHub skeleton provider。
-- 抽出 public Go library API 候选。
-- 将 CLI 变成 library 调用方。
+- 整理未来独立 Go library 的 API 草案和迁移清单。
+- 将 CLI 与核心能力的边界整理到可迁移状态。
 
 长期：
 
-- `v1.0.0` 以通用站点加速核心稳定发布。
+- `v1.0.0` 作为本实验仓库的稳定验证基线，而不是正式通用库发布。
+- 新建独立 Go library 仓库，复用本仓库验证过的核心能力和经验。
 - Steam 是稳定 provider；GitHub 先从 skeleton / experimental 逐步进入真实验证。
 - DNSIntercept、TUN/VPN、JS 注入只在主线稳定后逐步进入。
 
@@ -324,7 +328,7 @@ stop / restore 恢复系统修改
 
 | 风险 | 影响 | 应对 |
 |---|---|---|
-| AppHost loopback HTTP 缺少强认证 | 本地恶意进程可能请求受限系统修改 | v0.9 前评估 named pipe / DACL / token / 会话绑定 |
+| AppHost loopback HTTP 常驻端口缺少强认证 | 本地恶意进程可能请求受限系统修改，且常驻端口会增加攻击面 | v0.6.4 先验证行为，v0.9 前评估迁移 named pipe / DACL / token / 会话绑定或按需启动 |
 | AppHost 服务安装 / 自动启动未实测 | 普通用户无管理员启动闭环可能失败 | v0.6.4 必须完成 `install -> reboot -> no-admin start` 验收 |
 | Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 先做命名审计和兼容迁移 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |
@@ -332,4 +336,5 @@ stop / restore 恢复系统修改
 | Root CA 信任风险 | 用户安全顾虑 | 显式安装 / 卸载、清晰文档、最小命令面、日志脱敏 |
 | 80 / 443 端口占用 | Hosts 模式启动失败 | 诊断命令、错误提示、高端口 smoke |
 | 复制 SteamTools 源码 | 许可证和维护风险 | 坚持 clean-room，只参考架构思想 |
-| Go API 过早冻结 | 后续重构受阻 | v1 前允许破坏性变化，alpha 阶段再冻结 |
+| 误把实验仓库当正式库 | 路线图和用户预期偏移 | 明确正式 Go library 未来另起仓库，本仓库只做验证和迁移来源 |
+| Go API 过早冻结 | 未来新仓库设计受阻 | 本仓库只冻结 API 草案和迁移边界，正式兼容承诺放到新仓库 |
