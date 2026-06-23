@@ -402,22 +402,26 @@ func listenPair(addr string) (net.PacketConn, net.Listener, string, error) {
 	}
 
 	if port == "0" {
-		tcpListener, err := net.Listen("tcp", addr)
-		if err != nil {
-			return nil, nil, "", fmt.Errorf("listen DNS TCP %s: %w", addr, err)
-		}
-		tcpAddr, ok := tcpListener.Addr().(*net.TCPAddr)
-		if !ok {
+		var lastErr error
+		for i := 0; i < 200; i++ {
+			tcpListener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+			if err != nil {
+				return nil, nil, "", fmt.Errorf("listen DNS TCP %s: %w", addr, err)
+			}
+			tcpAddr, ok := tcpListener.Addr().(*net.TCPAddr)
+			if !ok {
+				_ = tcpListener.Close()
+				return nil, nil, "", fmt.Errorf("listen DNS TCP %s: unexpected address %s", addr, tcpListener.Addr())
+			}
+			actualAddr := net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port))
+			udpConn, err := net.ListenPacket("udp", actualAddr)
+			if err == nil {
+				return udpConn, tcpListener, actualAddr, nil
+			}
+			lastErr = err
 			_ = tcpListener.Close()
-			return nil, nil, "", fmt.Errorf("listen DNS TCP %s: unexpected address %s", addr, tcpListener.Addr())
 		}
-		actualAddr := net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port))
-		udpConn, err := net.ListenPacket("udp", actualAddr)
-		if err != nil {
-			_ = tcpListener.Close()
-			return nil, nil, "", fmt.Errorf("listen DNS UDP %s: %w", actualAddr, err)
-		}
-		return udpConn, tcpListener, actualAddr, nil
+		return nil, nil, "", fmt.Errorf("listen DNS TCP/UDP %s after retries: %w", addr, lastErr)
 	}
 
 	udpConn, err := net.ListenPacket("udp", addr)

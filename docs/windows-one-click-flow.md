@@ -1,6 +1,6 @@
 # Windows One-Click System Flow
 
-This document records the Windows system-change boundary introduced in v0.6.4 and still used by the v0.7.2-dev provider and DNSIntercept architecture.
+This document records the Windows system-change boundary introduced in v0.6.4 and still used by the v0.7.3-dev provider, DNSIntercept, and Page Enhance architecture.
 
 ## Boundary
 
@@ -19,7 +19,7 @@ The core does not bypass UAC, enterprise policy, or file-system permissions. The
 
 The privileged side exposes only narrow whitelisted commands and accepts no arbitrary shell execution, arbitrary file writes, proxy credentials, cookies, or user secrets.
 
-## v0.7.2-dev Behavior
+## v0.7.3-dev Behavior
 
 `cert.auto_install` defaults to `true`, and `cert.store_scope` defaults to `machine`. In Hosts mode:
 

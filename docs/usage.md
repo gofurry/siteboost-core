@@ -68,6 +68,13 @@ dns_intercept:
   ttl: "30s"
   block_https_records: true
 
+page_enhance:
+  enabled: false
+  on_error: "pass_through" # pass_through | fail_closed
+  max_body_size: 1048576
+  assets: []
+  transforms: []
+
 rules:
   custom_domains: []
 
@@ -149,6 +156,8 @@ Note: `providers.enabled: [steam]`, `resolver.mode: system`, and `upstream.type:
 
 v0.7 removed the old Steam-specific config keys. Replace `proxy.non_steam_behavior` with `proxy.non_target_behavior`, replace `rules.enable_default_steam_rules` with `providers.enabled`, and remove `upstream.enable_default_steam_profiles`. Loading old keys returns a migration error.
 
+Page Enhance is disabled by default. When enabled, transforms are applied only for explicit `match` conditions and status/log output reports `page_enhance` apply, skip, and error counters. The pipeline does not modify system DNS, hosts, certificates, browser settings, or developer environment state.
+
 ## Common Examples
 
 Use browser manual proxy settings:
@@ -170,6 +179,46 @@ providers:
 ```
 
 GitHub is `experimental` in v0.7. It participates in matching and status output, but it does not define a default outbound profile and should not be described as real acceleration.
+
+Enable Page Enhance for a reverse-proxy flow:
+
+```yaml
+mode: hosts
+
+page_enhance:
+  enabled: true
+  on_error: "pass_through"
+  max_body_size: 1048576
+  assets:
+    - path: "/siteboost/local.js"
+      file: ".\\tmp\\local.js"
+      content_type: "application/javascript"
+  transforms:
+    - name: "steam-demo"
+      match:
+        providers:
+          - "steam"
+        hosts:
+          - "store.steampowered.com"
+        path_prefixes:
+          - "/"
+        content_types:
+          - "text/html"
+        status_codes:
+          - 200
+      headers:
+        set:
+          X-SiteBoost-Enhanced: "true"
+        remove:
+          - "ETag"
+      inject_body: '<script src="/siteboost/local.js"></script>'
+      replace:
+        - old: "old"
+          new: "new"
+          count: 1
+```
+
+`on_error: pass_through` restores the original response when a transform fails. `fail_closed` returns the transform error through the reverse proxy. Built-in skips such as unsupported `Content-Encoding`, body size limits, missing `</head>` / `</body>`, or replace misses are reported with explicit reasons; the library does not silently skip login, checkout, or other sensitive paths on its own.
 
 Use DNSIntercept manual mode on a high port:
 
@@ -387,4 +436,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.2-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.3-dev.

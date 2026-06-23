@@ -301,9 +301,69 @@ Get-DnsClientServerAddress -AddressFamily IPv4
 
 The selected interface DNS should return to its previous DHCP or static DNS state. If shutdown fails, rollback remains on disk; fix the platform error and run `restore --config .\tmp\dns-system.yaml` again.
 
+## Page Enhance Smoke
+
+Automated tests cover header transforms, HTML injection, replacements, local asset serving, body-size skips, error policy, custom transformer hooks, reverse integration, engine status, and CLI output:
+
+```bash
+go test ./internal/pageenhance ./internal/reverse ./internal/engine ./cmd/steam-accelerator
+```
+
+For a no-system-change manual smoke, use DNSIntercept manual mode on high ports and serve a local asset through the reverse proxy. This validates `page_enhance` enablement and asset routing without changing system DNS, hosts, certificates, or browser settings:
+
+```powershell
+Set-Content -Path .\tmp\local.js -Value 'console.log("siteboost page enhance");'
+@'
+mode: dns
+
+dns_intercept:
+  strategy: "manual"
+  listen_addr: "127.0.0.1:15353"
+
+hosts:
+  http_listen_addr: "127.0.0.1:28080"
+  https_listen_addr: "127.0.0.1:28443"
+
+page_enhance:
+  enabled: true
+  on_error: "pass_through"
+  assets:
+    - path: "/siteboost/local.js"
+      file: ".\\tmp\\local.js"
+      content_type: "application/javascript"
+  transforms:
+    - name: "steam-header"
+      match:
+        providers:
+          - "steam"
+        hosts:
+          - "store.steampowered.com"
+      headers:
+        set:
+          X-SiteBoost-Enhanced: "true"
+'@ | Set-Content -Path .\tmp\page-enhance.yaml
+
+.\bin\steam-accelerator.exe start --config .\tmp\page-enhance.yaml --state .\tmp\page-enhance-runtime.json
+```
+
+From another terminal:
+
+```powershell
+curl.exe -H "Host: store.steampowered.com" http://127.0.0.1:28080/siteboost/local.js
+.\bin\steam-accelerator.exe status --state .\tmp\page-enhance-runtime.json
+.\bin\steam-accelerator.exe stop --state .\tmp\page-enhance-runtime.json
+```
+
+Expected behavior:
+
+- The asset request returns `console.log("siteboost page enhance");`.
+- `status` includes `page_enhance: enabled=true on_error=pass_through transforms=1 assets=1 ...`.
+- `stop` leaves no system DNS, hosts, certificate, browser, or developer-environment changes because this smoke uses manual DNSIntercept high ports.
+- Optional live-upstream checks may request `http://127.0.0.1:28080/` with `Host: store.steampowered.com` and verify `X-SiteBoost-Enhanced: true`; this depends on live upstream behavior and is not required for default automated validation.
+
 ## Expected Output
 
-The version command should print project name, `v0.7.2-dev`, and module path.
+The version command should print project name, `v0.7.3-dev`, and module path.
 
 The basic example should print the project name and module path.
 

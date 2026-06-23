@@ -350,6 +350,51 @@ func TestEngineDNSModeStartsManualServerWithoutSystemWrites(t *testing.T) {
 	}
 }
 
+func TestEngineReportsPageEnhanceStatus(t *testing.T) {
+	upstreamAddr, stopUpstream := startEngineTestDNSServer(t)
+	defer stopUpstream()
+
+	cfg := config.Default()
+	cfg.Mode = config.ModeDNS
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.DNS.ListenAddr = "127.0.0.1:0"
+	cfg.Resolver.Mode = config.ResolverUDP
+	cfg.Resolver.Servers = []string{upstreamAddr}
+	cfg.Cert.Dir = t.TempDir()
+	cfg.PageEnhance.Enabled = true
+	cfg.PageEnhance.Transforms = []config.PageEnhanceTransformConfig{{
+		Name: "status",
+		Headers: config.PageEnhanceHeadersConfig{
+			Set: map[string]string{"X-Enhanced": "yes"},
+		},
+	}}
+
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
+		return nil
+	})
+	defer restoreProbe()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if status.PageEnhance == nil || !status.PageEnhance.Enabled || status.PageEnhance.Transforms != 1 {
+		t.Fatalf("page enhance status = %#v", status.PageEnhance)
+	}
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
 func TestEngineDNSSystemStrategyAppliesAndRestoresSystemDNS(t *testing.T) {
 	cfg := config.Default()
 	cfg.Mode = config.ModeDNS

@@ -89,6 +89,52 @@ func TestValidateAcceptsExplicitSystemDNS(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsPageEnhanceConfig(t *testing.T) {
+	cfg := Default()
+	cfg.PageEnhance.Enabled = true
+	cfg.PageEnhance.OnError = "fail-closed"
+	cfg.PageEnhance.MaxBodySize = 4096
+	cfg.PageEnhance.Assets = []PageEnhanceAssetConfig{{
+		Path:        "/local.js",
+		File:        "assets/local.js",
+		ContentType: "application/javascript",
+	}}
+	cfg.PageEnhance.Transforms = []PageEnhanceTransformConfig{{
+		Name: "demo",
+		Match: PageEnhanceMatchConfig{
+			Providers:    []string{" Steam "},
+			Hosts:        []string{"*.SteamCommunity.com"},
+			PathPrefixes: []string{"/"},
+			ContentTypes: []string{"Text/HTML"},
+			StatusCodes:  []int{200},
+		},
+		Headers: PageEnhanceHeadersConfig{
+			Set:    map[string]string{"x-enhanced": "yes"},
+			Remove: []string{"etag"},
+		},
+		InjectBody: `<script src="/local.js"></script>`,
+		Replace: []PageEnhanceReplaceConfig{{
+			Old: "old",
+			New: "new",
+		}},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if cfg.PageEnhance.OnError != PageEnhanceFailClosed {
+		t.Fatalf("on_error = %q", cfg.PageEnhance.OnError)
+	}
+	if got := cfg.PageEnhance.Transforms[0].Match.Hosts[0]; got != "*.steamcommunity.com" {
+		t.Fatalf("host = %q", got)
+	}
+	if got := cfg.PageEnhance.Transforms[0].Match.Providers[0]; got != "steam" {
+		t.Fatalf("provider = %q", got)
+	}
+	if _, ok := cfg.PageEnhance.Transforms[0].Headers.Set["X-Enhanced"]; !ok {
+		t.Fatalf("headers = %#v", cfg.PageEnhance.Transforms[0].Headers.Set)
+	}
+}
+
 func TestLoadFileYAML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`
@@ -381,6 +427,31 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			mutate: func(cfg *Config) {
 				cfg.Mode = ModeDNS
 				cfg.DNS.MapIPv4 = "not-an-ip"
+			},
+		},
+		{
+			name: "page enhance asset path",
+			mutate: func(cfg *Config) {
+				cfg.PageEnhance.Enabled = true
+				cfg.PageEnhance.Assets = []PageEnhanceAssetConfig{{Path: "asset.js", File: "asset.js"}}
+			},
+		},
+		{
+			name: "page enhance header injection",
+			mutate: func(cfg *Config) {
+				cfg.PageEnhance.Enabled = true
+				cfg.PageEnhance.Transforms = []PageEnhanceTransformConfig{{
+					Headers: PageEnhanceHeadersConfig{Set: map[string]string{"X-Test": "bad\r\nvalue"}},
+				}}
+			},
+		},
+		{
+			name: "page enhance replace old",
+			mutate: func(cfg *Config) {
+				cfg.PageEnhance.Enabled = true
+				cfg.PageEnhance.Transforms = []PageEnhanceTransformConfig{{
+					Replace: []PageEnhanceReplaceConfig{{New: "new"}},
+				}}
 			},
 		},
 	}

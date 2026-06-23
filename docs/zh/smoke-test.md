@@ -301,9 +301,69 @@ Get-DnsClientServerAddress -AddressFamily IPv4
 
 期望指定网卡 DNS 回到启动前的 DHCP 或静态 DNS。若 `stop` 过程中异常退出，rollback 会保留；修复问题后再次执行 `restore --config .\tmp\dns-system.yaml`。
 
+## Page Enhance Smoke
+
+自动化测试覆盖 header transform、HTML 注入、replace、本地 asset、body size skip、错误策略、Go 自定义 transformer、reverse 接入、engine status 和 CLI 输出：
+
+```bash
+go test ./internal/pageenhance ./internal/reverse ./internal/engine ./cmd/steam-accelerator
+```
+
+手动 smoke 优先用 DNSIntercept manual 高端口和本地 asset，不修改系统 DNS、hosts、证书、浏览器设置或开发者环境：
+
+```powershell
+Set-Content -Path .\tmp\local.js -Value 'console.log("siteboost page enhance");'
+@'
+mode: dns
+
+dns_intercept:
+  strategy: "manual"
+  listen_addr: "127.0.0.1:15353"
+
+hosts:
+  http_listen_addr: "127.0.0.1:28080"
+  https_listen_addr: "127.0.0.1:28443"
+
+page_enhance:
+  enabled: true
+  on_error: "pass_through"
+  assets:
+    - path: "/siteboost/local.js"
+      file: ".\\tmp\\local.js"
+      content_type: "application/javascript"
+  transforms:
+    - name: "steam-header"
+      match:
+        providers:
+          - "steam"
+        hosts:
+          - "store.steampowered.com"
+      headers:
+        set:
+          X-SiteBoost-Enhanced: "true"
+'@ | Set-Content -Path .\tmp\page-enhance.yaml
+
+.\bin\steam-accelerator.exe start --config .\tmp\page-enhance.yaml --state .\tmp\page-enhance-runtime.json
+```
+
+另开终端：
+
+```powershell
+curl.exe -H "Host: store.steampowered.com" http://127.0.0.1:28080/siteboost/local.js
+.\bin\steam-accelerator.exe status --state .\tmp\page-enhance-runtime.json
+.\bin\steam-accelerator.exe stop --state .\tmp\page-enhance-runtime.json
+```
+
+期望行为：
+
+- asset 请求返回 `console.log("siteboost page enhance");`。
+- `status` 包含 `page_enhance: enabled=true on_error=pass_through transforms=1 assets=1 ...`。
+- 因为使用的是 manual DNSIntercept 高端口，`stop` 后不会留下系统 DNS、hosts、证书、浏览器或开发者环境变化。
+- 可选真实上游检查：请求带 `Host: store.steampowered.com` 的 `http://127.0.0.1:28080/`，验证响应头 `X-SiteBoost-Enhanced: true`；这依赖 live upstream 行为，不作为默认自动化验证要求。
+
 ## 期望输出
 
-版本命令应输出项目名、`v0.7.2-dev` 和模块路径。
+版本命令应输出项目名、`v0.7.3-dev` 和模块路径。
 
 basic 示例应输出项目名和模块路径。
 

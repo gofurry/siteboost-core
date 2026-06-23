@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofurry/go-steam-core/internal/dnsintercept"
 	"github.com/gofurry/go-steam-core/internal/engine"
+	"github.com/gofurry/go-steam-core/internal/pageenhance"
 	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
@@ -134,6 +135,24 @@ func TestPrintDNSIntercept(t *testing.T) {
 	}})
 	got := strings.TrimSpace(stdout.String())
 	want := "dns_intercept: strategy=manual listen=127.0.0.1:15353 system_dns=false target=2 forwarded=3 cache_hits=4 blocked=1 errors=0"
+	if got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestPrintPageEnhance(t *testing.T) {
+	var stdout bytes.Buffer
+	printPageEnhance(&stdout, engine.Status{PageEnhance: &pageenhance.Status{
+		Enabled:    true,
+		OnError:    pageenhance.OnErrorPassThrough,
+		Transforms: 2,
+		Assets:     1,
+		Applied:    3,
+		Skipped:    4,
+		Errors:     5,
+	}})
+	got := strings.TrimSpace(stdout.String())
+	want := "page_enhance: enabled=true on_error=pass_through transforms=2 assets=1 applied=3 skipped=4 errors=5"
 	if got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}

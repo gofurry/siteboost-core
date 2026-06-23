@@ -2,8 +2,8 @@
 
 ## 短期任务
 
-- 完成 `v0.7.2-dev` DNSIntercept manual 高端口 smoke。
-- 完成 `v0.7.2-dev` Windows DNSIntercept system 显式接管 smoke。
+- 继续维护 `v0.7.3-dev` DNSIntercept manual 高端口和 Windows system DNS smoke 记录。
+- 完成 Page Enhance 高端口 DNSIntercept + 本地 asset 手动 smoke。
 - 完成 provider registry 与 Hosts/AppHost 路径的真实 Windows smoke。
 - 在 DNSIntercept / Page Enhance 边界验证后准备 `v0.8.0` 公共 Go library 抽离计划和包边界草案。
 - 用 GitHub skeleton provider 补一份最小 provider 开发示例文档。
@@ -21,7 +21,7 @@
 - 增加更多 WebSocket 反代边界覆盖。
 - 在 `v1.0.0-alpha.1` 前做 API freeze review。
 - 公共 API 稳定后再引入发布自动化。
-- 分阶段评估 Page Enhance；VPN / TUN 继续延期给成熟外部 adapter。
+- Page Enhance smoke 后进入 `v0.8.0` 抽库准备；VPN / TUN 继续延期给成熟外部 adapter。
 
 ## 已知限制
 
@@ -30,5 +30,5 @@
 - Windows 普通 PowerShell 已支持通过已安装 AppHost named pipe 完成默认 Hosts / Root CA / restore 系统修改；自定义 hosts / cert / rollback 路径仍需要管理员进程或后续受控桌面集成。
 - Hosts 文件不能表达通配符，当前 Hosts 模式只写入 exact 域名；显式启用 DNSIntercept manual 后可覆盖 wildcard 规则。
 - Linux 桌面系统代理处理延后。
-- DNSIntercept manual 与 Windows system DNS 显式接管已实现。VPN / TUN、JS 注入 / Page Enhance 仍是后续分阶段能力；VPN / TUN 延期给外部 adapter。
+- DNSIntercept manual、Windows system DNS 显式接管和默认关闭的 JS 注入 / Page Enhance 已实现。VPN / TUN 延期给外部 adapter。
 - `v1.0.0` 前公共 API 不稳定。

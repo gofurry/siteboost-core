@@ -12,12 +12,14 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/diagnostics"
+	"github.com/gofurry/go-steam-core/internal/pageenhance"
 	"github.com/gofurry/go-steam-core/internal/rules"
 )
 
@@ -40,6 +42,7 @@ type Config struct {
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
 	RootCAs           *x509.CertPool
+	PageEnhance       pageenhance.Config
 }
 
 type Server struct {
@@ -49,6 +52,7 @@ type Server struct {
 	certs     CertificateProvider
 	logger    *slog.Logger
 	transport *http.Transport
+	enhancer  *pageenhance.Pipeline
 
 	mu        sync.Mutex
 	httpSrv   *http.Server
@@ -67,6 +71,7 @@ func ConfigFromApp(cfg config.Config) Config {
 		ReadHeaderTimeout: cfg.Proxy.ReadHeaderTimeout.Std(),
 		IdleTimeout:       cfg.Proxy.IdleTimeout.Std(),
 		ShutdownTimeout:   cfg.Proxy.ShutdownTimeout.Std(),
+		PageEnhance:       pageenhance.ConfigFromApp(cfg),
 	}
 }
 
@@ -75,11 +80,12 @@ func New(cfg Config, matcher *rules.Matcher, dialer Dialer, certs CertificatePro
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &Server{
-		cfg:     cfg,
-		matcher: matcher,
-		dialer:  dialer,
-		certs:   certs,
-		logger:  logger,
+		cfg:      cfg,
+		matcher:  matcher,
+		dialer:   dialer,
+		certs:    certs,
+		logger:   logger,
+		enhancer: pageenhance.New(cfg.PageEnhance),
 	}
 }
 
@@ -219,6 +225,14 @@ func (s *Server) ActiveConns() int64 {
 	return s.activeConns.Load()
 }
 
+func (s *Server) PageEnhanceStatus() *pageenhance.Status {
+	if s.enhancer == nil || !s.enhancer.Enabled() {
+		return nil
+	}
+	status := s.enhancer.Status()
+	return &status
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	s.activeConns.Add(1)
 	defer s.activeConns.Add(-1)
@@ -228,6 +242,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		s.logRequest("reverse_reject", req.Method, host, match, statusForbidden(req))
 		http.Error(w, "host is not allowed by Steam rules", http.StatusForbidden)
 		return
+	}
+	if s.enhancer != nil {
+		served, events := s.enhancer.ServeAsset(w, req, host)
+		s.logEnhanceEvents(events)
+		if served {
+			s.logRequest("reverse_asset", req.Method, host, match, http.StatusOK)
+			return
+		}
 	}
 	scheme := "http"
 	defaultPort := "80"
@@ -250,6 +272,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			msg := diagnostics.UpstreamErrorMessage(err)
 			s.logRequestError("reverse_error", r.Method, host, match, http.StatusBadGateway, msg, diagnostics.UpstreamErrorAttrs(err)...)
 			http.Error(w, "upstream request failed: "+msg, http.StatusBadGateway)
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			if s.enhancer == nil {
+				return nil
+			}
+			events, err := s.enhancer.ApplyResponseWithMeta(resp, pageenhance.ResponseMeta{
+				Provider: providerFromRuleGroup(match.GroupName),
+				Host:     host,
+			})
+			s.logEnhanceEvents(events)
+			return err
 		},
 	}
 	proxy.ServeHTTP(w, req)
@@ -308,6 +341,37 @@ func (s *Server) logRequestError(event, method, host string, match rules.MatchRe
 		attrs = append(attrs, "rule_group", match.GroupName, "rule", match.Rule)
 	}
 	s.logger.Info("reverse request", attrs...)
+}
+
+func (s *Server) logEnhanceEvents(events []pageenhance.Event) {
+	for _, event := range events {
+		attrs := []any{
+			"event", "page_enhance_" + event.Action,
+			"host", event.Host,
+			"path", event.Path,
+		}
+		if event.Transform != "" {
+			attrs = append(attrs, "transform", event.Transform)
+		}
+		if event.Provider != "" {
+			attrs = append(attrs, "provider", event.Provider)
+		}
+		if event.Reason != "" {
+			attrs = append(attrs, "reason", event.Reason)
+		}
+		if event.Status != 0 {
+			attrs = append(attrs, "status", event.Status)
+		}
+		s.logger.Info("reverse page enhance", attrs...)
+	}
+}
+
+func providerFromRuleGroup(group string) string {
+	group = strings.TrimSpace(group)
+	if idx := strings.Index(group, "/"); idx > 0 {
+		return group[:idx]
+	}
+	return group
 }
 
 func serve(srv *http.Server, ln net.Listener, done chan<- error) {

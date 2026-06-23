@@ -17,6 +17,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/dnsintercept"
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/pac"
+	"github.com/gofurry/go-steam-core/internal/pageenhance"
 	"github.com/gofurry/go-steam-core/internal/privilege"
 	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/proxy"
@@ -74,6 +75,7 @@ type Status struct {
 	HostsHTTP        string                 `json:"hosts_http,omitempty"`
 	HostsHTTPS       string                 `json:"hosts_https,omitempty"`
 	DNSIntercept     *dnsintercept.Status   `json:"dns_intercept,omitempty"`
+	PageEnhance      *pageenhance.Status    `json:"page_enhance,omitempty"`
 	ResolverMode     string                 `json:"resolver_mode,omitempty"`
 	ResolverServers  []string               `json:"resolver_servers,omitempty"`
 	UpstreamProfiles int                    `json:"upstream_profiles,omitempty"`
@@ -419,6 +421,7 @@ func (e *Engine) Status() Status {
 		status.HostsHTTP = e.reverse.HTTPAddr()
 		status.HostsHTTPS = e.reverse.HTTPSAddr()
 		status.ActiveConns = e.reverse.ActiveConns()
+		status.PageEnhance = e.reverse.PageEnhanceStatus()
 	}
 	if e.dnsIntercept != nil {
 		dnsStatus := e.dnsIntercept.Status()

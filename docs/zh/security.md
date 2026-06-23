@@ -13,6 +13,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - `cert install` 和自动安装流程都会先检查本项目 Root CA 是否已存在，避免重复执行安装动作。
 - 默认不修改 hosts，必须显式启动 `mode: hosts`。
 - 默认不修改系统 DNS；只有显式 `mode: dns` 且 `dns_intercept.strategy: system` 时才会接管指定 Windows 网卡 DNS。
+- 默认不修改响应内容；只有显式配置 `page_enhance.enabled: true` 时才会执行页面增强 transform。
 - 默认不暴露公网代理入口。
 - 日志不记录 Cookie、Authorization、代理密码、token 或完整敏感 URL。
 
@@ -34,7 +35,18 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - 支持独立 `restore`。
 - 文档写明手动恢复方式。
 - 只修改项目拥有的配置项或 hosts 标记区块。
-- AppHost 必须保持窄命令面。v0.7.2-dev AppHost 只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca`、`preflight-system-dns`、`apply-system-dns`、`restore-system-dns` 和 health 请求，通过 Windows named pipe 传输，带 DACL，平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`，随机 token 非空校验、pipe client PID 与请求父进程 PID 绑定、客户端二进制路径校验，限制默认 hosts 路径、loopback system DNS server、显式 interface selector 与项目 runtime / cert 目录，并对请求设置超时。
+- AppHost 必须保持窄命令面。v0.7.3-dev AppHost 只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca`、`preflight-system-dns`、`apply-system-dns`、`restore-system-dns` 和 health 请求，通过 Windows named pipe 传输，带 DACL，平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`，随机 token 非空校验、pipe client PID 与请求父进程 PID 绑定、客户端二进制路径校验，限制默认 hosts 路径、loopback system DNS server、显式 interface selector 与项目 runtime / cert 目录，并对请求设置超时。
+
+## Page Enhance 风险
+
+Page Enhance 不属于系统修改能力，但会修改 reverse proxy 返回给浏览器的响应内容，因此必须显式启用并保持可观察：
+
+- 默认 `page_enhance.enabled: false`。
+- 只执行显式 YAML transform 或显式注册的 Go transformer。
+- 不内置隐藏的 login、checkout 或敏感路径跳过规则；是否注入由开发者配置决定。
+- 对 body 过大、不支持的 `Content-Encoding`、缺少注入锚点、replace 未命中或 transform 错误输出明确 reason。
+- 关闭 `page_enhance.enabled` 或移除 transform 后恢复原始响应行为。
+- Page Enhance 不写系统 DNS、hosts、证书信任、浏览器配置或开发者环境。
 
 ## 证书风险
 

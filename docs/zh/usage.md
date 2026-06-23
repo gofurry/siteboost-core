@@ -68,6 +68,13 @@ dns_intercept:
   ttl: "30s"
   block_https_records: true
 
+page_enhance:
+  enabled: false
+  on_error: "pass_through" # pass_through | fail_closed
+  max_body_size: 1048576
+  assets: []
+  transforms: []
+
 rules:
   custom_domains: []
 
@@ -148,6 +155,8 @@ resolver、upstream、macOS system service 以及大部分 Hosts / DNSIntercept 
 
 v0.7 已移除旧 Steam 专用配置名。请将 `proxy.non_steam_behavior` 改为 `proxy.non_target_behavior`，将 `rules.enable_default_steam_rules` 改为 `providers.enabled`，并移除 `upstream.enable_default_steam_profiles`。继续使用旧 key 会得到迁移错误。
 
+Page Enhance 默认关闭。启用后只会按显式 `match` 条件执行 transform，`status` / log 会显示 `page_enhance` 的 apply、skip 和 error 计数。该 pipeline 不修改系统 DNS、hosts、证书、浏览器设置或开发者环境。
+
 ## 常见示例
 
 浏览器手动代理设置：
@@ -169,6 +178,46 @@ providers:
 ```
 
 GitHub 在 v0.7 中是 `experimental`，只参与匹配和状态输出，不定义默认 outbound profile，也不应描述成真实加速。
+
+为 reverse proxy 流程启用 Page Enhance：
+
+```yaml
+mode: hosts
+
+page_enhance:
+  enabled: true
+  on_error: "pass_through"
+  max_body_size: 1048576
+  assets:
+    - path: "/siteboost/local.js"
+      file: ".\\tmp\\local.js"
+      content_type: "application/javascript"
+  transforms:
+    - name: "steam-demo"
+      match:
+        providers:
+          - "steam"
+        hosts:
+          - "store.steampowered.com"
+        path_prefixes:
+          - "/"
+        content_types:
+          - "text/html"
+        status_codes:
+          - 200
+      headers:
+        set:
+          X-SiteBoost-Enhanced: "true"
+        remove:
+          - "ETag"
+      inject_body: '<script src="/siteboost/local.js"></script>'
+      replace:
+        - old: "old"
+          new: "new"
+          count: 1
+```
+
+`on_error: pass_through` 表示 transform 失败时恢复原始响应；`fail_closed` 会让 reverse proxy 返回 transform 错误。内置跳过原因包括不支持的 `Content-Encoding`、body 超过 `max_body_size`、缺少 `</head>` / `</body>` 或 replace 未命中；这些都会有明确 reason。库不会自行静默跳过 login、checkout 或其他敏感路径，是否注入由开发者显式配置决定。
 
 使用 DNSIntercept manual 高端口模式：
 
@@ -386,4 +435,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.7.2-dev 中仍明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.7.3-dev 中仍明确不支持，会返回 unsupported。

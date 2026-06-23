@@ -15,7 +15,7 @@
 - 远端仓库已经改为 `gofurry/siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已是 `v0.7.2-dev`。
+- `version.go` 已是 `v0.7.3-dev`。
 - 主干代码已包含 Windows AppHost Service 与 named pipe IPC：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务名：`SiteBoostCoreAppHost`。
@@ -43,6 +43,7 @@
 - Go module 和 CLI 仍保留 Steam 历史命名，核心规则/profile 已完成 provider 化。
 - GitHub 已有 experimental skeleton provider，可显式启用用于架构验证，但不承诺真实加速。
 - AppHost 已完成本机管理员安装、健康检查、named pipe RPC、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程记录；仍建议补充重启 Windows 后自动拉起的单独 smoke 记录。
+- DNSIntercept system 已完成真实 Windows smoke：指定 WLAN DNS 切到 `127.0.0.1`，Steam 目标域名解析到本地，非目标域名继续上游解析，`stop` / `restore` 后 DNS 回到原值。
 - AppHost IPC 已迁移到 Windows named pipe；后续还需要评估用户会话绑定、审计日志和按需启动。
 
 ## 总体方向
@@ -62,6 +63,7 @@
 - resolver / DoH / DNS cache
 - upstream / candidate dialing / TLS SNI
 - takeover mode：ProxyOnly、PAC、System Proxy、Hosts、DNSIntercept；TUN/VPN 暂不进入本仓库实现
+- reverse / Page Enhance response transform pipeline
 - certificate / Root CA / dynamic cert
 - privilege / AppHost / restore
 - diagnostics / smoke / support bundle
@@ -138,7 +140,7 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 
 ### v0.7.2 - Windows System DNS 显式接管与恢复
 
-**状态：** 代码与自动化验证已完成，等待真实 Windows system DNS smoke。
+**状态：** 代码、自动化验证和真实 Windows system DNS smoke 已完成。
 
 目标是在 `manual` 路径稳定后，为 `dns_intercept.strategy: system` 增加 AppHost 白名单系统 DNS 修改能力。任何系统 DNS 改动都必须先有 rollback，`stop` / `restore` 后必须恢复，失败时不能把开发者机器留在“系统 DNS 指向本地但服务未运行”的状态。
 
@@ -152,13 +154,13 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 - `status` 会显示 `dns_intercept ... system_dns=true` 和 `system_change: component=system_dns ...`。
 - 自动化测试覆盖配置、systemdns rollback、Windows PowerShell 后端、AppHost 校验、Engine 顺序和 CLI restore 分发。
 
-仍需补充：
-
-- 真实 Windows system DNS smoke：显式指定网卡，启动后验证 DNS server 接管、浏览器访问、`stop` / `restore` 后网卡 DNS 回到原状态。
+已补充真实 Windows smoke：显式指定网卡后，启动输出 `system_dns=true`，目标域名解析到 `127.0.0.1`，非目标域名继续解析，`stop` / `restore` 后网卡 DNS 回到原状态。AppHost 缺失、端口占用和崩溃后 restore 仍可作为后续负向 smoke 扩展。
 
 ### v0.7.3 - JS 注入与页面增强透明 Pipeline
 
-目标是在 reverse proxy 内增加默认关闭的 response transform pipeline。库只提供 header 修改、HTML 注入、本地 asset、replace 和自定义 transformer 等机械能力，不做隐藏安全跳过；每次应用、跳过或失败都必须能在 status / log 里看到原因。
+**状态：** 代码与自动化验证已完成，等待真实 Page Enhance smoke。
+
+目标是在 reverse proxy 内增加默认关闭的 response transform pipeline。已实现 provider / host / path / content-type / status 匹配、header 修改、HTML 注入、本地 asset、replace 和 Go 自定义 transformer 扩展点。库只提供机械能力，不做隐藏安全跳过；每次应用、跳过或失败都能在 status / log 里看到原因。关闭 `page_enhance.enabled` 或移除 transform 后即可恢复原始响应行为，不会修改系统 DNS、hosts、证书、浏览器配置或开发者环境。
 
 ### v0.8.0 - 独立 Go Library 抽取准备
 
@@ -222,6 +224,6 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 8. `internal/upstream/profile.go`
 9. `cmd/steam-accelerator/main.go`
 
-最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是补做 v0.7.2 DNSIntercept manual 高端口手动 smoke、Windows system DNS 显式接管 smoke、默认 Steam Hosts + DoH + AppHost 回归 smoke，以及 AppHost 真实重启自动拉起 smoke。随后再进入 Page Enhance 透明 pipeline 的设计验证。
+最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是补做 v0.7.3 Page Enhance 真实 reverse smoke、默认 Steam Hosts + DoH + AppHost 回归 smoke，以及 AppHost 真实重启自动拉起 smoke。随后再进入 v0.8.0 公共 Go library 抽取准备。
 
 正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

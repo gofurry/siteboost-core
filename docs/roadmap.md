@@ -13,9 +13,9 @@ Current facts:
 - The remote repository is `gofurry/siteboost-core`.
 - The Go module is still `github.com/gofurry/go-steam-core`.
 - The CLI is still `steam-accelerator`.
-- `version.go` reports `v0.7.2-dev`.
+- `version.go` reports `v0.7.3-dev`.
 - The main branch contains Windows AppHost Service and named pipe IPC work.
-- Local real-machine validation has passed for AppHost health, named pipe RPC, the normal-user Hosts loop, China-network Steam access, `stop`, `restore`, and uninstall behavior. A dedicated reboot auto-start smoke is still recommended.
+- Local real-machine validation has passed for AppHost health, named pipe RPC, the normal-user Hosts loop, China-network Steam access, `stop`, `restore`, uninstall behavior, and explicit Windows system DNS takeover/restore. A dedicated reboot auto-start smoke is still recommended.
 
 Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Reverse Proxy path has been manually validated in a China-network environment for Steam store, community, help, chat/login, static assets, and common CDN hosts. GitHub is available as an explicit experimental skeleton provider for architecture validation only.
 
@@ -29,7 +29,7 @@ The core should be split around these concepts:
 - resolver and DoH
 - upstream and outbound profiles
 - takeover modes: ProxyOnly, PAC, System Proxy, Hosts, DNSIntercept manual, and explicit Windows DNSIntercept system takeover; TUN/VPN is deferred to external libraries or separate integrations
-- local reverse proxy
+- local reverse proxy and opt-in Page Enhance response transforms
 - root CA and dynamic certificates
 - privilege boundary and restore
 - diagnostics and smoke tests
@@ -85,13 +85,15 @@ Implemented a DNSIntercept foundation that does not modify system DNS by default
 
 ### v0.7.2 - Explicit Windows System DNS Takeover and Restore
 
-**Status:** Code and automated validation completed; real Windows system-DNS smoke still recommended.
+**Status:** Code, automated validation, and real Windows system-DNS smoke completed.
 
-Implemented explicit `strategy: system` for Windows DNSIntercept. It requires `mode: dns`, a loopback `:53` listener, and explicit `dns_intercept.interfaces`. System DNS changes go through AppHost allowlisted commands, write `system_dns` rollback state before applying changes, restore on `stop` / `restore`, and start/stop in an order that avoids leaving the machine pointed at a dead local DNS server. Manual smoke should still verify real adapter DNS restoration.
+Implemented explicit `strategy: system` for Windows DNSIntercept. It requires `mode: dns`, a loopback `:53` listener, and explicit `dns_intercept.interfaces`. System DNS changes go through AppHost allowlisted commands, write `system_dns` rollback state before applying changes, restore on `stop` / `restore`, and start/stop in an order that avoids leaving the machine pointed at a dead local DNS server. Real Windows smoke has verified that the selected adapter DNS can be switched to `127.0.0.1`, target names resolve locally, non-target names still resolve upstream, and restore returns the adapter to its prior DNS servers.
 
 ### v0.7.3 - Transparent Page Enhancement Pipeline
 
-Add an opt-in reverse-proxy response transform pipeline. The library should provide mechanical transforms such as header edits, HTML injection, local asset serving, and replacements, but it should not hide developer choices behind black-box safety skips. Every applied, skipped, or failed transform must be observable.
+**Status:** Code and automated validation completed; real Page Enhance smoke still recommended.
+
+Implemented an opt-in reverse-proxy response transform pipeline. It provides mechanical transforms such as provider/host/path/content-type/status matching, header edits, HTML injection, local asset serving, replacements, and custom transformer hooks. It does not hide developer choices behind black-box safety skips. Every applied, skipped, or failed transform is observable through logs and `page_enhance` status counters.
 
 ### v0.8.0 - Library Extraction Readiness
 

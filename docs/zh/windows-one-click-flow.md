@@ -1,6 +1,6 @@
 # Windows 一键系统修改流程
 
-本文记录 v0.6.4 引入、并在 v0.7.2-dev provider / DNSIntercept 架构中继续沿用的 Windows 系统修改边界。
+本文记录 v0.6.4 引入、并在 v0.7.3-dev provider / DNSIntercept / Page Enhance 架构中继续沿用的 Windows 系统修改边界。
 
 ## 边界
 
@@ -17,7 +17,7 @@
 
 核心不会绕过 UAC、企业策略或文件系统权限。默认路线是先通过管理员 PowerShell 执行一次 `apphost install`，安装 `SiteBoostCoreAppHost` Windows Service。服务以受控高权限上下文运行，后续普通 PowerShell 通过 Windows named pipe `\\.\pipe\SiteBoostCoreAppHost` 请求受限系统修改。提权侧只暴露很窄的白名单命令，不接受任意 shell、任意文件写入、代理凭据、Cookie 或用户秘密。
 
-## v0.7.2-dev 行为
+## v0.7.3-dev 行为
 
 `cert.auto_install` 默认是 `true`，`cert.store_scope` 默认是 `machine`。Hosts 模式下：
 

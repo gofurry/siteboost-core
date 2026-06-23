@@ -2,8 +2,8 @@
 
 ## Short-Term Tasks
 
-- Finish DNSIntercept manual high-port smoke for the v0.7.2-dev path.
-- Finish explicit Windows DNSIntercept system smoke for the v0.7.2-dev path.
+- Keep the DNSIntercept manual high-port and Windows system DNS smoke records current for the v0.7.3-dev path.
+- Finish Page Enhance manual smoke with high-port DNSIntercept and a local asset.
 - Finish real Windows smoke for the provider registry and Hosts/AppHost path.
 - Prepare the v0.8.0 public-library extraction plan and package boundary draft after DNSIntercept/Page Enhance boundaries are validated.
 - Add provider developer documentation using the GitHub skeleton provider as the minimal example.
@@ -21,7 +21,7 @@
 - Add more WebSocket reverse proxy edge-case coverage.
 - Add API freeze review before `v1.0.0-alpha.1`.
 - Add release automation after the public API settles.
-- Evaluate Page Enhance as the next staged pre-extraction capability; keep VPN/TUN deferred to mature external adapters.
+- Prepare the v0.8.0 extraction readiness plan after Page Enhance smoke; keep VPN/TUN deferred to mature external adapters.
 
 ## Known Limitations
 
@@ -30,5 +30,5 @@
 - Normal Windows PowerShell can use the installed AppHost named pipe for default Hosts / root CA / restore system changes; custom hosts, cert, or rollback paths still require an elevated process or a future controlled desktop integration.
 - Hosts files cannot express wildcard domains; current Hosts mode writes exact domains only. DNSIntercept manual can cover wildcard rules when explicitly enabled.
 - Linux desktop system proxy handling is deferred.
-- DNSIntercept manual and explicit Windows system DNS takeover are implemented. VPN / TUN and JS injection/page enhancement remain staged work; VPN/TUN is deferred to external adapters.
+- DNSIntercept manual, explicit Windows system DNS takeover, and opt-in JS injection/page enhancement are implemented. VPN/TUN is deferred to external adapters.
 - Public API is not stable before `v1.0.0`.

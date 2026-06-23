@@ -4,7 +4,7 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 已进入 `v0.7.2-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server，以及显式 Windows system DNS 接管 / rollback / restore 基础；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问和卸载主流程 smoke 记录，真实 Windows 重启后的自动拉起与 system DNS 接管 smoke 仍建议补充单独记录
+> 当前代码阶段：`version.go` 已进入 `v0.7.3-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server、显式 Windows system DNS 接管 / rollback / restore，以及默认关闭的 Page Enhance 响应转换 pipeline；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问、卸载主流程和 Windows system DNS 接管 / 恢复 smoke 记录，真实 Windows 重启后的 AppHost 自动拉起仍建议补充单独记录
 
 ## 当前定位
 
@@ -75,12 +75,13 @@ stop / restore 恢复系统修改
 
 ### 当前限制
 
-- `version.go`、Go module、CLI、配置字段和大量包名仍带 Steam 专用命名。
+- `version.go` 已进入 `v0.7.3-dev`，但 Go module、CLI、配置字段和部分包名仍带 Steam 专用命名。
 - 运行时基本仍在 `internal/`，公共 Go API 尚未稳定。
 - AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程验证；仍建议补充 `install -> reboot -> no-admin start` 的单独重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
 - GitHub 已有 experimental skeleton provider，可通过 `providers.enabled` 显式启用；它不包含默认 outbound profile，也不承诺真实加速。
-- hosts 只能覆盖 exact 域名；DNSIntercept manual 已可覆盖 provider wildcard 与自定义规则，但只在 `mode: dns` 下显式启动，不自动改系统 DNS。`system` 策略已支持 Windows 显式网卡 DNS 接管，要求 53 端口、loopback DNS server、显式 `dns_intercept.interfaces` 和 rollback；`external` 策略仍是后续计划，不能默认改坏开发者环境。
+- hosts 只能覆盖 exact 域名；DNSIntercept manual 已可覆盖 provider wildcard 与自定义规则，但只在 `mode: dns` 下显式启动，不自动改系统 DNS。`system` 策略已支持 Windows 显式网卡 DNS 接管，要求 53 端口、loopback DNS server、显式 `dns_intercept.interfaces` 和 rollback；本机已验证 WLAN DNS 可切到 `127.0.0.1` 并通过 `stop` / `restore` 回到原 DNS。`external` 策略仍是后续计划，不能默认改坏开发者环境。
+- Page Enhance 已提供默认关闭的 response transform pipeline，支持 provider / host / path / content-type / status 匹配、header 修改、HTML 注入、本地 asset、replace 和 Go transformer 扩展点；它不写系统 DNS、hosts、证书、浏览器配置或开发者环境。
 - macOS / Linux Hosts 与证书安装未落地。
 - 桌面 installer、服务升级、日志位置、卸载清理和发布包还没有产品化。
 
@@ -267,7 +268,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 ### v0.7.2 - Windows System DNS 显式接管与恢复
 
-**状态：** 代码与自动化验证已完成，等待真实 Windows system DNS smoke
+**状态：** 代码、自动化验证与真实 Windows system DNS smoke 已完成
 **范围：** Windows / Reliability / Security-Safety / Testing
 **目标：** 在用户显式选择 `dns_intercept.strategy: system` 时，通过 AppHost 受控修改系统 DNS，并保证 stop / restore 可还原。
 
@@ -286,7 +287,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - [x] `stop` / `restore` 使用 rollback 恢复原 DNS；失败时 rollback 保留，可再次执行 `restore`。
 - [x] `status` 和 `system_change:` 输出 DNS preflight / apply 的 interface 数、目标 DNS 和 helper 信息。
 - [x] 单元测试覆盖 config、systemdns rollback、Windows PowerShell 后端脚本、AppHost 请求校验、Engine 启停顺序和 CLI restore 分发。
-- [ ] 真实 Windows smoke 覆盖 apply、stop、restore、AppHost 缺失、端口占用、崩溃后 restore。
+- [x] 真实 Windows smoke 覆盖 apply、stop、restore 和系统 DNS 恢复；AppHost 缺失、端口占用、崩溃后 restore 仍可作为后续负向 smoke 扩展。
 
 #### Acceptance Criteria
 
@@ -295,13 +296,13 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - [x] `stop` / `restore` 会先恢复系统 DNS，再关闭本地 DNS server。
 - [x] AppHost 缺失、权限不足、接口枚举失败或 DNS server 未启动时，不应写入半成品系统 DNS。
 - [x] 失败路径会优先尝试恢复，且保留 rollback 供用户再次执行 `restore`。
-- [ ] 真实 Windows smoke 确认系统 DNS 回到启动前状态，并记录手动恢复命令。
+- [x] 真实 Windows smoke 确认系统 DNS 回到启动前状态，并记录手动恢复命令。
 
 ---
 
 ### v0.7.3 - JS 注入与页面增强透明 Pipeline
 
-**状态：** 计划中
+**状态：** 代码与自动化验证已完成，等待真实 Page Enhance smoke
 **范围：** Reverse Proxy / Developer-facing / Diagnostics / Testing
 **目标：** 在本地 reverse proxy 中提供可观察、可关闭、无隐藏安全魔法的响应转换能力，让开发者显式决定如何注入或增强页面。
 
@@ -314,21 +315,21 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 #### Tasks
 
-- [ ] 设计 `page_enhance.enabled`、`transforms`、`assets`、`on_error`、`max_body_size` 等配置；默认关闭。
-- [ ] 实现 `ResponseMeta` 与 `Transformer` 接口，支持 provider、host、path、content-type、status code 等显式匹配。
-- [ ] 实现内置机械 transform：header remove/set、HTML head/body 注入、本地 asset mount、简单 replace。
-- [ ] 开发者可选择 `on_error: pass_through|fail_closed`；库不得因内置黑盒规则偷偷跳过 login、checkout 或任意路径。
-- [ ] 对压缩、body size、unsupported content encoding、transform error 等跳过或失败原因输出 `enhance_*` status / log。
-- [ ] Provider 只能声明推荐 enhancement pack 或元数据；是否启用、启用哪些 transform 由开发者或上层应用决定。
-- [ ] 单元测试覆盖 transform 顺序、header 修正、Content-Length / ETag 处理、asset serving、错误策略和并发访问。
+- [x] 设计 `page_enhance.enabled`、`transforms`、`assets`、`on_error`、`max_body_size` 等配置；默认关闭。
+- [x] 实现 `ResponseMeta` 与 `Transformer` 接口，支持 provider、host、path、content-type、status code 等显式匹配。
+- [x] 实现内置机械 transform：header remove/set、HTML head/body 注入、本地 asset mount、简单 replace。
+- [x] 开发者可选择 `on_error: pass_through|fail_closed`；库不得因内置黑盒规则偷偷跳过 login、checkout 或任意路径。
+- [x] 对压缩、body size、unsupported content encoding、transform error 等跳过或失败原因输出 `page_enhance_*` log 和 status 计数。
+- [x] Provider 只能声明推荐 enhancement pack 或元数据；是否启用、启用哪些 transform 由开发者或上层应用决定。
+- [x] 单元测试覆盖 header 修正、Content-Length / ETag 处理、asset serving、错误策略、body size skip、custom transformer 和 reverse / engine / CLI status 接入。
 
 #### Acceptance Criteria
 
-- 默认不启用页面增强，不修改任何响应内容。
-- 启用后，所有修改都来自显式配置或显式注册的 transformer。
-- 库不内置不可见的“安全跳过”规则；任何跳过都必须有明确原因。
-- 页面增强不会写系统 DNS、hosts、证书、浏览器配置或开发者环境。
-- 开发者可以通过关闭 `page_enhance.enabled` 或移除 transform 完全恢复原始响应行为。
+- [x] 默认不启用页面增强，不修改任何响应内容。
+- [x] 启用后，所有修改都来自显式配置或显式注册的 transformer。
+- [x] 库不内置不可见的“安全跳过”规则；任何跳过都必须有明确原因。
+- [x] 页面增强不会写系统 DNS、hosts、证书、浏览器配置或开发者环境。
+- [x] 开发者可以通过关闭 `page_enhance.enabled` 或移除 transform 完全恢复原始响应行为。
 
 ---
 
@@ -466,9 +467,9 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 短期：
 
 - 补齐 `v0.6.4` Windows AppHost Service 单独重启自动拉起 smoke 记录。
-- 完成 `v0.7.2` DNSIntercept manual 高端口 smoke 和 Windows system DNS 显式接管 smoke。
+- 保留 `v0.7.2` DNSIntercept manual 高端口 smoke、Windows system DNS 显式接管 smoke 和恢复命令记录。
 - 完成 provider 架构真实 Windows smoke 回归。
-- 进入 `v0.7.3` Page Enhance 透明 pipeline 设计，确保默认关闭且无隐藏跳过规则。
+- 补做 `v0.7.3` Page Enhance 真实 reverse smoke，确认显式配置后能注入、可观察、移除配置即可恢复。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
 - 将 `v0.8.0` 独立 Go Library 抽取顺延到 DNSIntercept / Page Enhance 主能力边界验证之后。
 

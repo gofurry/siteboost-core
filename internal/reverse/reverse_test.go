@@ -12,11 +12,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofurry/go-steam-core/internal/certstore"
+	"github.com/gofurry/go-steam-core/internal/pageenhance"
 	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/rules"
 	"github.com/gofurry/go-steam-core/internal/upstream"
@@ -254,6 +257,99 @@ func TestWebSocketUpgradeIsForwarded(t *testing.T) {
 	}
 }
 
+func TestReversePageEnhanceTransformsResponse(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("ETag", `"old"`)
+		w.Header().Set("X-Remove", "gone")
+		_, _ = w.Write([]byte(`<html><head></head><body>old text</body></html>`))
+	}))
+	defer origin.Close()
+	originURL, _ := url.Parse(origin.URL)
+
+	server := newTestServerWithPageEnhance(t, mapDialer{
+		"store.steampowered.com:80": originURL.Host,
+	}, nil, pageenhance.Config{
+		Enabled: true,
+		OnError: pageenhance.OnErrorPassThrough,
+		Transforms: []pageenhance.Transform{{
+			Name: "demo",
+			Match: pageenhance.Match{
+				Providers:    []string{"steam"},
+				ContentTypes: []string{"text/html"},
+			},
+			HeaderSet:    map[string]string{"X-Enhanced": "yes"},
+			HeaderRemove: []string{"X-Remove"},
+			InjectBody:   `<div id="boost"></div>`,
+			Replace:      []pageenhance.Replacement{{Old: "old text", New: "new text"}},
+		}},
+	})
+	defer stopServer(t, server)
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+server.HTTPAddr()+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "store.steampowered.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "new text") || !strings.Contains(string(body), `<div id="boost"></div>`) {
+		t.Fatalf("body = %q", body)
+	}
+	if got := resp.Header.Get("X-Enhanced"); got != "yes" {
+		t.Fatalf("X-Enhanced = %q", got)
+	}
+	if got := resp.Header.Get("X-Remove"); got != "" {
+		t.Fatalf("X-Remove = %q", got)
+	}
+	if got := resp.Header.Get("ETag"); got != "" {
+		t.Fatalf("ETag = %q", got)
+	}
+	status := server.PageEnhanceStatus()
+	if status == nil || status.Applied == 0 || status.Errors != 0 {
+		t.Fatalf("page enhance status = %#v", status)
+	}
+}
+
+func TestReversePageEnhanceServesAssetWithoutUpstream(t *testing.T) {
+	dir := t.TempDir()
+	assetPath := filepath.Join(dir, "local.js")
+	if err := os.WriteFile(assetPath, []byte(`console.log("local");`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := newTestServerWithPageEnhance(t, mapDialer{}, nil, pageenhance.Config{
+		Enabled: true,
+		Assets: []pageenhance.Asset{{
+			Path:        "/local.js",
+			File:        assetPath,
+			ContentType: "application/javascript",
+		}},
+	})
+	defer stopServer(t, server)
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+server.HTTPAddr()+"/local.js", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "store.steampowered.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != `console.log("local");` {
+		t.Fatalf("status/body = %d/%q", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/javascript" {
+		t.Fatalf("content type = %q", got)
+	}
+}
+
 func newTestServer(t *testing.T, dialer Dialer, roots *x509.CertPool) *Server {
 	t.Helper()
 	manager := certstore.NewWithPlatform(certstore.Config{Dir: t.TempDir()}, &fakeCertPlatform{})
@@ -273,6 +369,17 @@ func newTestServerWithLogger(t *testing.T, dialer Dialer, roots *x509.CertPool, 
 
 func newTestServerWithLoggerAndManager(t *testing.T, dialer Dialer, roots *x509.CertPool, manager *certstore.Manager, logger *slog.Logger) *Server {
 	t.Helper()
+	return newTestServerWithConfig(t, dialer, roots, manager, logger, pageenhance.Config{})
+}
+
+func newTestServerWithPageEnhance(t *testing.T, dialer Dialer, roots *x509.CertPool, enhance pageenhance.Config) *Server {
+	t.Helper()
+	manager := certstore.NewWithPlatform(certstore.Config{Dir: t.TempDir()}, &fakeCertPlatform{})
+	return newTestServerWithConfig(t, dialer, roots, manager, slog.New(slog.NewTextHandler(io.Discard, nil)), enhance)
+}
+
+func newTestServerWithConfig(t *testing.T, dialer Dialer, roots *x509.CertPool, manager *certstore.Manager, logger *slog.Logger, enhance pageenhance.Config) *Server {
+	t.Helper()
 	matcher, err := rules.NewMatcher(provider.Steam().Rules, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -284,6 +391,7 @@ func newTestServerWithLoggerAndManager(t *testing.T, dialer Dialer, roots *x509.
 		IdleTimeout:       5 * time.Second,
 		ShutdownTimeout:   5 * time.Second,
 		RootCAs:           roots,
+		PageEnhance:       enhance,
 	}
 	server := New(cfg, matcher, dialer, manager, logger)
 	if err := server.Start(); err != nil {

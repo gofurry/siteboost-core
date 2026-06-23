@@ -28,8 +28,9 @@
 - 不做 Steam 账号、令牌、库存、成就、挂卡等非网络能力。
 - 不做公共代理池或节点服务。
 - 默认一键闭环不依赖 JS 注入。
-- `v1.0.0` 不以 DNSIntercept、VPN / TUN、JS 注入为阻塞项。
-- DNSIntercept、VPN / TUN、JS 注入进入 `v1.x` 高级能力路线，必须显式开启并单独说明安全风险。
+- `v1.0.0` 不以 VPN / TUN 为阻塞项。
+- DNSIntercept 和 Page Enhance 已在 v0.7.x 前移为抽库前主能力验证，但必须显式开启、可观察、可还原。
+- VPN / TUN 进入后续高级能力路线，优先使用成熟外部库或独立项目集成。
 
 ## Clean-Room 规则
 
@@ -48,7 +49,7 @@
 - `v0.5.0` 已补齐第一版 Hosts + DoH 一键默认闭环，避免 Hosts 模式出站解析自绕回。
 - `v0.5.1` 已补齐出站失败诊断和 HTTPS Direct 出口的 TCP + TLS 候选尝试链。
 - `v0.6.0` 已落地默认 Steam 出站 profile：community 优先 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 优先 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名。
-- `DNSIntercept`、VPN / TUN 和 JS 注入进入 `v1.x` 高级能力路线，但不阻塞 `v1.0.0`。
+- `v0.7.1` / `v0.7.2` 已落地 DNSIntercept manual 与 Windows system 显式接管；`v0.7.3` 已落地默认关闭的 Page Enhance pipeline。VPN / TUN 继续延期到成熟外部 adapter 或独立项目。
 
 ## 相关文档
 

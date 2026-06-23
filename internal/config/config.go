@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,9 @@ const (
 	DNSInterceptManual   = "manual"
 	DNSInterceptSystem   = "system"
 	DNSInterceptExternal = "external"
+
+	PageEnhancePassThrough = "pass_through"
+	PageEnhanceFailClosed  = "fail_closed"
 
 	ResolverSystem = "system"
 	ResolverUDP    = "udp"
@@ -76,18 +80,19 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type Config struct {
-	Mode      string          `yaml:"mode"`
-	Providers ProvidersConfig `yaml:"providers"`
-	DNS       DNSConfig       `yaml:"dns_intercept"`
-	Proxy     ProxyConfig     `yaml:"proxy"`
-	PAC       PACConfig       `yaml:"pac"`
-	Hosts     HostsConfig     `yaml:"hosts"`
-	Cert      CertConfig      `yaml:"cert"`
-	Resolver  ResolverConfig  `yaml:"resolver"`
-	Upstream  UpstreamConfig  `yaml:"upstream"`
-	System    SystemConfig    `yaml:"system_proxy"`
-	Rules     RulesConfig     `yaml:"rules"`
-	Runtime   RuntimeConfig   `yaml:"runtime"`
+	Mode        string            `yaml:"mode"`
+	Providers   ProvidersConfig   `yaml:"providers"`
+	DNS         DNSConfig         `yaml:"dns_intercept"`
+	Proxy       ProxyConfig       `yaml:"proxy"`
+	PAC         PACConfig         `yaml:"pac"`
+	Hosts       HostsConfig       `yaml:"hosts"`
+	Cert        CertConfig        `yaml:"cert"`
+	Resolver    ResolverConfig    `yaml:"resolver"`
+	Upstream    UpstreamConfig    `yaml:"upstream"`
+	PageEnhance PageEnhanceConfig `yaml:"page_enhance"`
+	System      SystemConfig      `yaml:"system_proxy"`
+	Rules       RulesConfig       `yaml:"rules"`
+	Runtime     RuntimeConfig     `yaml:"runtime"`
 }
 
 type ProxyConfig struct {
@@ -166,6 +171,48 @@ type OutboundProfileConfig struct {
 	IgnoreTLSNameMismatch bool     `yaml:"ignore_tls_name_mismatch"`
 }
 
+type PageEnhanceConfig struct {
+	Enabled     bool                         `yaml:"enabled"`
+	OnError     string                       `yaml:"on_error"`
+	MaxBodySize int64                        `yaml:"max_body_size"`
+	Assets      []PageEnhanceAssetConfig     `yaml:"assets"`
+	Transforms  []PageEnhanceTransformConfig `yaml:"transforms"`
+}
+
+type PageEnhanceAssetConfig struct {
+	Path        string `yaml:"path"`
+	File        string `yaml:"file"`
+	ContentType string `yaml:"content_type"`
+}
+
+type PageEnhanceTransformConfig struct {
+	Name       string                     `yaml:"name"`
+	Match      PageEnhanceMatchConfig     `yaml:"match"`
+	Headers    PageEnhanceHeadersConfig   `yaml:"headers"`
+	InjectHead string                     `yaml:"inject_head"`
+	InjectBody string                     `yaml:"inject_body"`
+	Replace    []PageEnhanceReplaceConfig `yaml:"replace"`
+}
+
+type PageEnhanceMatchConfig struct {
+	Providers    []string `yaml:"providers"`
+	Hosts        []string `yaml:"hosts"`
+	PathPrefixes []string `yaml:"path_prefixes"`
+	ContentTypes []string `yaml:"content_types"`
+	StatusCodes  []int    `yaml:"status_codes"`
+}
+
+type PageEnhanceHeadersConfig struct {
+	Set    map[string]string `yaml:"set"`
+	Remove []string          `yaml:"remove"`
+}
+
+type PageEnhanceReplaceConfig struct {
+	Old   string `yaml:"old"`
+	New   string `yaml:"new"`
+	Count int    `yaml:"count"`
+}
+
 type SystemConfig struct {
 	Services []string `yaml:"services"`
 }
@@ -222,6 +269,10 @@ func Default() Config {
 		},
 		Upstream: UpstreamConfig{
 			Type: UpstreamDirect,
+		},
+		PageEnhance: PageEnhanceConfig{
+			OnError:     PageEnhancePassThrough,
+			MaxBodySize: 1024 * 1024,
 		},
 		Runtime: RuntimeConfig{
 			StatePath:    DefaultStatePath(),
@@ -461,6 +512,9 @@ func (c *Config) Validate() error {
 	if err := validateOutboundProfiles(c.Upstream.Profiles); err != nil {
 		return err
 	}
+	if err := validatePageEnhanceConfig(&c.PageEnhance); err != nil {
+		return err
+	}
 	c.System.Services = trimStrings(c.System.Services)
 
 	if c.Proxy.ReadHeaderTimeout.Std() <= 0 {
@@ -622,6 +676,149 @@ func validateDNSSystemConfig(cfg *DNSConfig) error {
 	return nil
 }
 
+func validatePageEnhanceConfig(cfg *PageEnhanceConfig) error {
+	cfg.OnError = normalizePageEnhanceOnError(cfg.OnError)
+	switch cfg.OnError {
+	case PageEnhancePassThrough, PageEnhanceFailClosed:
+	default:
+		return fmt.Errorf("unsupported page_enhance.on_error %q", cfg.OnError)
+	}
+	if cfg.MaxBodySize < 0 {
+		return fmt.Errorf("page_enhance.max_body_size cannot be negative")
+	}
+	if cfg.MaxBodySize == 0 {
+		cfg.MaxBodySize = 1024 * 1024
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+	for i := range cfg.Assets {
+		asset := &cfg.Assets[i]
+		asset.Path = strings.TrimSpace(asset.Path)
+		asset.File = strings.TrimSpace(asset.File)
+		asset.ContentType = strings.TrimSpace(asset.ContentType)
+		if asset.Path == "" || !strings.HasPrefix(asset.Path, "/") {
+			return fmt.Errorf("page_enhance.assets[%d].path must start with /", i)
+		}
+		if asset.File == "" {
+			return fmt.Errorf("page_enhance.assets[%d].file is required", i)
+		}
+		if containsHeaderControl(asset.ContentType) {
+			return fmt.Errorf("page_enhance.assets[%d].content_type cannot contain control characters", i)
+		}
+	}
+	for i := range cfg.Transforms {
+		transform := &cfg.Transforms[i]
+		transform.Name = strings.TrimSpace(transform.Name)
+		transform.Match.Providers = trimStrings(transform.Match.Providers)
+		for j, provider := range transform.Match.Providers {
+			provider = strings.ToLower(provider)
+			if provider == "" {
+				return fmt.Errorf("page_enhance.transforms[%d].match.providers[%d] is required", i, j)
+			}
+			if containsHeaderControl(provider) {
+				return fmt.Errorf("page_enhance.transforms[%d].match.providers[%d] cannot contain control characters", i, j)
+			}
+			transform.Match.Providers[j] = provider
+		}
+		transform.Match.Hosts = trimStrings(transform.Match.Hosts)
+		for j, host := range transform.Match.Hosts {
+			normalized, err := normalizeEnhanceHost(host)
+			if err != nil {
+				return fmt.Errorf("page_enhance.transforms[%d].match.hosts[%d]: %w", i, j, err)
+			}
+			transform.Match.Hosts[j] = normalized
+		}
+		transform.Match.PathPrefixes = trimStrings(transform.Match.PathPrefixes)
+		for j, prefix := range transform.Match.PathPrefixes {
+			if !strings.HasPrefix(prefix, "/") {
+				return fmt.Errorf("page_enhance.transforms[%d].match.path_prefixes[%d] must start with /", i, j)
+			}
+		}
+		transform.Match.ContentTypes = trimStrings(transform.Match.ContentTypes)
+		for j, contentType := range transform.Match.ContentTypes {
+			contentType = strings.ToLower(contentType)
+			if containsHeaderControl(contentType) {
+				return fmt.Errorf("page_enhance.transforms[%d].match.content_types[%d] cannot contain control characters", i, j)
+			}
+			transform.Match.ContentTypes[j] = contentType
+		}
+		for j, statusCode := range transform.Match.StatusCodes {
+			if statusCode < 100 || statusCode > 999 {
+				return fmt.Errorf("page_enhance.transforms[%d].match.status_codes[%d] is invalid", i, j)
+			}
+		}
+		transform.Headers.Remove = trimStrings(transform.Headers.Remove)
+		for j, key := range transform.Headers.Remove {
+			canonical, err := normalizeHeaderKey(key)
+			if err != nil {
+				return fmt.Errorf("page_enhance.transforms[%d].headers.remove[%d]: %w", i, j, err)
+			}
+			transform.Headers.Remove[j] = canonical
+		}
+		if len(transform.Headers.Set) > 0 {
+			normalized := make(map[string]string, len(transform.Headers.Set))
+			for key, value := range transform.Headers.Set {
+				canonical, err := normalizeHeaderKey(key)
+				if err != nil {
+					return fmt.Errorf("page_enhance.transforms[%d].headers.set[%q]: %w", i, key, err)
+				}
+				if containsHeaderControl(value) {
+					return fmt.Errorf("page_enhance.transforms[%d].headers.set[%q] cannot contain control characters", i, key)
+				}
+				normalized[canonical] = value
+			}
+			transform.Headers.Set = normalized
+		}
+		transform.InjectHead = strings.TrimSpace(transform.InjectHead)
+		transform.InjectBody = strings.TrimSpace(transform.InjectBody)
+		for j, repl := range transform.Replace {
+			if repl.Old == "" {
+				return fmt.Errorf("page_enhance.transforms[%d].replace[%d].old is required", i, j)
+			}
+		}
+		if len(transform.Headers.Set) == 0 &&
+			len(transform.Headers.Remove) == 0 &&
+			transform.InjectHead == "" &&
+			transform.InjectBody == "" &&
+			len(transform.Replace) == 0 {
+			return fmt.Errorf("page_enhance.transforms[%d] must define at least one operation", i)
+		}
+	}
+	return nil
+}
+
+func normalizeEnhanceHost(host string) (string, error) {
+	host = strings.TrimSpace(host)
+	if strings.HasPrefix(host, "*.") {
+		normalized, err := rules.NormalizeHost(strings.TrimPrefix(host, "*."))
+		if err != nil {
+			return "", err
+		}
+		return "*." + normalized, nil
+	}
+	return rules.NormalizeHost(host)
+}
+
+func normalizeHeaderKey(key string) (string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", fmt.Errorf("header name is required")
+	}
+	if containsHeaderControl(key) {
+		return "", fmt.Errorf("header name cannot contain control characters")
+	}
+	canonical := textproto.CanonicalMIMEHeaderKey(key)
+	if canonical == "" {
+		return "", fmt.Errorf("header name is required")
+	}
+	return canonical, nil
+}
+
+func containsHeaderControl(value string) bool {
+	return strings.ContainsAny(value, "\r\n")
+}
+
 func normalizeOptionalProfileHost(host string) (string, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
@@ -657,6 +854,17 @@ func normalizeDNSInterceptStrategy(strategy string) string {
 		return DNSInterceptExternal
 	default:
 		return strings.ToLower(strings.TrimSpace(strategy))
+	}
+}
+
+func normalizePageEnhanceOnError(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", PageEnhancePassThrough, "passthrough", "pass-through":
+		return PageEnhancePassThrough
+	case PageEnhanceFailClosed, "fail-closed":
+		return PageEnhanceFailClosed
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
 	}
 }
 

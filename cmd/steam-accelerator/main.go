@@ -179,6 +179,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
 	}
 	printDNSIntercept(stdout, status)
+	printPageEnhance(stdout, status)
 	if status.ResolverMode != "" {
 		fmt.Fprintf(stdout, "resolver: %s\n", status.ResolverMode)
 	}
@@ -240,6 +241,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
 	}
 	printDNSIntercept(stdout, status)
+	printPageEnhance(stdout, status)
 	if status.ResolverMode != "" {
 		fmt.Fprintf(stdout, "resolver: %s\n", status.ResolverMode)
 	}
@@ -662,6 +664,22 @@ func printDNSIntercept(w io.Writer, status engine.Status) {
 		dnsStatus.CacheHits,
 		dnsStatus.BlockedQueries,
 		dnsStatus.ErrorQueries,
+	)
+}
+
+func printPageEnhance(w io.Writer, status engine.Status) {
+	if status.PageEnhance == nil {
+		return
+	}
+	enhance := status.PageEnhance
+	fmt.Fprintf(w, "page_enhance: enabled=%v on_error=%s transforms=%d assets=%d applied=%d skipped=%d errors=%d\n",
+		enhance.Enabled,
+		enhance.OnError,
+		enhance.Transforms,
+		enhance.Assets,
+		enhance.Applied,
+		enhance.Skipped,
+		enhance.Errors,
 	)
 }
 
