@@ -4,11 +4,11 @@
 > 当前分支：`master`
 > 当前远端：`https://github.com/gofurry/siteboost-core.git`
 > 当前工作目录：`D:\WorkSpace\Git\siteboost-core`
-> 当前目标：在本实验仓库中验证 Steam++ 式本地加速闭环和多站点 provider 架构，为未来新建独立 Go library 仓库沉淀可复用核心能力
+> 当前目标：在本实验仓库中验证 Steam++ 式本地加速闭环和多站点 provider 架构，为 `gofurry/web-boost` 独立 Go library 沉淀可复用核心能力
 
 ## 一句话状态
 
-这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已把 Windows AppHost Service 从 loopback HTTP 原型迁移到 named pipe IPC，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。当前本机主流程已验证到 `apphost health=ok`、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop`、`restore`、`apphost uninstall` 和 Windows system DNS 接管 / 恢复可用；真实重启后 AppHost 自动拉起仍建议补一条单独 smoke 记录。当前代码已进入 `v0.7.3-dev`：Steam 是默认 stable provider，GitHub 是显式启用的 experimental skeleton provider，DNSIntercept manual 已提供本地 UDP/TCP DNS server、目标映射、非目标转发、缓存和 status 统计；Windows system 策略已提供显式网卡 DNS 接管、rollback 和 restore；Page Enhance 已提供默认关闭、显式配置、可观察的 reverse response transform pipeline。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；后续会新建独立仓库维护通用 Go 加速库，并从这里复用、迁移或重写已经验证过的核心能力。
+这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已把 Windows AppHost Service 从 loopback HTTP 原型迁移到 named pipe IPC，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。当前本机主流程已验证到 `apphost health=ok`、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop`、`restore`、`apphost uninstall` 和 Windows system DNS 接管 / 恢复可用；真实重启后 AppHost 自动拉起仍建议补一条单独 smoke 记录。当前代码已进入 `v0.7.3-dev`：Steam 是默认 stable provider，GitHub 是显式启用的 experimental skeleton provider，DNSIntercept manual 已提供本地 UDP/TCP DNS server、目标映射、非目标转发、缓存和 status 统计；Windows system 策略已提供显式网卡 DNS 接管、rollback 和 restore；Page Enhance 已提供默认关闭、显式配置、可观察的 reverse response transform pipeline。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；正式通用 Go 加速库已经确定为 `gofurry/web-boost`，只从这里抽取核心能力，不继承 Steam 历史命名、CLI/AppHost 包袱或实验目录结构。
 
 ## 当前事实
 
@@ -18,7 +18,8 @@
 - CLI 仍是 `steam-accelerator`。
 - `version.go` 已显示 `v0.7.3-dev`。
 - 主干代码已经进入 `v0.7.3-dev` 阶段，包含 AppHost Service 自动启动、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server、Windows system DNS 显式接管 / rollback / restore 和默认关闭的 Page Enhance pipeline。
-- 本仓库定位为实验场和迁移来源；正式 Go library 会另起新仓库维护。
+- 本仓库定位为实验场和迁移来源；正式 Go library 在 `gofurry/web-boost` 维护。
+- 正式 Go library 目标仓库为 `https://github.com/gofurry/web-boost`。
 - 最近关键提交：
   - `c93de53 fix(windows): stabilize apphost named pipe responses`
   - `c3bb577 fix(windows): wait for apphost service deletion`
@@ -168,8 +169,9 @@ v0.7.3 已实现默认关闭的页面增强能力：
 
 - AppHost `install -> no-admin Hosts loop -> stop/restore -> uninstall` 主流程已通过；`reboot -> apphost auto-start -> no-admin start` 仍建议补充真实 Windows 重启 smoke 记录。
 - AppHost RPC 使用 Windows named pipe，命令面受限，并带 DACL、本机连接限制、pipe client PID 和客户端二进制路径校验；后续仍需要评估用户会话绑定、审计日志和按需启动。
-- Go module 和 CLI 仍带 Steam 专用命名，这是实验仓库历史包袱；正式 Go library 应在新仓库内使用中性命名。
-- 公共 Go API 尚未抽出，核心仍主要在 `internal/`；正式 public API 应在未来新仓库内冻结。
+- Go module 和 CLI 仍带 Steam 专用命名，这是实验仓库历史包袱；正式 Go library 应在 `web-boost` 内使用中性命名。
+- 公共 Go API 尚未抽出，核心仍主要在 `internal/`；正式 public API 应在 `gofurry/web-boost` 内冻结。
+- `web-boost` 新库必须保持高可维护、高可扩展：根目录只放 `package webboost` 的入口 API，能力按 provider、rules、network、takeover、reverse、pageenhance、certstore、rollback、diagnostics、adapters、internal、examples 和 docs 分层，不能把各种能力散在仓库根目录。
 - rollback state schema 没有版本化迁移。
 - installer、服务升级、卸载清理、日志位置、发布包、签名还未产品化。
 - Hosts 模式只能覆盖 exact 域名；DNSIntercept manual 可覆盖 wildcard，但只在显式 `mode: dns` 下启动，不会自动接管系统 DNS。DNSIntercept system 可显式接管 Windows 指定网卡 DNS，当前已有真实 apply / restore smoke，负向场景仍需后续补充。
@@ -205,6 +207,7 @@ v0.7.3 已实现默认关闭的页面增强能力：
 - `docs/zh/smoke-test.md`
 - `docs/zh/security.md`
 - `docs/zh/steam-compatibility.md`
+- `docs/zh/web-boost-library-plan.md`
 
 ## 本机验证命令
 
@@ -285,10 +288,10 @@ https://help.steampowered.com/
 4. 补做 `providers.enabled: [steam, github]` skeleton smoke：确认 GitHub 显示 `experimental`，但不要求 GitHub live 可达，也不写成真实加速能力。
 5. 补做单独重启 smoke：`reboot -> apphost status health=ok -> normal-user start --mode hosts -> stop/restore`，并把输出补进 smoke 文档。
 6. 保留 DNSIntercept manual 与 system smoke 记录，后续补 AppHost 缺失、端口占用、崩溃后 restore 等负向场景。
-7. 整理未来独立 Go library 的 API 草案和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`、DNSIntercept 策略、Page Enhance pipeline。
+7. 整理 `gofurry/web-boost` 的 API 草案、目录层级和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`、DNSIntercept 策略、Page Enhance pipeline。
 8. 继续设计 AppHost IPC 加固：优先评估用户会话绑定、审计日志和按需启动。
 9. 进入 release engineering：CI matrix、rollback schema version、installer、服务升级 / 卸载、签名规划。
-10. 在验证充分后新建正式 Go library 仓库，从本仓库迁移已验证的 resolver、reverse、certstore、privilege、provider、dnsintercept、systemdns、pageenhance 和 diagnostics 能力。
+10. 在 `gofurry/web-boost` 中迁移已验证的 resolver、reverse、certstore 抽象、provider、dnsintercept、systemdns adapter、pageenhance、rollback 和 diagnostics 能力。
 
 ## 提醒新 session 的边界
 
@@ -299,5 +302,5 @@ https://help.steampowered.com/
 - 不要把 Page Enhance 写成默认开启；它必须显式启用、可观察、可关闭。
 - 不要把 HTTP / SOCKS5 upstream 写成默认必需能力。
 - 不要把 AppHost 描述成 UAC 绕过；它是一次管理员安装后的受控系统服务。
-- 不要把本仓库描述成未来正式 Go library；正式库会另起仓库，本仓库只做实验验证和迁移来源。
+- 不要把本仓库描述成未来正式 Go library；正式库是 `gofurry/web-boost`，本仓库只做实验验证和迁移来源。
 - 每次改动后先跑相关验证，再本地提交。

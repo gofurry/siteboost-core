@@ -9,7 +9,7 @@
 
 ## 项目简介
 
-steam-accelerator-core 是一个用 Go 编写的实验性本地站点网络加速核心，目标是为本地桌面工具、sidecar 服务和未来独立 Go library 验证可复用的网络加速原子能力。
+steam-accelerator-core 是一个用 Go 编写的实验性本地站点网络加速核心，目标是为本地桌面工具、sidecar 服务和未来独立 Go library [gofurry/web-boost](https://github.com/gofurry/web-boost) 验证可复用的网络加速原子能力。
 
 当前 v0.7.3-dev 已经包含 provider registry、DNSIntercept manual 模式、Windows system DNS 显式接管 / rollback / restore，以及默认关闭的 Page Enhance 响应转换 pipeline。Steam 是默认 stable provider；GitHub 只作为需要显式启用的 experimental skeleton provider，用于验证架构扩展，不承诺真实加速。运行时支持 ProxyOnly、PAC、System Proxy、Windows Hosts 反代、DNSIntercept manual、Windows DNSIntercept system、通用 provider 匹配、YAML 配置、可配置 DNS 解析与缓存、IPv4 / IPv6 策略、Direct / HTTP / SOCKS5 上游出口、本地 rollback 状态、前台 CLI 生命周期、本地状态文件、带 token 的运行时控制接口，以及反代响应的透明页面增强。Hosts + Direct 模式默认会使用内置 DoH 避免 hosts 自绕回，并应用已启用 provider 的 outbound profile。DNSIntercept manual 会启动本地 UDP/TCP DNS server，但不会修改系统 DNS、hosts、证书信任或任何持久化系统设置。DNSIntercept system 是 Windows-only、显式启用、指定网卡范围、可 rollback 的系统 DNS 接管。Page Enhance 默认不启用；启用后 header 修改、HTML 注入、本地 asset、replace 和 Go transformer 都来自显式配置或显式注册，移除 `page_enhance` 即可恢复原始响应行为。Windows 系统写入走接近 Steam++ 的 AppHost Service 路线：先用管理员授权安装一次 `SiteBoostCoreAppHost`，之后普通 PowerShell 可通过本机 named pipe `\\.\pipe\SiteBoostCoreAppHost` 请求受限 Root CA、hosts、system DNS 和恢复动作；HTTP / SOCKS5 upstream 是可选增强，不是默认加速前提。
 
@@ -130,6 +130,7 @@ Resolver、upstream、provider、PAC、System Proxy、Hosts 和 DNSIntercept 选
 - [英文路线图](./docs/roadmap.md)
 - [使用说明](./docs/zh/usage.md)
 - [冒烟测试](./docs/zh/smoke-test.md)
+- [web-boost 开源库抽取规划](./docs/zh/web-boost-library-plan.md)
 - [热修复流程](./docs/zh/hotfix.md)
 - [待办事项](./docs/zh/todo.md)
 - [安全策略](./SECURITY.md)

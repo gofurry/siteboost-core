@@ -5,7 +5,7 @@
 - Keep the DNSIntercept manual high-port and Windows system DNS smoke records current for the v0.7.3-dev path.
 - Keep Page Enhance high-port and real-browser smoke records current.
 - Finish real Windows smoke for the provider registry and Hosts/AppHost path.
-- Prepare the v0.8.0 public-library extraction plan and package boundary draft after DNSIntercept/Page Enhance boundaries are validated.
+- Prepare the v0.8.0 `gofurry/web-boost` API, package boundary, and directory plan after DNSIntercept/Page Enhance boundaries are validated.
 - Add provider developer documentation using the GitHub skeleton provider as the minimal example.
 - Add more proxy edge-case tests for malformed requests, dial failures, and upstream failures.
 - Add a short config sample file once the next docs pass starts.
@@ -21,7 +21,7 @@
 - Add more WebSocket reverse proxy edge-case coverage.
 - Add API freeze review before `v1.0.0-alpha.1`.
 - Add release automation after the public API settles.
-- Prepare the v0.8.0 extraction readiness plan after Page Enhance smoke; keep VPN/TUN deferred to mature external adapters.
+- Prepare the v0.8.0 `web-boost` extraction readiness plan after Page Enhance smoke; keep VPN/TUN deferred to mature external adapters.
 
 ## Known Limitations
 

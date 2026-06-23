@@ -6,7 +6,7 @@ The canonical roadmap is maintained in [../ROADMAP.md](../ROADMAP.md). This file
 
 The repository has moved from a Steam-only local acceleration core toward `gofurry/siteboost-core`, an experimental local site acceleration core inspired by the architecture ideas behind Steam++ / Watt Toolkit.
 
-This repository is not intended to become the final public Go library itself. It is the experimental proving ground. After the core behavior and architecture are validated, a separate repository should be created for the formal reusable Go library, reusing or porting the proven pieces from this repository.
+This repository is not intended to become the final public Go library itself. It is the experimental proving ground. The formal reusable Go library will live in [gofurry/web-boost](https://github.com/gofurry/web-boost), reusing or porting only the proven core pieces from this repository.
 
 Current facts:
 
@@ -21,7 +21,7 @@ Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Rever
 
 ## Direction
 
-The long-term goal is to produce enough validated implementation, smoke records, and architecture boundaries here so a future dedicated Go library repository can be created with less guesswork.
+The long-term goal is to produce enough validated implementation, smoke records, and architecture boundaries here so `gofurry/web-boost` can be built with less guesswork and without inheriting this repository's Steam naming, CLI shape, AppHost service installer, or experimental layout.
 
 The core should be split around these concepts:
 
@@ -97,7 +97,7 @@ Implemented an opt-in reverse-proxy response transform pipeline. It provides mec
 
 ### v0.8.0 - Library Extraction Readiness
 
-Prepare the future library API draft and migration inventory after Provider, DNSIntercept, and Page Enhance boundaries are validated. Include:
+Prepare the `gofurry/web-boost` library API draft, directory plan, and migration inventory after Provider, DNSIntercept, and Page Enhance boundaries are validated. Include:
 
 - `Config`
 - `Engine`
@@ -109,8 +109,9 @@ Prepare the future library API draft and migration inventory after Provider, DNS
 - `Restore`
 - DNSIntercept manual/system/external strategies
 - Page Enhance transformer pipeline
+- package boundaries for `provider`, `rules`, `network`, `takeover`, `reverse`, `pageenhance`, `certstore`, `rollback`, `diagnostics`, and optional `adapters`
 
-The current CLI should be decoupled from core assembly enough that future extraction does not carry CLI-specific details into the new library.
+The current CLI should be decoupled from core assembly enough that extraction does not carry CLI-specific details into `web-boost`. See [web-boost-library-plan.md](web-boost-library-plan.md).
 
 ### v0.9.0 - Reliability, Recovery, and Release Engineering
 
@@ -122,7 +123,7 @@ Freeze this repository's migration-ready architecture boundary, provider schema,
 
 ### v1.0.0 - Experimental Validation Baseline
 
-Ship a stable validation baseline for this experimental repository. Steam remains the stable provider. Windows Hosts + DoH + AppHost is the stable one-click path. The release should include migration notes for the future dedicated Go library repository; it is not the final library release.
+Ship a stable validation baseline for this experimental repository. Steam remains the stable provider. Windows Hosts + DoH + AppHost is the stable one-click path. The release should include migration notes for `gofurry/web-boost`; it is not the final library release.
 
 ### v1.1+
 

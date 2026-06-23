@@ -5,7 +5,7 @@
 - 继续维护 `v0.7.3-dev` DNSIntercept manual 高端口和 Windows system DNS smoke 记录。
 - 继续维护 Page Enhance 高端口和真实浏览器 smoke 记录。
 - 完成 provider registry 与 Hosts/AppHost 路径的真实 Windows smoke。
-- 在 DNSIntercept / Page Enhance 边界验证后准备 `v0.8.0` 公共 Go library 抽离计划和包边界草案。
+- 在 DNSIntercept / Page Enhance 边界验证后准备 `v0.8.0` `gofurry/web-boost` API、包边界和目录层级草案。
 - 用 GitHub skeleton provider 补一份最小 provider 开发示例文档。
 - 增加 malformed request、dial failure 和 upstream failure 等代理边界测试。
 - 在下一轮文档整理时增加配置示例文件。
@@ -21,7 +21,7 @@
 - 增加更多 WebSocket 反代边界覆盖。
 - 在 `v1.0.0-alpha.1` 前做 API freeze review。
 - 公共 API 稳定后再引入发布自动化。
-- Page Enhance smoke 后进入 `v0.8.0` 抽库准备；VPN / TUN 继续延期给成熟外部 adapter。
+- Page Enhance smoke 后进入 `v0.8.0` `web-boost` 抽库准备；VPN / TUN 继续延期给成熟外部 adapter。
 
 ## 已知限制
 

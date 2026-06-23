@@ -8,7 +8,7 @@
 
 当前仓库已经从 `go-steam-core` 的 Steam 专用方向开始过渡到 `siteboost-core` 的通用站点加速实验方向。
 
-需要特别注意：这个仓库是实验性验证仓库，不是未来正式 Go 开源库本体。后续会新建一个独立仓库专门维护通用 Go 加速库；新仓库可以直接借鉴、拆分或复用本仓库验证过的核心内容。
+需要特别注意：这个仓库是实验性验证仓库，不是未来正式 Go 开源库本体。正式通用 Go 加速库已经确定为 [gofurry/web-boost](https://github.com/gofurry/web-boost)；新仓库只抽取本仓库验证过的核心能力，不能继承 Steam 历史命名、CLI/AppHost 包袱或实验目录结构。
 
 当前事实：
 
@@ -53,7 +53,7 @@
 - Steam 是第一个稳定 provider。
 - GitHub 先做 skeleton provider，用来验证架构，不立刻承诺真实加速。
 - 后续支持更多站点和服务。
-- 功能和架构验证后，新建独立仓库维护正式通用 Go library。
+- 功能和架构验证后，在 `gofurry/web-boost` 维护正式通用 Go library。
 - 本仓库负责沉淀可迁移核心能力、真实 smoke、失败经验和安全边界。
 - CLI / 桌面壳 / sidecar 在本仓库中主要作为实验入口和验证工具。
 
@@ -164,11 +164,12 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 
 ### v0.8.0 - 独立 Go Library 抽取准备
 
-目标是在 Provider、DNSIntercept 和 Page Enhance 主能力边界验证后，形成未来独立 Go library 的 API 草案、迁移清单和可复用模块边界。
+目标是在 Provider、DNSIntercept 和 Page Enhance 主能力边界验证后，形成 `gofurry/web-boost` 的 API 草案、迁移清单和可复用模块边界。
 
 重点任务：
 
-- 设计未来新仓库 API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`、DNSIntercept 策略和 Page Enhance pipeline。
+- 设计 `web-boost` API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`、DNSIntercept 策略和 Page Enhance pipeline。
+- 固化 [web-boost 开源库抽取规划](./web-boost-library-plan.md)，明确根包只放 `package webboost` 的入口 API，能力按 provider、rules、network、takeover、reverse、pageenhance、certstore、rollback、diagnostics 和 adapters 分层。
 - 明确哪些包适合迁移到新仓库，哪些只作为实验实现保留。
 - 梳理 CLI 与核心能力的边界，避免未来新库被 CLI 细节污染。
 - 提供 Steam provider 和 GitHub skeleton provider 的迁移示例。
@@ -198,7 +199,7 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 - Steam provider 稳定。
 - Windows Hosts + DoH + AppHost 一键闭环稳定。
 - ProxyOnly / PAC / System Proxy / Hosts 都有明确支持边界。
-- 输出给未来新仓库使用的迁移清单、API 草案和真实 smoke 记录。
+- 输出给 `web-boost` 使用的迁移清单、API 草案和真实 smoke 记录。
 
 ### v1.1+
 
@@ -226,4 +227,4 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 
 最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是补做 v0.7.3 Page Enhance 真实 reverse smoke、默认 Steam Hosts + DoH + AppHost 回归 smoke，以及 AppHost 真实重启自动拉起 smoke。随后再进入 v0.8.0 公共 Go library 抽取准备。
 
-正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。
+正式通用 Go library 不在本仓库内直接完成；它应在 `gofurry/web-boost` 维护。

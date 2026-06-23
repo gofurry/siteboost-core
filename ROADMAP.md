@@ -10,7 +10,7 @@
 
 这个仓库是本地站点加速核心的实验性验证仓库。它当前以 Steam 为唯一真实落地目标，用来验证 Steam++ / Watt Toolkit 式本地加速闭环：规则接管、本地反代、Root CA、DoH、出站 profile、权限编排和恢复。v0.7 已加入 provider registry：Steam 是默认 stable provider，GitHub 是需要显式启用的 experimental skeleton provider，只用于验证扩展边界，不承诺真实加速。本仓库不计划直接改造成正式 Go 开源库。
 
-正式的通用 Go 加速库会在功能和架构验证后另起新仓库维护。届时可以直接借鉴、拆分或复用本仓库中已经验证过的核心内容，包括 resolver、reverse proxy、certstore、privilege/AppHost、provider 规则模型和 diagnostics。本仓库的主要价值是作为实验场、行为样板、smoke 记录和迁移来源，而不是最终稳定库本身。
+正式的通用 Go 加速库会在 [gofurry/web-boost](https://github.com/gofurry/web-boost) 维护。届时只抽取本仓库中已经验证过的核心能力，包括 resolver、reverse proxy、certstore 抽象、provider 规则模型、DNSIntercept、Page Enhance、rollback 和 diagnostics；不能把当前实验仓库的 Steam 历史命名、CLI 形状、AppHost service 安装流程或 Windows smoke 脚手架耦合进新库。本仓库的主要价值是作为实验场、行为样板、smoke 记录和迁移来源，而不是最终稳定库本身。
 
 项目参考 Steam++ / Watt Toolkit 的本地加速架构思想：本地反代、Hosts / PAC / System Proxy 接管、本地 Root CA、DNS / DoH、可选上游代理、提权 Root/AppHost 进程和恢复机制。项目保持 clean-room 边界：只参考架构思想和公开行为，不复制、不翻译、不移植 SteamTools 源码。
 
@@ -102,12 +102,13 @@ stop / restore 恢复系统修改
 - `runtime`：状态、控制接口、生命周期、restore。
 - `diagnostics`：脱敏日志、错误摘要、smoke 结果、支持包。
 
-未来独立 Go library 的抽取目标：
+未来 `gofurry/web-boost` Go library 的抽取目标：
 
 - 新仓库提供稳定 Go API，用于启动、停止、查询状态、恢复系统修改。
 - 新仓库支持注册或选择 provider，例如 Steam、GitHub。
 - 本实验仓库需要把核心逻辑和 CLI 入口解耦到可迁移边界，便于未来复制到新仓库。
-- `internal/` 中稳定的能力先在本仓库内整理、测试和文档化；真正 public package 的冻结放到未来新仓库完成。
+- `internal/` 中稳定的能力先在本仓库内整理、测试和文档化；真正 public package 的冻结放到 `gofurry/web-boost` 完成。
+- 新仓库目录必须分层清楚，根目录只放 `package webboost` 的入口 API；provider、rules、network、takeover、reverse、pageenhance、certstore、rollback、diagnostics 和 adapters 分包维护，避免各种能力散在仓库根目录。
 
 ## 版本计划
 
@@ -337,7 +338,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 **状态：** 计划中
 **范围：** API / Architecture / Developer-facing / Documentation
-**目标：** 在 Provider、DNSIntercept 和 Page Enhance 主能力边界验证后，标记、整理和验证可迁移核心能力，为未来新建独立 Go library 仓库做准备。
+**目标：** 在 Provider、DNSIntercept 和 Page Enhance 主能力边界验证后，标记、整理和验证可迁移核心能力，为 `gofurry/web-boost` 独立 Go library 做准备。
 
 #### Focus
 
@@ -346,26 +347,30 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - Provider 注册与选择边界。
 - 系统修改权限边界，尤其是 DNS / hosts / cert / AppHost 的可还原约束。
 - DNSIntercept 与 Page Enhance 的 public API 草案。
+- `web-boost` 目录层级和 package 边界。
 - 可迁移清单与迁移文档。
 
 #### Tasks
 
-- [ ] 设计未来新仓库 API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+- [ ] 将 [docs/zh/web-boost-library-plan.md](docs/zh/web-boost-library-plan.md) 固化为 v0.8.0 抽取约束，明确目标仓库为 `gofurry/web-boost`。
+- [ ] 设计 `web-boost` API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
 - [ ] 明确本仓库哪些 `internal/` 包适合迁移、哪些只作为实验实现保留。
 - [ ] 提供迁移样例：从本仓库抽取 Steam provider 一键启动、状态查询、停止恢复能力。
 - [ ] 提供 provider 开发样例：最小 GitHub skeleton provider。
 - [ ] 将 CLI 与核心拼装边界整理清楚，避免未来迁移时把命令行细节带进新库。
 - [ ] 设计配置 schema 版本和从实验仓库到正式库的迁移策略。
 - [ ] 明确哪些能力会进入 core library，哪些作为可选 adapter 或外部集成保留。
-- [ ] 更新 README：明确本仓库是实验验证仓库，未来正式 Go library 会另起仓库。
+- [ ] 规划 `web-boost` 目录层级：根包入口、provider、rules、network、takeover、reverse、pageenhance、certstore、rollback、diagnostics、adapters、internal、examples 和 docs。
+- [ ] 更新 README：明确本仓库是实验验证仓库，正式 Go library 是 `gofurry/web-boost`。
 
 #### Acceptance Criteria
 
-- 未来新仓库可以按迁移清单复用本仓库核心能力。
+- `gofurry/web-boost` 可以按迁移清单复用本仓库核心能力。
 - CLI 与核心能力的耦合点被识别并可拆分。
-- API 草案明确只是未来新仓库输入，不在本仓库承诺稳定。
+- API 草案明确只是 `web-boost` 输入，不在本仓库承诺稳定。
 - Steam provider 的真实 smoke 仍可作为迁移回归标准。
 - DNSIntercept 的 `manual` 策略和 Page Enhance 的默认关闭行为不会修改开发者系统环境。
+- 新库不继承当前实验仓库的 Steam 命名、CLI/AppHost 包袱或平铺式目录结构。
 
 ---
 
@@ -420,7 +425,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 #### Acceptance Criteria
 
 - 破坏性改动需要明确记录。
-- 未来新仓库可以按冻结边界启动 library 实现。
+- `web-boost` 可以按冻结边界启动 library 实现。
 - Steam provider 仍是已验证主线。
 
 ---
@@ -437,7 +442,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - [ ] 保证 Steam provider 的 Windows Hosts + DoH + AppHost 一键闭环。
 - [ ] 保留 ProxyOnly / PAC / System Proxy / Hosts 作为稳定接管模式。
 - [ ] 文档覆盖安装、启动、停止、恢复、卸载、证书和 AppHost。
-- [ ] 输出给未来新仓库使用的迁移清单、CHANGELOG、release notes 和版本标签。
+- [ ] 输出给 `web-boost` 使用的迁移清单、CHANGELOG、release notes 和版本标签。
 
 #### Acceptance Criteria
 
@@ -471,7 +476,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - 完成 provider 架构真实 Windows smoke 回归。
 - 保留 `v0.7.3` Page Enhance 真实浏览器 smoke 记录，确认显式配置后能注入、可观察、移除配置即可恢复。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
-- 将 `v0.8.0` 独立 Go Library 抽取顺延到 DNSIntercept / Page Enhance 主能力边界验证之后。
+- 将 `v0.8.0` 独立 Go Library 抽取准备指向 `gofurry/web-boost`，先冻结目录层级、API 草案和迁移清单。
 
 中期：
 
@@ -482,7 +487,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 长期：
 
 - `v1.0.0` 作为本实验仓库的稳定验证基线，而不是正式通用库发布。
-- 新建独立 Go library 仓库，复用本仓库验证过的核心能力和经验。
+- 在 `gofurry/web-boost` 中维护正式 Go library，复用本仓库验证过的核心能力和经验。
 - Steam 是稳定 provider；GitHub 先从 skeleton / experimental 逐步进入真实验证。
 - DNSIntercept 和 JS / Page Enhance 作为抽库前主能力验证；TUN/VPN 使用成熟外部库或独立项目，不进入当前 core 前置目标。
 
@@ -496,11 +501,12 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 | DNS server 占用 53 端口 | 与 AdGuard、Clash、dnscrypt-proxy、Docker 等本地服务冲突 | 启动前检测端口，冲突时报错；支持 `manual` 非系统接管和 `external` 规则导出路线 |
 | Page Enhance 隐藏规则过多 | 开发者配置了注入却被库内置规则跳过，难以排查 | 不内置不可见的安全跳过；跳过和错误必须输出 reason；是否注入 login/checkout 等页面由开发者显式决定 |
 | v0.7.x 能力扩展污染 Provider 抽象 | Provider 同时承担系统修改、DNS 接管或页面改写执行职责，未来 Go library 边界变重 | Provider 只声明 rules/profile/probes/可选 enhancement metadata；DNS 接管属于 takeover，页面增强属于 reverse transform pipeline |
+| 新库继承实验仓库包袱 | `web-boost` 变成 `siteboost-core` 的改名版本，目录、命名和职责不适合开源长期维护 | v0.8.0 先冻结抽取约束和目录层级；只迁移核心能力，CLI、Steam 历史命名、AppHost installer、smoke 脚手架不进入核心库 |
 | Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 已完成 provider registry、配置迁移错误和 CLI 新参数；Go module / CLI 名称保留为实验仓库历史包袱 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |
 | hosts 无法覆盖 wildcard | 部分域名无法接管 | 已实现 DNSIntercept manual/server 和显式 Windows system DNS 接管；仍需真实 system smoke 验证恢复 |
 | Root CA 信任风险 | 用户安全顾虑 | 显式安装 / 卸载、清晰文档、最小命令面、日志脱敏 |
 | 80 / 443 端口占用 | Hosts 模式启动失败 | 诊断命令、错误提示、高端口 smoke |
 | 复制 SteamTools 源码 | 许可证和维护风险 | 坚持 clean-room，只参考架构思想 |
-| 误把实验仓库当正式库 | 路线图和用户预期偏移 | 明确正式 Go library 未来另起仓库，本仓库只做验证和迁移来源 |
-| Go API 过早冻结 | 未来新仓库设计受阻 | 本仓库只冻结 API 草案和迁移边界，正式兼容承诺放到新仓库 |
+| 误把实验仓库当正式库 | 路线图和用户预期偏移 | 明确正式 Go library 是 `gofurry/web-boost`，本仓库只做验证和迁移来源 |
+| Go API 过早冻结 | `web-boost` 设计受阻 | 本仓库只冻结 API 草案和迁移边界，正式兼容承诺放到 `web-boost` |

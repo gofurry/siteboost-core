@@ -9,7 +9,7 @@ Language: [中文文档](./README_zh.md)
 
 ## Introduction
 
-steam-accelerator-core is an experimental Go-based local site acceleration core. It is designed to validate reusable network acceleration primitives for local desktop tools, sidecars, and a future standalone Go library.
+steam-accelerator-core is an experimental Go-based local site acceleration core. It is designed to validate reusable network acceleration primitives for local desktop tools, sidecars, and the future standalone Go library [gofurry/web-boost](https://github.com/gofurry/web-boost).
 
 The current v0.7.3-dev line includes a provider registry, DNSIntercept manual mode, explicit Windows system DNS takeover with rollback, and an opt-in Page Enhance response transform pipeline. Steam is the default stable provider. GitHub is available only as an explicit experimental skeleton provider for architecture validation, not as a real acceleration promise. The runtime supports ProxyOnly, PAC, System Proxy, Windows-first Hosts reverse proxy, manual DNSIntercept, Windows DNSIntercept system mode, generic provider matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, foreground CLI lifecycle, local state file, token-protected runtime control interface, and transparent response transforms for local reverse-proxy flows. Hosts + Direct mode uses built-in DoH defaults to avoid local hosts loopback and applies the enabled providers' outbound profiles. DNSIntercept manual mode starts a local UDP/TCP DNS server but does not modify system DNS, hosts, certificate trust, or any persistent system setting. DNSIntercept system mode is Windows-only, explicit, interface-scoped, and restores DHCP/static DNS through rollback. Page Enhance is disabled by default; when enabled, all header edits, HTML injection, local assets, and replacements come from explicit configuration or registered transformers and can be disabled by removing `page_enhance`. Windows system writes use a Steam++-style AppHost Service path: install `SiteBoostCoreAppHost` once with administrator authorization, then normal PowerShell runs can request narrow root CA, hosts, system DNS, and restore actions through the local named pipe `\\.\pipe\SiteBoostCoreAppHost`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
 
@@ -131,6 +131,7 @@ Resolver, upstream, provider, PAC, system proxy, Hosts, and DNSIntercept options
 - [English roadmap](./docs/roadmap.md)
 - [Usage](./docs/usage.md)
 - [Smoke test](./docs/smoke-test.md)
+- [web-boost library extraction plan](./docs/web-boost-library-plan.md)
 - [Hotfix workflow](./docs/hotfix.md)
 - [Todo](./docs/todo.md)
 - [Security policy](./SECURITY.md)
