@@ -74,11 +74,12 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "path to YAML config")
-	mode := fs.String("mode", "", "acceleration mode: proxy-only, pac, system, or hosts")
+	mode := fs.String("mode", "", "acceleration mode: proxy-only, pac, system, hosts, or dns")
 	listen := fs.String("listen", "", "proxy listen address")
 	pacListen := fs.String("pac-listen", "", "PAC server listen address")
 	hostsHTTP := fs.String("hosts-http", "", "hosts mode HTTP listen address")
 	hostsHTTPS := fs.String("hosts-https", "", "hosts mode HTTPS listen address")
+	dnsListen := fs.String("dns-listen", "", "DNSIntercept listen address")
 	nonTarget := fs.String("non-target", "", "non-target behavior: reject or direct")
 	allowLAN := fs.Bool("allow-lan", false, "allow non-loopback proxy listen address")
 	statePath := fs.String("state", "", "runtime state file path")
@@ -95,7 +96,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *nonTarget, *allowLAN, *statePath, *controlAddr)
+	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *dnsListen, *nonTarget, *allowLAN, *statePath, *controlAddr)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -170,6 +171,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if status.HostsHTTPS != "" {
 		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
 	}
+	printDNSIntercept(stdout, status)
 	if status.ResolverMode != "" {
 		fmt.Fprintf(stdout, "resolver: %s\n", status.ResolverMode)
 	}
@@ -218,7 +220,9 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 
 	fmt.Fprintf(stdout, "running: %v\n", status.Running)
 	fmt.Fprintf(stdout, "mode: %s\n", status.Mode)
-	fmt.Fprintf(stdout, "proxy: %s\n", status.ListenAddr)
+	if status.ListenAddr != "" {
+		fmt.Fprintf(stdout, "proxy: %s\n", status.ListenAddr)
+	}
 	if status.PACURL != "" {
 		fmt.Fprintf(stdout, "pac_url: %s\n", status.PACURL)
 	}
@@ -228,6 +232,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if status.HostsHTTPS != "" {
 		fmt.Fprintf(stdout, "hosts_https: %s\n", status.HostsHTTPS)
 	}
+	printDNSIntercept(stdout, status)
 	if status.ResolverMode != "" {
 		fmt.Fprintf(stdout, "resolver: %s\n", status.ResolverMode)
 	}
@@ -493,7 +498,7 @@ func runningFromState(path string) (bool, error) {
 	return true, nil
 }
 
-func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, hostsHTTP, hostsHTTPS, nonTarget string, allowLAN bool, statePath, controlAddr string) {
+func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, hostsHTTP, hostsHTTPS, dnsListen, nonTarget string, allowLAN bool, statePath, controlAddr string) {
 	if visited["mode"] {
 		cfg.Mode = mode
 	}
@@ -508,6 +513,9 @@ func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, list
 	}
 	if visited["hosts-https"] {
 		cfg.Hosts.HTTPSListenAddr = hostsHTTPS
+	}
+	if visited["dns-listen"] {
+		cfg.DNS.ListenAddr = dnsListen
 	}
 	if visited["non-target"] {
 		cfg.Proxy.NonTargetBehavior = nonTarget
@@ -630,6 +638,23 @@ func printRuleSet(w io.Writer, status engine.Status) {
 	fmt.Fprintf(w, "rule_set: %s\n", status.RuleSetName)
 }
 
+func printDNSIntercept(w io.Writer, status engine.Status) {
+	if status.DNSIntercept == nil {
+		return
+	}
+	dnsStatus := status.DNSIntercept
+	fmt.Fprintf(w, "dns_intercept: strategy=%s listen=%s system_dns=%v target=%d forwarded=%d cache_hits=%d blocked=%d errors=%d\n",
+		dnsStatus.Strategy,
+		dnsStatus.ListenAddr,
+		dnsStatus.SystemDNS,
+		dnsStatus.TargetQueries,
+		dnsStatus.ForwardedQueries,
+		dnsStatus.CacheHits,
+		dnsStatus.BlockedQueries,
+		dnsStatus.ErrorQueries,
+	)
+}
+
 func printSystemChanges(w io.Writer, changes []engine.SystemChange) {
 	for _, change := range changes {
 		if change.Component == "" {
@@ -656,7 +681,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   steam-accelerator --version
-  steam-accelerator start [--config path] [--mode proxy-only|pac|system|hosts] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--hosts-http 127.0.0.1:80] [--hosts-https 127.0.0.1:443] [--non-target reject|direct]
+  steam-accelerator start [--config path] [--mode proxy-only|pac|system|hosts|dns] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--hosts-http 127.0.0.1:80] [--hosts-https 127.0.0.1:443] [--dns-listen 127.0.0.1:53] [--non-target reject|direct]
   steam-accelerator status [--config path] [--state path]
   steam-accelerator stop [--config path] [--state path]
   steam-accelerator restore [--config path] [--rollback path]

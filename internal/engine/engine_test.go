@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
+	"github.com/miekg/dns"
 )
 
 func TestEngineStartStopStatus(t *testing.T) {
@@ -211,6 +213,20 @@ func TestEffectiveResolverConfigHostsModeUsesDoHByDefault(t *testing.T) {
 	}
 }
 
+func TestEffectiveResolverConfigDNSModeUsesDoHByDefault(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeDNS
+	cfg.Resolver.Mode = config.ResolverSystem
+
+	got := effectiveResolverConfig(cfg)
+	if got.Mode != config.ResolverDoH {
+		t.Fatalf("resolver mode = %q, want %q", got.Mode, config.ResolverDoH)
+	}
+	if len(got.Servers) == 0 {
+		t.Fatalf("DoH servers were not filled")
+	}
+}
+
 func TestEffectiveResolverConfigKeepsExplicitResolver(t *testing.T) {
 	cfg := config.Default()
 	cfg.Mode = config.ModeHosts
@@ -235,6 +251,99 @@ func TestEffectiveResolverConfigKeepsSystemResolverWithProxyUpstream(t *testing.
 	got := effectiveResolverConfig(cfg)
 	if got.Mode != config.ResolverSystem {
 		t.Fatalf("resolver mode = %q, want %q", got.Mode, config.ResolverSystem)
+	}
+}
+
+func TestEngineDNSModeStartsManualServerWithoutSystemWrites(t *testing.T) {
+	upstreamAddr, stopUpstream := startEngineTestDNSServer(t)
+	defer stopUpstream()
+
+	cfg := config.Default()
+	cfg.Mode = config.ModeDNS
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.DNS.ListenAddr = "127.0.0.1:0"
+	cfg.DNS.MapIPv4 = "127.0.0.1"
+	cfg.Resolver.Mode = config.ResolverUDP
+	cfg.Resolver.Servers = []string{upstreamAddr}
+	cfg.Cert.Dir = t.TempDir()
+
+	restoreFns := replaceHostsHooks(
+		func(ctx context.Context, cfg hosts.Config) error {
+			t.Fatalf("preflightHosts should not be called in dns mode")
+			return nil
+		},
+		func(ctx context.Context, cfg hosts.Config) error {
+			t.Fatalf("applyHosts should not be called in dns mode")
+			return nil
+		},
+		func(ctx context.Context, path string) error {
+			t.Fatalf("restoreHosts should not be called in dns mode")
+			return nil
+		},
+		func(ctx context.Context, cfg certstore.Config) (bool, error) {
+			t.Fatalf("isCertInstalled should not be called in dns mode")
+			return false, nil
+		},
+		func(ctx context.Context, cfg certstore.Config) (certstore.TrustResult, error) {
+			t.Fatalf("ensureCertTrusted should not be called in dns mode")
+			return certstore.TrustResult{}, nil
+		},
+		func(path string) bool { return false },
+	)
+	defer restoreFns()
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
+		return nil
+	})
+	defer restoreProbe()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if status.DNSIntercept == nil {
+		t.Fatalf("dns intercept status missing: %#v", status)
+	}
+	if status.DNSIntercept.SystemDNS {
+		t.Fatalf("system DNS should not be reported as modified")
+	}
+	if status.HostsHTTP == "" || status.HostsHTTPS == "" {
+		t.Fatalf("reverse proxy addrs missing: %#v", status)
+	}
+	if status.CertInstalled {
+		t.Fatalf("cert should not be reported as installed in dns mode")
+	}
+	if len(status.SystemChanges) != 0 {
+		t.Fatalf("dns mode should not report system writes: %#v", status.SystemChanges)
+	}
+	if status.UpstreamProfiles == 0 {
+		t.Fatalf("default provider profiles should be available in dns mode")
+	}
+
+	targetResp := exchangeEngineDNS(t, status.DNSIntercept.ListenAddr, "steamcommunity.com.", dns.TypeA)
+	if len(targetResp.Answer) != 1 || targetResp.Answer[0].(*dns.A).A.String() != "127.0.0.1" {
+		t.Fatalf("target response = %#v", targetResp.Answer)
+	}
+	forwardedResp := exchangeEngineDNS(t, status.DNSIntercept.ListenAddr, "example.test.", dns.TypeA)
+	if len(forwardedResp.Answer) != 1 || forwardedResp.Answer[0].(*dns.A).A.String() != "192.0.2.88" {
+		t.Fatalf("forwarded response = %#v", forwardedResp.Answer)
+	}
+
+	status = eng.Status()
+	if status.DNSIntercept.TargetQueries != 1 || status.DNSIntercept.ForwardedQueries != 1 {
+		t.Fatalf("dns status = %#v", status.DNSIntercept)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
 	}
 }
 
@@ -651,4 +760,46 @@ func replaceStartupProbeHook(probe func(context.Context, *upstream.DirectDialer,
 	return func() {
 		runStartupProbes = oldProbe
 	}
+}
+
+func startEngineTestDNSServer(t *testing.T) (string, func()) {
+	t.Helper()
+	handler := dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
+		resp := new(dns.Msg)
+		resp.SetReply(req)
+		if len(req.Question) > 0 && req.Question[0].Qtype == dns.TypeA {
+			resp.Answer = append(resp.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: req.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+				A:   net.ParseIP("192.0.2.88"),
+			})
+		}
+		_ = w.WriteMsg(resp)
+	})
+	server := &dns.Server{Net: "udp", Handler: handler}
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.PacketConn = conn
+	go func() { _ = server.ActivateAndServe() }()
+	return conn.LocalAddr().String(), func() { _ = server.Shutdown() }
+}
+
+func exchangeEngineDNS(t *testing.T, addr, host string, qtype uint16) *dns.Msg {
+	t.Helper()
+	msg := new(dns.Msg)
+	msg.SetQuestion(host, qtype)
+	client := &dns.Client{Net: "udp", Timeout: time.Second}
+	deadline := time.Now().Add(2 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, _, err := client.Exchange(msg.Copy(), addr)
+		if err == nil {
+			return resp
+		}
+		lastErr = err
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("exchange DNS %s: %v", addr, lastErr)
+	return nil
 }

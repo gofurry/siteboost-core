@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gofurry/go-steam-core/internal/dnsintercept"
 	"github.com/gofurry/go-steam-core/internal/engine"
 	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/upstream"
@@ -79,6 +80,25 @@ func TestPrintRuleSet(t *testing.T) {
 	var stdout bytes.Buffer
 	printRuleSet(&stdout, engine.Status{RuleSetName: "steam-web", RuleSetVersion: "2026.06.22"})
 	if got, want := strings.TrimSpace(stdout.String()), "rule_set: steam-web@2026.06.22"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestPrintDNSIntercept(t *testing.T) {
+	var stdout bytes.Buffer
+	printDNSIntercept(&stdout, engine.Status{DNSIntercept: &dnsintercept.Status{
+		Strategy:         "manual",
+		ListenAddr:       "127.0.0.1:15353",
+		SystemDNS:        false,
+		TargetQueries:    2,
+		ForwardedQueries: 3,
+		CacheHits:        4,
+		BlockedQueries:   1,
+		ErrorQueries:     0,
+	}})
+	got := strings.TrimSpace(stdout.String())
+	want := "dns_intercept: strategy=manual listen=127.0.0.1:15353 system_dns=false target=2 forwarded=3 cache_hits=4 blocked=1 errors=0"
+	if got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

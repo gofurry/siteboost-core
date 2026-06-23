@@ -220,9 +220,36 @@ Stop and uninstall the CA:
 
 When testing from a normal PowerShell, `stop` / `restore` for hosts recovery and `cert uninstall` for machine-scope root CA removal go through AppHost. If AppHost is missing or stopped, the command should return a clear error and should not create a new hosts marker block or a new partial rollback state.
 
+## DNSIntercept Manual Smoke
+
+Use high ports first. This validates DNS decisions, forwarding, cache, status, and shutdown without touching system DNS, hosts, or certificate trust:
+
+```bash
+./bin/steam-accelerator.exe start --mode dns --dns-listen 127.0.0.1:15353 --hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443 --state ./tmp/dns-runtime.json
+```
+
+From another terminal:
+
+```powershell
+dig @127.0.0.1 -p 15353 steamcommunity.com A
+dig @127.0.0.1 -p 15353 example.com A
+./bin/steam-accelerator.exe status --state ./tmp/dns-runtime.json
+./bin/steam-accelerator.exe stop --state ./tmp/dns-runtime.json
+```
+
+Expected behavior:
+
+- `steamcommunity.com` `A` resolves to `127.0.0.1`. Use any DNS client with custom-port support if `dig` is not installed.
+- target `HTTPS` / `SVCB` records return NODATA by default. Use a DNS client that supports these RR types if you need to smoke this branch manually.
+- `example.com` is forwarded to the configured resolver or loop-safe DoH defaults.
+- `status` includes `dns_intercept: strategy=manual ... system_dns=false ... target=... forwarded=... cache_hits=... blocked=... errors=...`.
+- `system_change:` should not appear for DNS manual mode.
+
+High-port DNS smoke does not prove browser interception, because DNS records cannot carry ports. Browser-level DNSIntercept testing requires the reverse proxy on 80 / 443 and a client explicitly configured to use the local DNS server; v0.7.1 still does not modify system DNS automatically.
+
 ## Expected Output
 
-The version command should print project name, `v0.7.0-dev`, and module path.
+The version command should print project name, `v0.7.1-dev`, and module path.
 
 The basic example should print the project name and module path.
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
+	"github.com/gofurry/go-steam-core/internal/dnsintercept"
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/pac"
 	"github.com/gofurry/go-steam-core/internal/privilege"
@@ -59,6 +60,7 @@ type Status struct {
 	PACURL           string                 `json:"pac_url,omitempty"`
 	HostsHTTP        string                 `json:"hosts_http,omitempty"`
 	HostsHTTPS       string                 `json:"hosts_https,omitempty"`
+	DNSIntercept     *dnsintercept.Status   `json:"dns_intercept,omitempty"`
 	ResolverMode     string                 `json:"resolver_mode,omitempty"`
 	ResolverServers  []string               `json:"resolver_servers,omitempty"`
 	UpstreamProfiles int                    `json:"upstream_profiles,omitempty"`
@@ -89,6 +91,7 @@ type Engine struct {
 	pac              *pac.Server
 	pacURL           string
 	reverse          *reverse.Server
+	dnsIntercept     *dnsintercept.Server
 	certOK           bool
 	resolver         resolver.Config
 	upstreamProfiles int
@@ -126,15 +129,15 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	resolverCfg := effectiveResolverConfig(e.cfg)
-	if e.cfg.Mode == config.ModeHosts && usesDirectUpstream(e.cfg.Upstream.Type) && resolverCfg.Mode == config.ResolverDoH {
-		e.logger.Info("hosts mode uses DoH resolver to avoid local hosts loopback", "servers", len(resolverCfg.Servers))
+	if requiresLoopSafeResolver(e.cfg) && resolverCfg.Mode == config.ResolverDoH {
+		e.logger.Info("mode uses DoH resolver to avoid local DNS loopback", "mode", e.cfg.Mode, "servers", len(resolverCfg.Servers))
 	}
 	dnsResolver, err := resolver.New(resolverCfg)
 	if err != nil {
 		return fmt.Errorf("build resolver: %w", err)
 	}
 	providerProfiles := []upstream.Profile(nil)
-	if e.cfg.Mode == config.ModeHosts && usesDirectUpstream(e.cfg.Upstream.Type) {
+	if (e.cfg.Mode == config.ModeHosts || e.cfg.Mode == config.ModeDNS) && usesDirectUpstream(e.cfg.Upstream.Type) {
 		providerProfiles = provider.OutboundProfiles(enabledProviders)
 	}
 	upstreamCfg := upstream.ConfigFromApp(e.cfg, providerProfiles)
@@ -146,6 +149,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	var pacServer *pac.Server
 	var pacURL string
 	var reverseServer *reverse.Server
+	var dnsServer *dnsintercept.Server
 	var certOK bool
 	var startupProbes []upstream.ProbeResult
 	var systemChanges []SystemChange
@@ -186,6 +190,37 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "preflight", Status: "ok", Detail: preflightDetail})
 		systemChanges = append(systemChanges, SystemChange{Component: "hosts", Action: "apply", Status: "ok", Detail: applyDetail})
+	} else if e.cfg.Mode == config.ModeDNS {
+		certCfg := certstore.ConfigFromApp(e.cfg)
+		certManager := certstore.New(certCfg)
+		probeTargets := provider.ProbeTargets(enabledProviders)
+		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(probeTargets) > 0 {
+			startupProbes = runStartupProbes(ctx, directDialer, probeTargets)
+			logStartupProbes(e.logger, startupProbes)
+		}
+		reverseServer = reverse.New(reverse.ConfigFromApp(e.cfg), matcher, dialer, certManager, e.logger)
+		if err := reverseServer.Start(); err != nil {
+			return fmt.Errorf("start DNS reverse proxy: %w", err)
+		}
+		dnsCfg, err := dnsintercept.ConfigFromApp(e.cfg)
+		if err != nil {
+			_ = reverseServer.Stop(context.Background())
+			return fmt.Errorf("build DNS intercept config: %w", err)
+		}
+		forwarder, err := dnsintercept.NewRawForwarder(resolverCfg)
+		if err != nil {
+			_ = reverseServer.Stop(context.Background())
+			return fmt.Errorf("build DNS intercept forwarder: %w", err)
+		}
+		dnsServer, err = dnsintercept.New(dnsCfg, matcher, forwarder)
+		if err != nil {
+			_ = reverseServer.Stop(context.Background())
+			return fmt.Errorf("build DNS intercept server: %w", err)
+		}
+		if err := dnsServer.Start(); err != nil {
+			_ = reverseServer.Stop(context.Background())
+			return fmt.Errorf("start DNS intercept: %w", err)
+		}
 	} else {
 		proxyServer = proxy.New(proxy.ConfigFromApp(e.cfg), matcher, dialer, e.logger)
 		if err := proxyServer.Start(); err != nil {
@@ -221,6 +256,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.pac = pacServer
 	e.pacURL = pacURL
 	e.reverse = reverseServer
+	e.dnsIntercept = dnsServer
 	e.certOK = certOK
 	e.resolver = cloneResolverConfig(resolverCfg)
 	e.upstreamProfiles = len(upstreamCfg.Profiles)
@@ -249,10 +285,12 @@ func (e *Engine) Stop(ctx context.Context) error {
 	proxyServer := e.proxy
 	pacServer := e.pac
 	reverseServer := e.reverse
+	dnsServer := e.dnsIntercept
 	e.proxy = nil
 	e.pac = nil
 	e.pacURL = ""
 	e.reverse = nil
+	e.dnsIntercept = nil
 	e.certOK = false
 	e.resolver = resolver.Config{}
 	e.upstreamProfiles = 0
@@ -263,7 +301,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.running = false
 	e.mu.Unlock()
 
-	if proxyServer == nil && reverseServer == nil {
+	if proxyServer == nil && reverseServer == nil && dnsServer == nil {
 		return nil
 	}
 	var err error
@@ -281,6 +319,11 @@ func (e *Engine) Stop(ctx context.Context) error {
 	}
 	if pacServer != nil {
 		if stopErr := pacServer.Stop(ctx); err == nil {
+			err = stopErr
+		}
+	}
+	if dnsServer != nil {
+		if stopErr := dnsServer.Stop(ctx); err == nil {
 			err = stopErr
 		}
 	}
@@ -333,6 +376,10 @@ func (e *Engine) Status() Status {
 		status.HostsHTTPS = e.reverse.HTTPSAddr()
 		status.ActiveConns = e.reverse.ActiveConns()
 	}
+	if e.dnsIntercept != nil {
+		dnsStatus := e.dnsIntercept.Status()
+		status.DNSIntercept = &dnsStatus
+	}
 	if e.lastErr != nil {
 		status.LastError = e.lastErr.Error()
 	}
@@ -341,7 +388,7 @@ func (e *Engine) Status() Status {
 
 func effectiveResolverConfig(cfg config.Config) resolver.Config {
 	resolverCfg := resolver.ConfigFromApp(cfg)
-	if cfg.Mode != config.ModeHosts || !usesDirectUpstream(cfg.Upstream.Type) {
+	if !requiresLoopSafeResolver(cfg) {
 		return resolverCfg
 	}
 	if resolverCfg.Mode == config.ResolverSystem {
@@ -353,6 +400,10 @@ func effectiveResolverConfig(cfg config.Config) resolver.Config {
 		resolverCfg.Servers = config.DefaultDoHServers()
 	}
 	return resolverCfg
+}
+
+func requiresLoopSafeResolver(cfg config.Config) bool {
+	return cfg.Mode == config.ModeDNS || (cfg.Mode == config.ModeHosts && usesDirectUpstream(cfg.Upstream.Type))
 }
 
 func usesDirectUpstream(upstreamType string) bool {
@@ -516,7 +567,7 @@ func (e *Engine) buildMatcher() (*rules.Matcher, error) {
 	}
 	groups := provider.RuleGroups(enabledProviders)
 	custom := append([]string(nil), e.cfg.Rules.CustomDomains...)
-	if e.cfg.Mode == config.ModeHosts {
+	if e.cfg.Mode == config.ModeHosts || e.cfg.Mode == config.ModeDNS {
 		custom = append(custom, e.cfg.Hosts.ExtraDomains...)
 	}
 	return rules.NewMatcher(groups, custom)

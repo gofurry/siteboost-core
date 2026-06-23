@@ -4,7 +4,7 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 已进入 `v0.7.0-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider 和 GitHub experimental skeleton provider；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问和卸载主流程 smoke 记录，真实 Windows 重启后的自动拉起仍建议补充单独记录
+> 当前代码阶段：`version.go` 已进入 `v0.7.1-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider，以及 DNSIntercept manual 本地 DNS server 基础；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问和卸载主流程 smoke 记录，真实 Windows 重启后的自动拉起仍建议补充单独记录
 
 ## 当前定位
 
@@ -40,6 +40,7 @@ stop / restore 恢复系统修改
 - PAC：本地 PAC server 与 PAC 文件生成。
 - System Proxy：Windows / macOS 系统代理写入与恢复。
 - Hosts：Windows-first hosts 写入、本地 HTTP / HTTPS 反代、Root CA、动态站点证书、WebSocket 转发。
+- DNSIntercept：manual 策略下启动本地 UDP/TCP DNS server 与本地 HTTP / HTTPS 反代，不自动修改系统 DNS、hosts 或证书信任。
 
 ### Steam 当前落地状态
 
@@ -79,7 +80,7 @@ stop / restore 恢复系统修改
 - AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程验证；仍建议补充 `install -> reboot -> no-admin start` 的单独重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
 - GitHub 已有 experimental skeleton provider，可通过 `providers.enabled` 显式启用；它不包含默认 outbound profile，也不承诺真实加速。
-- hosts 只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept；DNSIntercept 必须显式启用，并提供 manual / system / external 策略，不能默认改坏开发者环境。
+- hosts 只能覆盖 exact 域名；DNSIntercept manual 已可覆盖 provider wildcard 与自定义规则，但只在 `mode: dns` 下显式启动，不自动改系统 DNS。`system` / `external` 策略仍是后续计划，不能默认改坏开发者环境。
 - macOS / Linux Hosts 与证书安装未落地。
 - 桌面 installer、服务升级、日志位置、卸载清理和发布包还没有产品化。
 
@@ -232,7 +233,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 ### v0.7.1 - DNSIntercept 决策与本地 DNS Server 基础
 
-**状态：** 计划中
+**状态：** 代码与自动化验证已完成，等待真实手动 smoke
 **范围：** Network / Takeover / Reliability / Testing
 **目标：** 在不默认修改系统 DNS 的前提下，为 provider wildcard 和非 hosts 场景提供可验证的 DNS 接管基础。
 
@@ -245,21 +246,22 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 #### Tasks
 
-- [ ] 新增 `dns_intercept.strategy: manual|system|external` 配置草案；默认不启用，不修改系统 DNS。
-- [ ] 实现 DNS decision 层：provider rules / custom domains 命中返回本地映射，非目标查询转发到 DoH 或显式上游。
-- [ ] 实现可选本地 DNS server，支持 UDP/TCP 查询、缓存、超时、并发保护、命中/转发统计。
-- [ ] 对 `A` / `AAAA` / `HTTPS` / `SVCB` 等记录提供显式策略，不做隐藏魔法；默认行为必须写入文档和 status。
-- [ ] 启动前检测 listen 地址和 53 端口占用，冲突时返回清晰错误，不强占端口。
-- [ ] `status` 输出 DNSIntercept 策略、监听地址、是否接管系统 DNS、命中数、转发数、错误数。
-- [ ] 单元测试覆盖 target 命中、wildcard 命中、非目标转发、上游失败、缓存、端口冲突和关闭恢复。
+- [x] 新增 `mode: dns` 与 `dns_intercept.strategy: manual|system|external` 配置草案；v0.7.1 只允许 `manual`，默认不启用，不修改系统 DNS。
+- [x] 实现 DNS decision 层：provider rules / custom domains / hosts extra domains 命中返回本地映射，非目标查询转发到 DoH 或显式上游。
+- [x] 实现可选本地 DNS server，支持 UDP/TCP 查询、响应缓存、超时、并发保护、命中/转发/cache/error 统计。
+- [x] 对 `A` / `AAAA` / `HTTPS` / `SVCB` 等记录提供显式策略：目标 `A` / `AAAA` 映射到本地，目标 `HTTPS` / `SVCB` 默认返回 NODATA，其他目标类型默认不转发。
+- [x] 启动前检测 listen 地址和端口占用，冲突时返回清晰错误，不强占端口。
+- [x] `status` 输出 DNSIntercept 策略、监听地址、是否接管系统 DNS、命中数、转发数、cache 命中数、错误数。
+- [x] CLI 支持 `start --mode dns --dns-listen 127.0.0.1:15353`，并在 `start/status` 输出 `dns_intercept:` 摘要。
+- [x] 单元测试覆盖 target 命中、非目标转发、上游失败、缓存、UDP/TCP server、端口冲突、engine DNS 模式和 CLI 输出。
 
 #### Acceptance Criteria
 
-- `manual` 策略下不会修改系统 DNS、hosts、证书或任何持久化系统设置。
-- 本地 DNS server 停止后不留下系统状态变化。
-- 非目标 DNS 不会自绕回到本机 DNS server。
-- 端口冲突、上游失败和不支持记录类型都有可诊断错误或 status。
-- 所有行为都可通过配置关闭、回滚或不启用。
+- [x] `manual` 策略下不会修改系统 DNS、hosts、证书信任或任何持久化系统设置。
+- [x] 本地 DNS server 停止后不留下系统状态变化。
+- [x] 非目标 DNS 默认使用 DoH 或显式上游，不会自绕回到本机 DNS server。
+- [x] 端口冲突、上游失败和不支持记录类型都有可诊断错误或 status。
+- [x] 所有行为都可通过配置关闭、停止进程或不启用来恢复原状；系统 DNS 接管留到 v0.7.2。
 
 ---
 
@@ -462,8 +464,9 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 短期：
 
 - 补齐 `v0.6.4` Windows AppHost Service 单独重启自动拉起 smoke 记录。
-- 完成 `v0.7.0` provider 架构真实 Windows smoke 回归。
-- 进入 `v0.7.1` DNSIntercept manual 策略和本地 DNS server 验证，确保默认不改系统 DNS。
+- 完成 `v0.7.1` DNSIntercept manual 高端口 smoke。
+- 完成 `v0.7.1` provider 架构真实 Windows smoke 回归。
+- 评估 `v0.7.2` 显式 system DNS 接管是否先于 Page Enhance 落地，确保系统 DNS 修改可还原。
 - 进入 `v0.7.3` Page Enhance 透明 pipeline 设计，确保默认关闭且无隐藏跳过规则。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
 - 将 `v0.8.0` 独立 Go Library 抽取顺延到 DNSIntercept / Page Enhance 主能力边界验证之后。

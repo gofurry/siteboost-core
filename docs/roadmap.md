@@ -13,7 +13,7 @@ Current facts:
 - The remote repository is `gofurry/siteboost-core`.
 - The Go module is still `github.com/gofurry/go-steam-core`.
 - The CLI is still `steam-accelerator`.
-- `version.go` reports `v0.7.0-dev`.
+- `version.go` reports `v0.7.1-dev`.
 - The main branch contains Windows AppHost Service and named pipe IPC work.
 - Local real-machine validation has passed for AppHost health, named pipe RPC, the normal-user Hosts loop, China-network Steam access, `stop`, `restore`, and uninstall behavior. A dedicated reboot auto-start smoke is still recommended.
 
@@ -28,7 +28,7 @@ The core should be split around these concepts:
 - provider and rule packs
 - resolver and DoH
 - upstream and outbound profiles
-- takeover modes: ProxyOnly, PAC, System Proxy, Hosts, DNSIntercept; TUN/VPN is deferred to external libraries or separate integrations
+- takeover modes: ProxyOnly, PAC, System Proxy, Hosts, DNSIntercept manual; TUN/VPN is deferred to external libraries or separate integrations
 - local reverse proxy
 - root CA and dynamic certificates
 - privilege boundary and restore
@@ -79,7 +79,9 @@ Validated automatically with `git diff --check`, `go test ./...`, `go vet ./...`
 
 ### v0.7.1 - DNSIntercept Decision and Local DNS Server
 
-Plan a DNSIntercept foundation that does not modify system DNS by default. The first strategy is `manual`: run the DNS decision/server path only when explicitly enabled, detect port conflicts, forward non-target queries to explicit upstreams, expose stats/status, and leave no persistent system state after shutdown.
+**Status:** Code and automated validation completed; manual smoke still recommended.
+
+Implemented a DNSIntercept foundation that does not modify system DNS by default. The first strategy is `manual`: `mode: dns` starts the local UDP/TCP DNS server and local HTTP/HTTPS reverse proxy, maps target provider/custom domains to local addresses, returns NODATA for target HTTPS/SVCB records by default, forwards non-target queries to explicit resolver upstreams or loop-safe DoH defaults, exposes cache/stats/status, detects listen conflicts, and leaves no persistent system state after shutdown.
 
 ### v0.7.2 - Explicit Windows System DNS Takeover and Restore
 

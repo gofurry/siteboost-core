@@ -56,6 +56,16 @@ providers:
   enabled:
     - steam
 
+dns_intercept:
+  enabled: false
+  strategy: "manual" # manual；system/external 是计划项，v0.7.1 尚未实现
+  listen_addr: "127.0.0.1:53"
+  allow_lan: false
+  map_ipv4: "127.0.0.1"
+  map_ipv6: ""
+  ttl: "30s"
+  block_https_records: true
+
 rules:
   custom_domains: []
 
@@ -126,12 +136,13 @@ go run ./cmd/steam-accelerator start \
   --pac-listen 127.0.0.1:26502 \
   --hosts-http 127.0.0.1:28080 \
   --hosts-https 127.0.0.1:28443 \
+  --dns-listen 127.0.0.1:15353 \
   --non-target reject
 ```
 
-resolver、upstream 与 macOS system service 选项只通过 YAML 配置。CLI 保持简单的生命周期与本地监听覆盖参数。
+resolver、upstream、macOS system service 以及大部分 Hosts / DNSIntercept 选项只通过 YAML 配置。CLI 保持简单的生命周期与本地监听覆盖参数。
 
-说明：`providers.enabled: [steam]`、`resolver.mode: system` 和 `upstream.type: direct` 是通用默认值；当 `mode: hosts` 且 `upstream.type: direct` 时，运行时会自动切到内置 DoH，并追加已启用 provider 的 outbound profile，避免 hosts 写入后把反代出站连接解析回 `127.0.0.1`。外部 HTTP / SOCKS5 upstream 仍然只是可选增强，不是默认加速前提。
+说明：`providers.enabled: [steam]`、`resolver.mode: system` 和 `upstream.type: direct` 是通用默认值；当 `mode: hosts` 或 `mode: dns` 需要避免本地接管自绕回时，运行时会自动切到内置 DoH，并追加已启用 provider 的 outbound profile，避免反代出站连接解析回本地接管地址。外部 HTTP / SOCKS5 upstream 仍然只是可选增强，不是默认加速前提。
 
 v0.7 已移除旧 Steam 专用配置名。请将 `proxy.non_steam_behavior` 改为 `proxy.non_target_behavior`，将 `rules.enable_default_steam_rules` 改为 `providers.enabled`，并移除 `upstream.enable_default_steam_profiles`。继续使用旧 key 会得到迁移错误。
 
@@ -156,6 +167,41 @@ providers:
 ```
 
 GitHub 在 v0.7 中是 `experimental`，只参与匹配和状态输出，不定义默认 outbound profile，也不应描述成真实加速。
+
+使用 DNSIntercept manual 高端口模式：
+
+```yaml
+mode: dns
+
+dns_intercept:
+  strategy: "manual"
+  listen_addr: "127.0.0.1:15353"
+  map_ipv4: "127.0.0.1"
+  map_ipv6: ""
+  ttl: "30s"
+  block_https_records: true
+
+hosts:
+  http_listen_addr: "127.0.0.1:28080"
+  https_listen_addr: "127.0.0.1:28443"
+```
+
+也可以从 CLI 覆盖监听地址：
+
+```bash
+go run ./cmd/steam-accelerator start --mode dns --dns-listen 127.0.0.1:15353 --hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443
+```
+
+manual DNSIntercept 会启动本地 UDP/TCP DNS server 与 reverse proxy。它不会修改系统 DNS、hosts、证书信任、浏览器设置或任何持久化系统状态。测试时手动把 DNS 客户端指向监听地址：
+
+```powershell
+dig @127.0.0.1 -p 15353 steamcommunity.com A
+dig @127.0.0.1 -p 15353 example.com A
+```
+
+如果没有安装 `dig`，可以使用任何支持自定义 server port 的 DNS 客户端。
+
+`status` 应显示 `dns_intercept: strategy=manual listen=... system_dns=false target=... forwarded=... cache_hits=... blocked=... errors=...`。目标 `A` / `AAAA` 记录会映射到本地反代地址；目标 `HTTPS` / `SVCB` 默认返回 NODATA，显式设置 `block_https_records: false` 后会转发；其他目标记录类型默认不转发；非目标记录会转发到显式 resolver 或避免自绕回的 DoH 默认上游。
 
 使用 DoH 与 Direct 出口：
 
@@ -318,4 +364,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.7.0-dev 中仍明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.7.1-dev 中仍明确不支持，会返回 unsupported。

@@ -55,7 +55,7 @@ Wildcard rules are matched by ProxyOnly/PAC/System modes but cannot be expressed
 *.steamstatic.com
 ```
 
-For a wildcard subdomain that must be tested in Hosts mode before DNSIntercept exists, add that specific hostname to `hosts.extra_domains` or `rules.custom_domains`.
+For a wildcard subdomain that must be tested in Hosts mode, add that specific hostname to `hosts.extra_domains` or `rules.custom_domains`. To cover wildcard rules without hosts entries, use DNSIntercept manual mode and point a test DNS client at the local DNS listener explicitly.
 
 ## Coverage Table
 

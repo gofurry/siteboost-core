@@ -15,7 +15,7 @@
 - 远端仓库已经改为 `gofurry/siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已是 `v0.7.0-dev`。
+- `version.go` 已是 `v0.7.1-dev`。
 - 主干代码已包含 Windows AppHost Service 与 named pipe IPC：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务名：`SiteBoostCoreAppHost`。
@@ -29,7 +29,7 @@
 
 当前 Steam 能力已经比较完整：
 
-- ProxyOnly / PAC / System Proxy / Windows Hosts 四种模式。
+- ProxyOnly / PAC / System Proxy / Windows Hosts / DNSIntercept manual 五种模式。
 - Hosts + DoH 默认闭环。
 - Windows Root CA 自动检查 / 安装。
 - Windows hosts 写入与 rollback。
@@ -123,7 +123,18 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 
 ### v0.7.1 - DNSIntercept 决策与本地 DNS Server 基础
 
+**状态：** 代码与自动化验证已完成，等待真实手动 smoke。
+
 目标是在不默认修改系统 DNS 的前提下，验证 DNSIntercept 的规则决策、本地 DNS server、非目标转发、端口冲突检测、status 统计和关闭恢复。第一阶段只做 `manual` 策略：显式启用、手动使用、不留下系统状态变化。
+
+已完成：
+
+- `mode: dns` 会启动本地 UDP/TCP DNS server 与本地 HTTP / HTTPS reverse proxy。
+- 目标 provider / custom / extra domain 的 `A` / `AAAA` 查询返回本地映射。
+- 目标 `HTTPS` / `SVCB` 查询默认返回 NODATA，避免客户端绕过本地反代。
+- 非目标查询转发到显式 resolver 或 DNS 模式下的默认 DoH，避免系统 DNS 自绕回。
+- DNS response cache、超时、端口冲突检测和 `dns_intercept:` status 统计已落地。
+- manual 策略不修改系统 DNS、hosts、Root CA 信任或任何持久化系统设置。
 
 ### v0.7.2 - Windows System DNS 显式接管与恢复
 
@@ -195,6 +206,6 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 8. `internal/upstream/profile.go`
 9. `cmd/steam-accelerator/main.go`
 
-最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是对 v0.7 provider 架构做一次真实 Windows Hosts + DoH + AppHost 回归 smoke，然后进入 DNSIntercept manual 策略和 Page Enhance 透明 pipeline 的设计验证。AppHost 真实重启自动拉起 smoke 仍建议单独补充。
+最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是补做 v0.7.1 DNSIntercept manual 高端口手动 smoke、默认 Steam Hosts + DoH + AppHost 回归 smoke，以及 AppHost 真实重启自动拉起 smoke。随后再进入 Windows system DNS 显式接管或 Page Enhance 透明 pipeline 的设计验证。
 
 正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

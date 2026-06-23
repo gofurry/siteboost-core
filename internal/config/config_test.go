@@ -22,6 +22,15 @@ func TestDefaultConfigValid(t *testing.T) {
 	if cfg.Proxy.NonTargetBehavior != NonTargetReject {
 		t.Fatalf("non-target behavior = %q, want %q", cfg.Proxy.NonTargetBehavior, NonTargetReject)
 	}
+	if cfg.DNS.Enabled {
+		t.Fatalf("dns intercept should be disabled by default")
+	}
+	if cfg.DNS.Strategy != DNSInterceptManual {
+		t.Fatalf("dns intercept strategy = %q, want %q", cfg.DNS.Strategy, DNSInterceptManual)
+	}
+	if cfg.DNS.ListenAddr != "127.0.0.1:53" {
+		t.Fatalf("dns listen addr = %q", cfg.DNS.ListenAddr)
+	}
 	if cfg.Resolver.Mode != ResolverSystem {
 		t.Fatalf("resolver mode = %q, want %q", cfg.Resolver.Mode, ResolverSystem)
 	}
@@ -78,6 +87,13 @@ providers:
   enabled:
     - steam
     - github
+dns_intercept:
+  strategy: "manual"
+  listen_addr: "127.0.0.1:15353"
+  map_ipv4: "127.0.0.2"
+  map_ipv6: "::1"
+  ttl: "15s"
+  block_https_records: true
 pac:
   listen_addr: "127.0.0.1:28082"
 hosts:
@@ -148,6 +164,18 @@ system_proxy:
 	if len(cfg.Providers.Enabled) != 2 || cfg.Providers.Enabled[0] != "steam" || cfg.Providers.Enabled[1] != "github" {
 		t.Fatalf("providers = %#v", cfg.Providers.Enabled)
 	}
+	if cfg.DNS.Enabled {
+		t.Fatalf("dns intercept should not be enabled outside dns mode")
+	}
+	if cfg.DNS.ListenAddr != "127.0.0.1:15353" {
+		t.Fatalf("dns listen addr = %q", cfg.DNS.ListenAddr)
+	}
+	if cfg.DNS.MapIPv4 != "127.0.0.2" || cfg.DNS.MapIPv6 != "::1" {
+		t.Fatalf("dns map addrs = %q / %q", cfg.DNS.MapIPv4, cfg.DNS.MapIPv6)
+	}
+	if got := cfg.DNS.TTL.Std(); got != 15*time.Second {
+		t.Fatalf("dns ttl = %v", got)
+	}
 	if len(cfg.Upstream.Profiles) != 1 {
 		t.Fatalf("upstream profiles = %#v", cfg.Upstream.Profiles)
 	}
@@ -181,7 +209,7 @@ system_proxy:
 }
 
 func TestValidateAllowsKnownModes(t *testing.T) {
-	for _, mode := range []string{ModePAC, ModeSystem, ModeHosts, "proxy-only"} {
+	for _, mode := range []string{ModePAC, ModeSystem, ModeHosts, ModeDNS, "proxy-only", "dns-intercept"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			cfg.Mode = mode
@@ -287,6 +315,40 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "hosts wildcard extra",
 			mutate: func(cfg *Config) {
 				cfg.Hosts.ExtraDomains = []string{"*.example.com"}
+			},
+		},
+		{
+			name: "dns enabled outside dns mode",
+			mutate: func(cfg *Config) {
+				cfg.DNS.Enabled = true
+			},
+		},
+		{
+			name: "dns system strategy not implemented",
+			mutate: func(cfg *Config) {
+				cfg.Mode = ModeDNS
+				cfg.DNS.Strategy = DNSInterceptSystem
+			},
+		},
+		{
+			name: "dns external strategy not implemented",
+			mutate: func(cfg *Config) {
+				cfg.Mode = ModeDNS
+				cfg.DNS.Strategy = DNSInterceptExternal
+			},
+		},
+		{
+			name: "dns listen addr",
+			mutate: func(cfg *Config) {
+				cfg.Mode = ModeDNS
+				cfg.DNS.ListenAddr = "0.0.0.0:53"
+			},
+		},
+		{
+			name: "dns map ip",
+			mutate: func(cfg *Config) {
+				cfg.Mode = ModeDNS
+				cfg.DNS.MapIPv4 = "not-an-ip"
 			},
 		},
 	}

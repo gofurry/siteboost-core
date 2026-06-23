@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已把 Windows AppHost Service 从 loopback HTTP 原型迁移到 named pipe IPC，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。当前本机主流程已验证到 `apphost health=ok`、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop`、`restore` 和 `apphost uninstall` 可用；真实重启后自动拉起仍建议补一条单独 smoke 记录。当前代码已进入 `v0.7.0-dev`：Steam 是默认 stable provider，GitHub 是显式启用的 experimental skeleton provider，用于验证 provider registry 架构，不承诺真实 GitHub 加速。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；后续会新建独立仓库维护通用 Go 加速库，并从这里复用、迁移或重写已经验证过的核心能力。
+这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已把 Windows AppHost Service 从 loopback HTTP 原型迁移到 named pipe IPC，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。当前本机主流程已验证到 `apphost health=ok`、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop`、`restore` 和 `apphost uninstall` 可用；真实重启后自动拉起仍建议补一条单独 smoke 记录。当前代码已进入 `v0.7.1-dev`：Steam 是默认 stable provider，GitHub 是显式启用的 experimental skeleton provider，DNSIntercept manual 已提供本地 UDP/TCP DNS server、目标映射、非目标转发、缓存和 status 统计，但不会自动修改系统 DNS。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；后续会新建独立仓库维护通用 Go 加速库，并从这里复用、迁移或重写已经验证过的核心能力。
 
 ## 当前事实
 
@@ -16,8 +16,8 @@
 - 本地目录是 `D:\WorkSpace\Git\siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已显示 `v0.7.0-dev`。
-- 主干代码已经进入 `v0.7.0-dev` 阶段，包含 AppHost Service 自动启动、named pipe IPC、provider registry、Steam stable provider 和 GitHub experimental skeleton provider。
+- `version.go` 已显示 `v0.7.1-dev`。
+- 主干代码已经进入 `v0.7.1-dev` 阶段，包含 AppHost Service 自动启动、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider 和 DNSIntercept manual 本地 DNS server。
 - 本仓库定位为实验场和迁移来源；正式 Go library 会另起新仓库维护。
 - 最近关键提交：
   - `c93de53 fix(windows): stabilize apphost named pipe responses`
@@ -51,6 +51,7 @@
 - PAC：本地 PAC server 与 PAC 文件生成。
 - System Proxy：Windows / macOS 系统代理写入与恢复。
 - Hosts：Windows-first hosts 写入、本地 HTTP / HTTPS 反代、Root CA、动态站点证书、WebSocket 转发。
+- DNSIntercept：manual 策略下启动本地 UDP/TCP DNS server 与本地 HTTP / HTTPS 反代，不自动修改系统 DNS、hosts、Root CA 信任或浏览器设置。
 
 ### Provider 架构与 Steam 加速主线
 
@@ -89,6 +90,22 @@
 - `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 覆盖静态资源 / CDN。
 - 反代保持原始 HTTP Host，同时按 profile 使用可达 CDN 的 TLS SNI。
 - HTTP / SOCKS5 upstream 只是可选增强，不是默认加速前提。
+
+### DNSIntercept manual
+
+v0.7.1 已实现 DNSIntercept manual 基础：
+
+- 配置入口：`mode: dns` 和 `dns_intercept`。
+- CLI 覆盖：`start --mode dns --dns-listen 127.0.0.1:15353`。
+- 本地 DNS server 同时支持 UDP / TCP。
+- 目标域名规则来自 enabled providers、`rules.custom_domains` 和 `hosts.extra_domains`。
+- 目标 `A` / `AAAA` 返回本地映射；目标 `HTTPS` / `SVCB` 默认 NODATA；其他目标记录类型默认不转发。
+- 非目标 DNS 查询转发到显式 resolver 或 DNS 模式下的 DoH 默认上游，避免系统 DNS 自绕回本机。
+- 内置 DNS response cache、超时、端口冲突检测和 status 计数。
+- `status` 输出 `dns_intercept: strategy=manual listen=... system_dns=false target=... forwarded=... cache_hits=... blocked=... errors=...`。
+- manual 模式不会修改系统 DNS、hosts、Root CA 信任、浏览器配置或任何持久化系统设置；停止进程即可恢复。
+
+高端口 smoke 只能验证 DNS 决策和 server 行为。浏览器级 DNSIntercept 需要反代监听 80 / 443，并让测试客户端显式使用本地 DNS server；v0.7.1 不会自动接管系统 DNS，system takeover 留给 v0.7.2。
 
 ### Windows AppHost Service
 
@@ -135,7 +152,7 @@
 - 公共 Go API 尚未抽出，核心仍主要在 `internal/`；正式 public API 应在未来新仓库内冻结。
 - rollback state schema 没有版本化迁移。
 - installer、服务升级、卸载清理、日志位置、发布包、签名还未产品化。
-- Hosts 模式只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept 或 TUN。
+- Hosts 模式只能覆盖 exact 域名；DNSIntercept manual 可覆盖 wildcard，但只在显式 `mode: dns` 下启动，不会自动接管系统 DNS。
 - macOS / Linux 的 Hosts、证书和权限闭环没有落地。
 - `curl.exe` 如报 `CRYPT_E_NO_REVOCATION_CHECK`，通常是 Windows Schannel 吊销检查问题；可用 `curl.exe --ssl-no-revoke -I https://steamcommunity.com/` 辅助验证。
 
@@ -149,6 +166,7 @@
 - `internal/privilege/privilege.go`：受限系统修改请求模型和 AppHost 调用入口。
 - `internal/privilege/privilege_windows.go`：Windows AppHost Service、RPC server、Windows 权限检测。
 - `internal/rules/rules.go`：通用规则匹配、规则元信息。
+- `internal/dnsintercept/server.go`：DNSIntercept manual 本地 UDP/TCP DNS server、决策、缓存、转发和 status。
 - `internal/upstream/profile.go`：通用 outbound profile、ForwardHost、TLS SNI、candidate dialing。
 - `internal/resolver/resolver.go`：system / udp / tcp / doh resolver。
 - `internal/reverse/reverse.go`：本地 HTTP / HTTPS reverse proxy、WebSocket、502 诊断。
@@ -238,15 +256,16 @@ https://help.steampowered.com/
 
 ## 下一阶段建议顺序
 
-1. 跑完 `v0.7.0-dev` 自动化验证：`git diff --check`、`go test ./...`、`go vet ./...`、race 子集、build、version。
-2. 补做 `v0.7.0-dev` 默认 Steam Hosts + DoH + AppHost 真实 Windows smoke，并确认 `status` 同时显示 `provider: id=steam ...` 和兼容 `rule_set: steam-web@...`。
-3. 补做 `providers.enabled: [steam, github]` skeleton smoke：确认 GitHub 显示 `experimental`，但不要求 GitHub live 可达，也不写成真实加速能力。
-4. 补做单独重启 smoke：`reboot -> apphost status health=ok -> normal-user start --mode hosts -> stop/restore`，并把输出补进 smoke 文档。
-5. 整理未来独立 Go library 的 API 草案和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
-6. 继续设计 AppHost IPC 加固：优先评估用户会话绑定、审计日志和按需启动。
-7. 逐步把内部 `helper` 命名收敛为 AppHost / privileged request 语义，避免误导后续维护者。
-8. 进入 release engineering：CI matrix、rollback schema version、installer、服务升级 / 卸载、签名规划。
-9. 在验证充分后新建正式 Go library 仓库，从本仓库迁移已验证的 resolver、reverse、certstore、privilege、provider 和 diagnostics 能力。
+1. 跑完 `v0.7.1-dev` 自动化验证：`git diff --check`、`go test ./...`、`go vet ./...`、race 子集、build、version。
+2. 补做 DNSIntercept manual 高端口 smoke：`start --mode dns --dns-listen 127.0.0.1:15353 --hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443`，用 `dig @127.0.0.1 -p 15353 <host> A` 或其他支持自定义端口的 DNS 客户端验证 target / non-target 记录和 `dns_intercept:` status；HTTPS/SVCB 分支可用支持对应 RR 类型的 DNS 客户端单独测。
+3. 补做默认 Steam Hosts + DoH + AppHost 真实 Windows smoke，并确认 `status` 同时显示 `provider: id=steam ...` 和兼容 `rule_set: steam-web@...`。
+4. 补做 `providers.enabled: [steam, github]` skeleton smoke：确认 GitHub 显示 `experimental`，但不要求 GitHub live 可达，也不写成真实加速能力。
+5. 补做单独重启 smoke：`reboot -> apphost status health=ok -> normal-user start --mode hosts -> stop/restore`，并把输出补进 smoke 文档。
+6. 评估下一步先做 v0.7.2 Windows system DNS 显式接管，还是先做 v0.7.3 Page Enhance 透明 pipeline。
+7. 整理未来独立 Go library 的 API 草案和迁移清单：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+8. 继续设计 AppHost IPC 加固：优先评估用户会话绑定、审计日志和按需启动。
+9. 进入 release engineering：CI matrix、rollback schema version、installer、服务升级 / 卸载、签名规划。
+10. 在验证充分后新建正式 Go library 仓库，从本仓库迁移已验证的 resolver、reverse、certstore、privilege、provider、dnsintercept 和 diagnostics 能力。
 
 ## 提醒新 session 的边界
 

@@ -55,7 +55,7 @@ store.steampowered.com
 *.steamstatic.com
 ```
 
-如果在 DNSIntercept 完成前必须用 Hosts 模式测试某个 wildcard 子域名，需要把具体域名加入 `hosts.extra_domains` 或 `rules.custom_domains`。
+如果必须用 Hosts 模式测试某个 wildcard 子域名，需要把具体域名加入 `hosts.extra_domains` 或 `rules.custom_domains`。如果要在不写 hosts 的情况下覆盖 wildcard 规则，可以使用 DNSIntercept manual 模式，并显式把测试 DNS 客户端指向本地 DNS 监听地址。
 
 ## 覆盖表
 

@@ -13,6 +13,7 @@ The project has not published a runtime release yet.
 - CLI at `cmd/steam-accelerator` with `start`, `status`, `stop`, and `restore`.
 - YAML configuration with safe loopback defaults.
 - Provider registry with Steam as the default stable provider and GitHub as an explicit experimental skeleton provider.
+- DNSIntercept manual mode with a local UDP/TCP DNS server, target-domain mapping, non-target forwarding, response cache, timeout handling, listen-conflict detection, and status counters.
 - Generic domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
 - HTTP proxy and HTTPS CONNECT tunnel for enabled provider rule domains.
 - Configurable non-target behavior: `reject` by default, or `direct`.
@@ -37,10 +38,11 @@ The project has not published a runtime release yet.
 
 ### Changed
 
-- Version metadata now reports `v0.7.0-dev`.
+- Version metadata now reports `v0.7.1-dev`.
 - Default configuration uses `providers.enabled: [steam]` and `proxy.non_target_behavior: reject`.
 - Steam default rules, outbound profiles, and startup probes now live behind the Steam provider instead of the generic rules/upstream packages.
 - `start --non-target reject|direct` replaces the old Steam-specific CLI flag.
+- `start --mode dns --dns-listen ...` starts DNSIntercept manual mode without changing system DNS.
 
 ### Removed
 
@@ -51,7 +53,7 @@ The project has not published a runtime release yet.
 
 - Runtime, resolver, upstream, PAC, and system proxy implementations remain internal; no stable public Go integration API is exposed yet.
 - `github.com/miekg/dns` is used for DNS wire message handling.
-- Hosts mode is Windows-first in v0.7.0-dev. macOS/Linux Hosts and certificate-store setup return unsupported.
-- Hosts files cannot express wildcard rules, so Hosts mode writes exact domains only; wildcard coverage is deferred to a future DNSIntercept-style mode.
+- Hosts mode is Windows-first in v0.7.1-dev. macOS/Linux Hosts and certificate-store setup return unsupported.
+- Hosts files cannot express wildcard rules, so Hosts mode writes exact domains only; DNSIntercept manual mode can cover wildcard rules when a DNS client is explicitly pointed at the local listener.
 - GitHub is a skeleton provider for architecture validation only and does not promise real acceleration.
 - SteamTools is used as an architecture reference only; no source code is copied or ported.

@@ -18,9 +18,14 @@ const (
 	ModePAC       = "pac"
 	ModeSystem    = "system"
 	ModeHosts     = "hosts"
+	ModeDNS       = "dns"
 
 	NonTargetReject = "reject"
 	NonTargetDirect = "direct"
+
+	DNSInterceptManual   = "manual"
+	DNSInterceptSystem   = "system"
+	DNSInterceptExternal = "external"
 
 	ResolverSystem = "system"
 	ResolverUDP    = "udp"
@@ -73,6 +78,7 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 type Config struct {
 	Mode      string          `yaml:"mode"`
 	Providers ProvidersConfig `yaml:"providers"`
+	DNS       DNSConfig       `yaml:"dns_intercept"`
 	Proxy     ProxyConfig     `yaml:"proxy"`
 	PAC       PACConfig       `yaml:"pac"`
 	Hosts     HostsConfig     `yaml:"hosts"`
@@ -96,6 +102,17 @@ type ProxyConfig struct {
 
 type ProvidersConfig struct {
 	Enabled []string `yaml:"enabled"`
+}
+
+type DNSConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	Strategy          string   `yaml:"strategy"`
+	ListenAddr        string   `yaml:"listen_addr"`
+	AllowLAN          bool     `yaml:"allow_lan"`
+	MapIPv4           string   `yaml:"map_ipv4"`
+	MapIPv6           string   `yaml:"map_ipv6"`
+	TTL               Duration `yaml:"ttl"`
+	BlockHTTPSRecords bool     `yaml:"block_https_records"`
 }
 
 type RulesConfig struct {
@@ -164,6 +181,14 @@ func Default() Config {
 		Mode: ModeProxyOnly,
 		Providers: ProvidersConfig{
 			Enabled: []string{"steam"},
+		},
+		DNS: DNSConfig{
+			Enabled:           false,
+			Strategy:          DNSInterceptManual,
+			ListenAddr:        "127.0.0.1:53",
+			MapIPv4:           "127.0.0.1",
+			TTL:               Duration(30 * time.Second),
+			BlockHTTPSRecords: true,
 		},
 		Proxy: ProxyConfig{
 			ListenAddr:        "127.0.0.1:26501",
@@ -312,9 +337,15 @@ func findLegacyConfigKey(node *yaml.Node, path []string, legacy map[string]strin
 func (c *Config) Validate() error {
 	c.Mode = normalizeMode(c.Mode)
 	switch c.Mode {
-	case ModeProxyOnly, ModePAC, ModeSystem, ModeHosts:
+	case ModeProxyOnly, ModePAC, ModeSystem, ModeHosts, ModeDNS:
 	default:
 		return fmt.Errorf("unsupported mode %q", c.Mode)
+	}
+	if c.Mode == ModeDNS {
+		c.DNS.Enabled = true
+	}
+	if err := validateDNSConfig(&c.DNS, c.Mode); err != nil {
+		return err
 	}
 
 	c.Providers.Enabled = normalizeProviderIDs(c.Providers.Enabled)
@@ -507,6 +538,52 @@ func validateOutboundProfiles(profiles []OutboundProfileConfig) error {
 	return nil
 }
 
+func validateDNSConfig(cfg *DNSConfig, mode string) error {
+	cfg.Strategy = normalizeDNSInterceptStrategy(cfg.Strategy)
+	switch cfg.Strategy {
+	case DNSInterceptManual:
+	case DNSInterceptSystem, DNSInterceptExternal:
+		if cfg.Enabled || mode == ModeDNS {
+			return fmt.Errorf("dns_intercept.strategy %q is planned but not implemented in v0.7.1; use %q", cfg.Strategy, DNSInterceptManual)
+		}
+	default:
+		return fmt.Errorf("unsupported dns_intercept.strategy %q", cfg.Strategy)
+	}
+	if cfg.Enabled && mode != ModeDNS {
+		return fmt.Errorf("dns_intercept.enabled requires mode %q", ModeDNS)
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.ListenAddr) == "" {
+		return fmt.Errorf("dns_intercept listen_addr is required")
+	}
+	if err := validateListenAddr(cfg.ListenAddr, cfg.AllowLAN); err != nil {
+		return fmt.Errorf("invalid dns_intercept listen_addr: %w", err)
+	}
+	cfg.MapIPv4 = strings.TrimSpace(cfg.MapIPv4)
+	cfg.MapIPv6 = strings.TrimSpace(cfg.MapIPv6)
+	if cfg.MapIPv4 == "" && cfg.MapIPv6 == "" {
+		return fmt.Errorf("dns_intercept requires at least one of map_ipv4 or map_ipv6")
+	}
+	if cfg.MapIPv4 != "" {
+		ip := net.ParseIP(cfg.MapIPv4)
+		if ip == nil || ip.To4() == nil {
+			return fmt.Errorf("dns_intercept map_ipv4 must be an IPv4 address")
+		}
+	}
+	if cfg.MapIPv6 != "" {
+		ip := net.ParseIP(cfg.MapIPv6)
+		if ip == nil || ip.To4() != nil {
+			return fmt.Errorf("dns_intercept map_ipv6 must be an IPv6 address")
+		}
+	}
+	if cfg.TTL.Std() <= 0 {
+		return fmt.Errorf("dns_intercept ttl must be positive")
+	}
+	return nil
+}
+
 func normalizeOptionalProfileHost(host string) (string, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
@@ -525,8 +602,23 @@ func normalizeMode(mode string) string {
 		return ModeSystem
 	case ModeHosts:
 		return ModeHosts
+	case ModeDNS, "dns_intercept", "dns-intercept":
+		return ModeDNS
 	default:
 		return strings.ToLower(strings.TrimSpace(mode))
+	}
+}
+
+func normalizeDNSInterceptStrategy(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "", DNSInterceptManual:
+		return DNSInterceptManual
+	case DNSInterceptSystem:
+		return DNSInterceptSystem
+	case DNSInterceptExternal:
+		return DNSInterceptExternal
+	default:
+		return strings.ToLower(strings.TrimSpace(strategy))
 	}
 }
 

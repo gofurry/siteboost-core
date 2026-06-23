@@ -220,9 +220,36 @@ curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
 
 如果从普通 PowerShell 测试，`stop` / `restore` 恢复 hosts 和 `cert uninstall` 卸载机器级 Root CA 时会通过 AppHost 处理。AppHost 未安装或未运行时命令应返回可理解错误；项目不应写入新的 hosts 标记区块或留下新的半成品 rollback。
 
+## DNSIntercept Manual Smoke
+
+先使用高端口测试。该 smoke 只验证 DNS 决策、转发、缓存、状态和关闭恢复，不会修改系统 DNS、hosts 或证书信任：
+
+```bash
+./bin/steam-accelerator.exe start --mode dns --dns-listen 127.0.0.1:15353 --hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443 --state ./tmp/dns-runtime.json
+```
+
+另开终端：
+
+```powershell
+dig @127.0.0.1 -p 15353 steamcommunity.com A
+dig @127.0.0.1 -p 15353 example.com A
+./bin/steam-accelerator.exe status --state ./tmp/dns-runtime.json
+./bin/steam-accelerator.exe stop --state ./tmp/dns-runtime.json
+```
+
+期望行为：
+
+- `steamcommunity.com` 的 `A` 记录解析为 `127.0.0.1`。如果没有安装 `dig`，可使用任何支持自定义端口的 DNS 客户端。
+- 目标域名的 `HTTPS` / `SVCB` 记录默认返回 NODATA；如需手动 smoke 这条分支，请使用支持这些 RR 类型的 DNS 客户端。
+- `example.com` 会转发到显式 resolver 或避免自绕回的 DoH 默认上游。
+- `status` 包含 `dns_intercept: strategy=manual ... system_dns=false ... target=... forwarded=... cache_hits=... blocked=... errors=...`。
+- DNS manual 模式下不应出现新的 `system_change:` 行。
+
+高端口 DNS smoke 不能证明浏览器接管，因为 DNS 记录不能携带端口。浏览器级 DNSIntercept 测试需要反代监听 80 / 443，并让测试客户端显式使用本地 DNS server；v0.7.1 仍不会自动修改系统 DNS。
+
 ## 期望输出
 
-版本命令应输出项目名、`v0.7.0-dev` 和模块路径。
+版本命令应输出项目名、`v0.7.1-dev` 和模块路径。
 
 basic 示例应输出项目名和模块路径。
 

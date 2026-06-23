@@ -56,6 +56,16 @@ providers:
   enabled:
     - steam
 
+dns_intercept:
+  enabled: false
+  strategy: "manual" # manual; system/external are planned but not implemented in v0.7.1
+  listen_addr: "127.0.0.1:53"
+  allow_lan: false
+  map_ipv4: "127.0.0.1"
+  map_ipv6: ""
+  ttl: "30s"
+  block_https_records: true
+
 rules:
   custom_domains: []
 
@@ -127,12 +137,13 @@ go run ./cmd/steam-accelerator start \
   --pac-listen 127.0.0.1:26502 \
   --hosts-http 127.0.0.1:28080 \
   --hosts-https 127.0.0.1:28443 \
+  --dns-listen 127.0.0.1:15353 \
   --non-target reject
 ```
 
-Resolver, upstream, macOS system service, and most Hosts options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
+Resolver, upstream, macOS system service, and most Hosts/DNSIntercept options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
 
-Note: `providers.enabled: [steam]`, `resolver.mode: system`, and `upstream.type: direct` are the general defaults. When `mode: hosts` and `upstream.type: direct` are active, runtime resolution automatically switches to the built-in DoH defaults and appends outbound profiles from enabled providers. This avoids resolving outbound reverse-proxy connections back to `127.0.0.1` after the hosts marker block is written. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
+Note: `providers.enabled: [steam]`, `resolver.mode: system`, and `upstream.type: direct` are the general defaults. When `mode: hosts` or `mode: dns` needs loop-safe direct outbound resolution, runtime resolution automatically switches to the built-in DoH defaults and appends outbound profiles from enabled providers. This avoids resolving outbound reverse-proxy connections back to the local takeover address. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
 
 v0.7 removed the old Steam-specific config keys. Replace `proxy.non_steam_behavior` with `proxy.non_target_behavior`, replace `rules.enable_default_steam_rules` with `providers.enabled`, and remove `upstream.enable_default_steam_profiles`. Loading old keys returns a migration error.
 
@@ -157,6 +168,41 @@ providers:
 ```
 
 GitHub is `experimental` in v0.7. It participates in matching and status output, but it does not define a default outbound profile and should not be described as real acceleration.
+
+Use DNSIntercept manual mode on a high port:
+
+```yaml
+mode: dns
+
+dns_intercept:
+  strategy: "manual"
+  listen_addr: "127.0.0.1:15353"
+  map_ipv4: "127.0.0.1"
+  map_ipv6: ""
+  ttl: "30s"
+  block_https_records: true
+
+hosts:
+  http_listen_addr: "127.0.0.1:28080"
+  https_listen_addr: "127.0.0.1:28443"
+```
+
+Or from CLI:
+
+```bash
+go run ./cmd/steam-accelerator start --mode dns --dns-listen 127.0.0.1:15353 --hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443
+```
+
+Manual DNSIntercept starts a local UDP/TCP DNS server and reverse proxy. It does not change system DNS, hosts, certificate trust, browser settings, or any persistent system state. Test it by pointing a DNS client at the listener:
+
+```powershell
+dig @127.0.0.1 -p 15353 steamcommunity.com A
+dig @127.0.0.1 -p 15353 example.com A
+```
+
+If `dig` is not installed, use any DNS client that can target a custom server port.
+
+`status` should show `dns_intercept: strategy=manual listen=... system_dns=false target=... forwarded=... cache_hits=... blocked=... errors=...`. Target `A`/`AAAA` records map to the local reverse proxy address. Target `HTTPS`/`SVCB` records return NODATA by default; set `block_https_records: false` to forward them explicitly. Other target record types are not forwarded. Non-target records are forwarded to the configured resolver or loop-safe DoH defaults.
 
 Use DoH with direct outbound dialing:
 
@@ -319,4 +365,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.0-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.1-dev.
