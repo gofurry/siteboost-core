@@ -158,7 +158,7 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 
 ### v0.7.3 - JS 注入与页面增强透明 Pipeline
 
-**状态：** 代码与自动化验证已完成，等待真实 Page Enhance smoke。
+**状态：** 代码、自动化验证与真实浏览器 Page Enhance smoke 已完成。
 
 目标是在 reverse proxy 内增加默认关闭的 response transform pipeline。已实现 provider / host / path / content-type / status 匹配、header 修改、HTML 注入、本地 asset、replace 和 Go 自定义 transformer 扩展点。库只提供机械能力，不做隐藏安全跳过；每次应用、跳过或失败都能在 status / log 里看到原因。关闭 `page_enhance.enabled` 或移除 transform 后即可恢复原始响应行为，不会修改系统 DNS、hosts、证书、浏览器配置或开发者环境。
 

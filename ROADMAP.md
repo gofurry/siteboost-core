@@ -302,7 +302,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 ### v0.7.3 - JS 注入与页面增强透明 Pipeline
 
-**状态：** 代码与自动化验证已完成，等待真实 Page Enhance smoke
+**状态：** 代码、自动化验证与真实浏览器 Page Enhance smoke 已完成
 **范围：** Reverse Proxy / Developer-facing / Diagnostics / Testing
 **目标：** 在本地 reverse proxy 中提供可观察、可关闭、无隐藏安全魔法的响应转换能力，让开发者显式决定如何注入或增强页面。
 
@@ -469,7 +469,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - 补齐 `v0.6.4` Windows AppHost Service 单独重启自动拉起 smoke 记录。
 - 保留 `v0.7.2` DNSIntercept manual 高端口 smoke、Windows system DNS 显式接管 smoke 和恢复命令记录。
 - 完成 provider 架构真实 Windows smoke 回归。
-- 补做 `v0.7.3` Page Enhance 真实 reverse smoke，确认显式配置后能注入、可观察、移除配置即可恢复。
+- 保留 `v0.7.3` Page Enhance 真实浏览器 smoke 记录，确认显式配置后能注入、可观察、移除配置即可恢复。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
 - 将 `v0.8.0` 独立 Go Library 抽取顺延到 DNSIntercept / Page Enhance 主能力边界验证之后。
 

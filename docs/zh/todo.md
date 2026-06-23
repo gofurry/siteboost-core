@@ -3,7 +3,7 @@
 ## 短期任务
 
 - 继续维护 `v0.7.3-dev` DNSIntercept manual 高端口和 Windows system DNS smoke 记录。
-- 完成 Page Enhance 高端口 DNSIntercept + 本地 asset 手动 smoke。
+- 继续维护 Page Enhance 高端口和真实浏览器 smoke 记录。
 - 完成 provider registry 与 Hosts/AppHost 路径的真实 Windows smoke。
 - 在 DNSIntercept / Page Enhance 边界验证后准备 `v0.8.0` 公共 Go library 抽离计划和包边界草案。
 - 用 GitHub skeleton provider 补一份最小 provider 开发示例文档。

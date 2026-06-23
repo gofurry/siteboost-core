@@ -173,7 +173,7 @@ v0.7.3 已实现默认关闭的页面增强能力：
 - rollback state schema 没有版本化迁移。
 - installer、服务升级、卸载清理、日志位置、发布包、签名还未产品化。
 - Hosts 模式只能覆盖 exact 域名；DNSIntercept manual 可覆盖 wildcard，但只在显式 `mode: dns` 下启动，不会自动接管系统 DNS。DNSIntercept system 可显式接管 Windows 指定网卡 DNS，当前已有真实 apply / restore smoke，负向场景仍需后续补充。
-- Page Enhance 默认关闭且不修改系统环境，但启用后会改写响应内容；真实页面级 smoke 仍建议补充。
+- Page Enhance 默认关闭且不修改系统环境，但启用后会改写响应内容；当前已完成真实浏览器 smoke，Console 可看到 `siteboost page enhance`。
 - macOS / Linux 的 Hosts、证书和权限闭环没有落地。
 - `curl.exe` 如报 `CRYPT_E_NO_REVOCATION_CHECK`，通常是 Windows Schannel 吊销检查问题；可用 `curl.exe --ssl-no-revoke -I https://steamcommunity.com/` 辅助验证。
 
@@ -280,7 +280,7 @@ https://help.steampowered.com/
 ## 下一阶段建议顺序
 
 1. 跑完 `v0.7.3-dev` 自动化验证：`git diff --check`、`go test ./...`、`go vet ./...`、race 子集、build、version。
-2. 补做 Page Enhance 高端口 manual smoke：`mode: dns`、`dns_intercept.strategy: manual`、`hosts.http_listen_addr: 127.0.0.1:28080`，用本地 asset 验证 `page_enhance:` status，不修改系统环境。
+2. 保留 Page Enhance 高端口 manual smoke 与真实浏览器 smoke 记录：`mode: dns` 可验证本地 asset 与 `page_enhance:` status，`mode: hosts` 可验证浏览器 Console 输出 `siteboost page enhance`。
 3. 补做默认 Steam Hosts + DoH + AppHost 真实 Windows smoke，并确认 `status` 同时显示 `provider: id=steam ...`、兼容 `rule_set: steam-web@...` 和 Page Enhance 默认不输出。
 4. 补做 `providers.enabled: [steam, github]` skeleton smoke：确认 GitHub 显示 `experimental`，但不要求 GitHub live 可达，也不写成真实加速能力。
 5. 补做单独重启 smoke：`reboot -> apphost status health=ok -> normal-user start --mode hosts -> stop/restore`，并把输出补进 smoke 文档。

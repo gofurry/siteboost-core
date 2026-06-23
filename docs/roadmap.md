@@ -91,7 +91,7 @@ Implemented explicit `strategy: system` for Windows DNSIntercept. It requires `m
 
 ### v0.7.3 - Transparent Page Enhancement Pipeline
 
-**Status:** Code and automated validation completed; real Page Enhance smoke still recommended.
+**Status:** Code, automated validation, and real browser Page Enhance smoke completed.
 
 Implemented an opt-in reverse-proxy response transform pipeline. It provides mechanical transforms such as provider/host/path/content-type/status matching, header edits, HTML injection, local asset serving, replacements, and custom transformer hooks. It does not hide developer choices behind black-box safety skips. Every applied, skipped, or failed transform is observable through logs and `page_enhance` status counters.
 

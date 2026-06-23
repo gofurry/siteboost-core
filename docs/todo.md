@@ -3,7 +3,7 @@
 ## Short-Term Tasks
 
 - Keep the DNSIntercept manual high-port and Windows system DNS smoke records current for the v0.7.3-dev path.
-- Finish Page Enhance manual smoke with high-port DNSIntercept and a local asset.
+- Keep Page Enhance high-port and real-browser smoke records current.
 - Finish real Windows smoke for the provider registry and Hosts/AppHost path.
 - Prepare the v0.8.0 public-library extraction plan and package boundary draft after DNSIntercept/Page Enhance boundaries are validated.
 - Add provider developer documentation using the GitHub skeleton provider as the minimal example.
