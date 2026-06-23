@@ -135,6 +135,16 @@ These do not enter `v0.7.0` without a new safety design and dedicated smoke:
 - macOS / Linux Hosts, certificate, and privilege loops.
 - Full AppHost user-session binding and audit-log productization.
 
+## Post-v0.7 Planning Update
+
+After the provider registry landed, DNSIntercept and page enhancement are allowed to move before library extraction, but only under a reversible design:
+
+- DNSIntercept starts with a `manual` strategy that does not modify system DNS.
+- Any `system` DNS takeover must be explicit, AppHost-mediated, preflighted, recorded in rollback state, and restorable through `stop` / `restore`.
+- Page enhancement is a transparent reverse-proxy transform pipeline, disabled by default, with no hidden safety skips.
+- Providers may declare metadata or recommended enhancement packs, but Providers still do not execute DNS takeover, hosts writes, certificate changes, AppHost calls, or response transforms.
+- VPN / TUN remains deferred and should use mature external libraries or separate integrations if it is ever needed.
+
 ## v0.6.5 Acceptance
 
 - Documentation makes clear that v1.1+ advanced capabilities do not move before v0.7.

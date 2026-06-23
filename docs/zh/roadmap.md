@@ -61,7 +61,7 @@
 - provider / rule pack / outbound profile
 - resolver / DoH / DNS cache
 - upstream / candidate dialing / TLS SNI
-- takeover mode：ProxyOnly、PAC、System Proxy、Hosts、后续 DNSIntercept、TUN
+- takeover mode：ProxyOnly、PAC、System Proxy、Hosts、DNSIntercept；TUN/VPN 暂不进入本仓库实现
 - certificate / Root CA / dynamic cert
 - privilege / AppHost / restore
 - diagnostics / smoke / support bundle
@@ -102,6 +102,8 @@
 - 将 Steam 当前 Windows Hosts + DoH + AppHost smoke 作为 v0.7 重构回归基线。
 - 在 v0.7 前只做 Steam provider 和 GitHub skeleton provider，不承诺 GitHub 真实加速。
 
+v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开源库前验证，但必须显式启用、可观察、可还原；TUN/VPN 继续延期，优先使用成熟外部库或独立集成。
+
 ### v0.7.0 - Provider 架构与通用站点骨架
 
 **状态：** 开发与自动化验证已完成，等待真实 Windows smoke 回归。
@@ -119,13 +121,25 @@
 - 已通过 `git diff --check`、`go test ./...`、`go vet ./...`、核心 race 子集、Windows 二进制 build 和 `--version`。
 - 仍需补做默认 Steam Hosts + DoH + AppHost 真实回归 smoke，以及 `[steam, github]` 显式 provider 配置 smoke。
 
+### v0.7.1 - DNSIntercept 决策与本地 DNS Server 基础
+
+目标是在不默认修改系统 DNS 的前提下，验证 DNSIntercept 的规则决策、本地 DNS server、非目标转发、端口冲突检测、status 统计和关闭恢复。第一阶段只做 `manual` 策略：显式启用、手动使用、不留下系统状态变化。
+
+### v0.7.2 - Windows System DNS 显式接管与恢复
+
+目标是在 `manual` 路径稳定后，为 `dns_intercept.strategy: system` 增加 AppHost 白名单系统 DNS 修改能力。任何系统 DNS 改动都必须先有 rollback，`stop` / `restore` 后必须恢复，失败时不能把开发者机器留在“系统 DNS 指向本地但服务未运行”的状态。
+
+### v0.7.3 - JS 注入与页面增强透明 Pipeline
+
+目标是在 reverse proxy 内增加默认关闭的 response transform pipeline。库只提供 header 修改、HTML 注入、本地 asset、replace 和自定义 transformer 等机械能力，不做隐藏安全跳过；每次应用、跳过或失败都必须能在 status / log 里看到原因。
+
 ### v0.8.0 - 独立 Go Library 抽取准备
 
-目标是形成未来独立 Go library 的 API 草案、迁移清单和可复用模块边界。
+目标是在 Provider、DNSIntercept 和 Page Enhance 主能力边界验证后，形成未来独立 Go library 的 API 草案、迁移清单和可复用模块边界。
 
 重点任务：
 
-- 设计未来新仓库 API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`。
+- 设计未来新仓库 API 草案：`Config`、`Engine`、`Provider`、`Mode`、`Status`、`Start`、`Stop`、`Restore`、DNSIntercept 策略和 Page Enhance pipeline。
 - 明确哪些包适合迁移到新仓库，哪些只作为实验实现保留。
 - 梳理 CLI 与核心能力的边界，避免未来新库被 CLI 细节污染。
 - 提供 Steam provider 和 GitHub skeleton provider 的迁移示例。
@@ -162,9 +176,9 @@
 候选方向：
 
 - GitHub provider 真实网络验证。
-- DNSIntercept。
-- VPN / TUN。
-- JS 注入 / 页面增强。
+- 外部 DNS 工具规则导出。
+- 更多 provider enhancement pack。
+- 如确实需要，基于成熟库或独立项目集成 TUN/VPN adapter。
 - macOS / Linux Hosts、证书和权限闭环。
 
 ## 交接提示
@@ -181,6 +195,6 @@
 8. `internal/upstream/profile.go`
 9. `cmd/steam-accelerator/main.go`
 
-最重要的下一步不是继续加 Steam 域名，也不是提前做 DNSIntercept / TUN / GitHub 真实加速，而是对 v0.7 provider 架构做一次真实 Windows Hosts + DoH + AppHost 回归 smoke，并开始 v0.8 独立 Go Library 抽取准备。AppHost 真实重启自动拉起 smoke 仍建议单独补充。
+最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是对 v0.7 provider 架构做一次真实 Windows Hosts + DoH + AppHost 回归 smoke，然后进入 DNSIntercept manual 策略和 Page Enhance 透明 pipeline 的设计验证。AppHost 真实重启自动拉起 smoke 仍建议单独补充。
 
 正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

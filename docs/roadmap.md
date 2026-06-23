@@ -28,7 +28,7 @@ The core should be split around these concepts:
 - provider and rule packs
 - resolver and DoH
 - upstream and outbound profiles
-- takeover modes: ProxyOnly, PAC, System Proxy, Hosts, later DNSIntercept or TUN
+- takeover modes: ProxyOnly, PAC, System Proxy, Hosts, DNSIntercept; TUN/VPN is deferred to external libraries or separate integrations
 - local reverse proxy
 - root CA and dynamic certificates
 - privilege boundary and restore
@@ -67,6 +67,8 @@ The boundary is documented in [capability-boundary.md](capability-boundary.md):
 - AppHost is a platform privilege executor, not a provider feature.
 - The current Steam Windows Hosts + DoH + AppHost smoke remains the provider-refactor regression baseline.
 
+Post-v0.7 planning changed the order: DNSIntercept and Page Enhance are now planned before library extraction, but only with explicit, reversible behavior. TUN/VPN remains deferred and should use mature external libraries or separate integrations.
+
 ### v0.7.0 - Provider Architecture and Generic Site Skeleton
 
 **Status:** Development and automated validation completed; real Windows smoke regression still recommended.
@@ -75,9 +77,21 @@ Completed the provider refactor. Steam-specific rules, outbound profiles, probes
 
 Validated automatically with `git diff --check`, `go test ./...`, `go vet ./...`, race tests for the core Windows/AppHost-facing packages, Windows binary build, and `--version`. Remaining manual smoke should verify the default Steam Hosts + DoH + AppHost path and an explicit `[steam, github]` provider config.
 
+### v0.7.1 - DNSIntercept Decision and Local DNS Server
+
+Plan a DNSIntercept foundation that does not modify system DNS by default. The first strategy is `manual`: run the DNS decision/server path only when explicitly enabled, detect port conflicts, forward non-target queries to explicit upstreams, expose stats/status, and leave no persistent system state after shutdown.
+
+### v0.7.2 - Explicit Windows System DNS Takeover and Restore
+
+Add `strategy: system` only after the manual DNS path is stable. System DNS changes must go through AppHost allowlisted commands, write rollback state before applying changes, restore on `stop` / `restore`, and avoid leaving the machine pointed at a dead local DNS server.
+
+### v0.7.3 - Transparent Page Enhancement Pipeline
+
+Add an opt-in reverse-proxy response transform pipeline. The library should provide mechanical transforms such as header edits, HTML injection, local asset serving, and replacements, but it should not hide developer choices behind black-box safety skips. Every applied, skipped, or failed transform must be observable.
+
 ### v0.8.0 - Library Extraction Readiness
 
-Prepare the future library API draft and migration inventory for:
+Prepare the future library API draft and migration inventory after Provider, DNSIntercept, and Page Enhance boundaries are validated. Include:
 
 - `Config`
 - `Engine`
@@ -87,6 +101,8 @@ Prepare the future library API draft and migration inventory for:
 - `Start`
 - `Stop`
 - `Restore`
+- DNSIntercept manual/system/external strategies
+- Page Enhance transformer pipeline
 
 The current CLI should be decoupled from core assembly enough that future extraction does not carry CLI-specific details into the new library.
 
@@ -107,15 +123,17 @@ Ship a stable validation baseline for this experimental repository. Steam remain
 Possible post-v1 work:
 
 - real GitHub provider validation
-- DNSIntercept
-- VPN / TUN
-- JS injection or page enhancement, disabled by default
+- external DNS tool integrations
+- mature-library TUN/VPN adapters, if ever needed
+- additional provider enhancement packs
 - macOS / Linux Hosts, certificate, and privilege loops
 
 ## Non-goals Before v1
 
 - Do not promise real GitHub acceleration before provider validation.
-- Do not implement DNSIntercept, TUN/VPN, JS injection, or cross-platform AppHost loops before the v0.7 provider boundary is stable.
+- Do not implement TUN/VPN or cross-platform AppHost loops before the core boundary is stable.
+- Do not make DNSIntercept modify system DNS by default; system takeover must be explicit and reversible.
+- Do not add hidden Page Enhance safety skips; developer choices must be explicit and observable.
 - Do not treat an upstream proxy as required for the default loop.
 - Do not describe this repository as the final Go library repository.
 - Do not copy, translate, or port SteamTools source code.

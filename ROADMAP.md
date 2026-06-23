@@ -19,7 +19,7 @@
 ```text
 站点 provider 规则
         ↓
-接管模式：Hosts / PAC / System Proxy / 后续 DNSIntercept 或 TUN
+接管模式：Hosts / PAC / System Proxy / DNSIntercept；TUN/VPN 暂不进入本仓库实现
         ↓
 本地 HTTP / HTTPS Reverse Proxy
         ↓
@@ -79,7 +79,7 @@ stop / restore 恢复系统修改
 - AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程验证；仍建议补充 `install -> reboot -> no-admin start` 的单独重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
 - GitHub 已有 experimental skeleton provider，可通过 `providers.enabled` 显式启用；它不包含默认 outbound profile，也不承诺真实加速。
-- hosts 只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept 或更高级接管模式。
+- hosts 只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept；DNSIntercept 必须显式启用，并提供 manual / system / external 策略，不能默认改坏开发者环境。
 - macOS / Linux Hosts 与证书安装未落地。
 - 桌面 installer、服务升级、日志位置、卸载清理和发布包还没有产品化。
 
@@ -93,7 +93,7 @@ stop / restore 恢复系统修改
 - `rules`：通用规则编译、匹配、版本信息，不再默认绑定 Steam。
 - `resolver`：system / udp / tcp / doh、缓存、IPv4 / IPv6 策略、超时和 fallback。
 - `upstream`：direct / HTTP / SOCKS5 / provider profile / candidate dialing。
-- `takeover`：ProxyOnly / PAC / System Proxy / Hosts / 后续 DNSIntercept / TUN。
+- `takeover`：ProxyOnly / PAC / System Proxy / Hosts / DNSIntercept；TUN/VPN 不进入当前实验主线。
 - `reverse`：通用本地 HTTP / HTTPS 反代、证书、WebSocket、错误诊断。
 - `certstore`：Root CA、动态证书和平台信任存储。
 - `privilege`：Windows AppHost、后续 macOS/Linux 权限边界、系统修改白名单。
@@ -189,6 +189,8 @@ stop / restore 恢复系统修改
 
 详细边界维护在 [docs/zh/capability-boundary.md](docs/zh/capability-boundary.md)。
 
+v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽库前的主能力验证；它们必须显式启用、可观察、可还原。TUN/VPN 继续延期，优先使用成熟外部库或独立集成。
+
 ---
 
 ### v0.7.0 - Provider 架构与通用站点骨架
@@ -228,18 +230,117 @@ stop / restore 恢复系统修改
 
 ---
 
+### v0.7.1 - DNSIntercept 决策与本地 DNS Server 基础
+
+**状态：** 计划中
+**范围：** Network / Takeover / Reliability / Testing
+**目标：** 在不默认修改系统 DNS 的前提下，为 provider wildcard 和非 hosts 场景提供可验证的 DNS 接管基础。
+
+#### Focus
+
+- DNS 查询决策：target provider 域名、本地映射、非目标转发。
+- 可选本地 DNS server，默认只在显式 `manual` 策略下启动，不自动改系统 DNS。
+- 避免把 `127.0.0.1:53` 占用和系统 DNS 接管做成隐藏默认行为。
+- 为后续 `system` 和 `external` 策略预留边界。
+
+#### Tasks
+
+- [ ] 新增 `dns_intercept.strategy: manual|system|external` 配置草案；默认不启用，不修改系统 DNS。
+- [ ] 实现 DNS decision 层：provider rules / custom domains 命中返回本地映射，非目标查询转发到 DoH 或显式上游。
+- [ ] 实现可选本地 DNS server，支持 UDP/TCP 查询、缓存、超时、并发保护、命中/转发统计。
+- [ ] 对 `A` / `AAAA` / `HTTPS` / `SVCB` 等记录提供显式策略，不做隐藏魔法；默认行为必须写入文档和 status。
+- [ ] 启动前检测 listen 地址和 53 端口占用，冲突时返回清晰错误，不强占端口。
+- [ ] `status` 输出 DNSIntercept 策略、监听地址、是否接管系统 DNS、命中数、转发数、错误数。
+- [ ] 单元测试覆盖 target 命中、wildcard 命中、非目标转发、上游失败、缓存、端口冲突和关闭恢复。
+
+#### Acceptance Criteria
+
+- `manual` 策略下不会修改系统 DNS、hosts、证书或任何持久化系统设置。
+- 本地 DNS server 停止后不留下系统状态变化。
+- 非目标 DNS 不会自绕回到本机 DNS server。
+- 端口冲突、上游失败和不支持记录类型都有可诊断错误或 status。
+- 所有行为都可通过配置关闭、回滚或不启用。
+
+---
+
+### v0.7.2 - Windows System DNS 显式接管与恢复
+
+**状态：** 计划中
+**范围：** Windows / Reliability / Security-Safety / Testing
+**目标：** 在用户显式选择 `dns_intercept.strategy: system` 时，通过 AppHost 受控修改系统 DNS，并保证 stop / restore 可还原。
+
+#### Focus
+
+- Windows 网卡 DNS preflight。
+- AppHost 白名单 DNS apply / restore 请求。
+- rollback 记录原始 DNS 状态。
+- 崩溃恢复和重复 restore 幂等。
+
+#### Tasks
+
+- [ ] 设计 `system_dns` rollback schema，记录每个受影响 interface 的原始 DNS 设置、DHCP/static 状态和应用时间。
+- [ ] AppHost 增加窄命令：`apply-system-dns`、`restore-system-dns`、`preflight-system-dns`，不接受任意命令或任意脚本。
+- [ ] `start --mode dns` 或等价配置在 `strategy: system` 下先完成 preflight，再启动 DNS server，再应用系统 DNS。
+- [ ] `stop` / `restore` 使用 rollback 恢复原 DNS；重复执行应安全幂等。
+- [ ] `status` 和 `system_change:` 输出 DNS apply / restore 的 interface、helper、结果和错误摘要。
+- [ ] 集成测试或可重复手动 smoke 覆盖 apply、stop、restore、AppHost 缺失、端口占用、崩溃后 restore。
+
+#### Acceptance Criteria
+
+- 不选择 `strategy: system` 时，库不会改系统 DNS。
+- 任何系统 DNS 修改前都必须已有 rollback 记录或可生成 rollback 记录。
+- `stop` / `restore` 后系统 DNS 回到启动前状态。
+- AppHost 缺失、权限不足、接口枚举失败或 DNS server 未启动时，不写入半成品系统 DNS。
+- 失败路径不应让开发者机器进入“DNS 指向本地但本地服务未运行”的状态；如果出现异常，文档提供可手动恢复命令。
+
+---
+
+### v0.7.3 - JS 注入与页面增强透明 Pipeline
+
+**状态：** 计划中
+**范围：** Reverse Proxy / Developer-facing / Diagnostics / Testing
+**目标：** 在本地 reverse proxy 中提供可观察、可关闭、无隐藏安全魔法的响应转换能力，让开发者显式决定如何注入或增强页面。
+
+#### Focus
+
+- 有序 response transform pipeline。
+- YAML 声明式 transform 和 Go 自定义 transformer。
+- 机械能力：header 修改、HTML 注入、本地 asset serving、字符串替换。
+- 可观察性：每次应用、跳过和错误都能看到原因。
+
+#### Tasks
+
+- [ ] 设计 `page_enhance.enabled`、`transforms`、`assets`、`on_error`、`max_body_size` 等配置；默认关闭。
+- [ ] 实现 `ResponseMeta` 与 `Transformer` 接口，支持 provider、host、path、content-type、status code 等显式匹配。
+- [ ] 实现内置机械 transform：header remove/set、HTML head/body 注入、本地 asset mount、简单 replace。
+- [ ] 开发者可选择 `on_error: pass_through|fail_closed`；库不得因内置黑盒规则偷偷跳过 login、checkout 或任意路径。
+- [ ] 对压缩、body size、unsupported content encoding、transform error 等跳过或失败原因输出 `enhance_*` status / log。
+- [ ] Provider 只能声明推荐 enhancement pack 或元数据；是否启用、启用哪些 transform 由开发者或上层应用决定。
+- [ ] 单元测试覆盖 transform 顺序、header 修正、Content-Length / ETag 处理、asset serving、错误策略和并发访问。
+
+#### Acceptance Criteria
+
+- 默认不启用页面增强，不修改任何响应内容。
+- 启用后，所有修改都来自显式配置或显式注册的 transformer。
+- 库不内置不可见的“安全跳过”规则；任何跳过都必须有明确原因。
+- 页面增强不会写系统 DNS、hosts、证书、浏览器配置或开发者环境。
+- 开发者可以通过关闭 `page_enhance.enabled` 或移除 transform 完全恢复原始响应行为。
+
+---
+
 ### v0.8.0 - 独立 Go Library 抽取准备
 
 **状态：** 计划中
 **范围：** API / Architecture / Developer-facing / Documentation
-**目标：** 标记、整理和验证可迁移核心能力，为未来新建独立 Go library 仓库做准备。
+**目标：** 在 Provider、DNSIntercept 和 Page Enhance 主能力边界验证后，标记、整理和验证可迁移核心能力，为未来新建独立 Go library 仓库做准备。
 
 #### Focus
 
 - 未来 public API 草案。
 - Engine 生命周期边界。
 - Provider 注册与选择边界。
-- 系统修改权限边界。
+- 系统修改权限边界，尤其是 DNS / hosts / cert / AppHost 的可还原约束。
+- DNSIntercept 与 Page Enhance 的 public API 草案。
 - 可迁移清单与迁移文档。
 
 #### Tasks
@@ -250,6 +351,7 @@ stop / restore 恢复系统修改
 - [ ] 提供 provider 开发样例：最小 GitHub skeleton provider。
 - [ ] 将 CLI 与核心拼装边界整理清楚，避免未来迁移时把命令行细节带进新库。
 - [ ] 设计配置 schema 版本和从实验仓库到正式库的迁移策略。
+- [ ] 明确哪些能力会进入 core library，哪些作为可选 adapter 或外部集成保留。
 - [ ] 更新 README：明确本仓库是实验验证仓库，未来正式 Go library 会另起仓库。
 
 #### Acceptance Criteria
@@ -258,6 +360,7 @@ stop / restore 恢复系统修改
 - CLI 与核心能力的耦合点被识别并可拆分。
 - API 草案明确只是未来新仓库输入，不在本仓库承诺稳定。
 - Steam provider 的真实 smoke 仍可作为迁移回归标准。
+- DNSIntercept 的 `manual` 策略和 Page Enhance 的默认关闭行为不会修改开发者系统环境。
 
 ---
 
@@ -344,15 +447,15 @@ stop / restore 恢复系统修改
 
 **状态：** 计划中
 **范围：** Advanced / Cross-platform / Security-Safety
-**目标：** 在 v1 稳定主线之后逐步加入更强接管能力和更多真实 provider。
+**目标：** 在主线能力稳定之后逐步加入更多真实 provider、外部 DNS 集成和跨平台体验；TUN/VPN 暂不进入本仓库实现。
 
 #### Candidate Milestones
 
 - `v1.1.0`：GitHub provider 从 skeleton 进入真实网络验证，明确哪些 GitHub 域名和资源可被本地加速。
-- `v1.2.0`：DNSIntercept，用于覆盖 hosts 无法表达的 wildcard 和非浏览器 DNS 路径。
-- `v1.3.0`：VPN / TUN，用于更强流量接管，但必须有清晰权限、路由和恢复边界。
-- `v1.4.0`：JS 注入 / 页面增强，默认关闭，只作为显式高级能力。
+- `v1.2.0+`：外部 DNS 工具集成，例如导出规则给 AdGuardHome、dnsmasq、sing-box 或 Clash Meta。
+- `v1.x`：更多 provider 的真实网络验证和 enhancement pack。
 - `v1.x`：macOS / Linux Hosts、证书、权限和 AppHost 等价能力。
+- `deferred`：VPN / TUN 可使用成熟外部库或独立项目集成，不作为当前 core library 前置目标。
 
 ## 短中长期方向
 
@@ -360,20 +463,23 @@ stop / restore 恢复系统修改
 
 - 补齐 `v0.6.4` Windows AppHost Service 单独重启自动拉起 smoke 记录。
 - 完成 `v0.7.0` provider 架构真实 Windows smoke 回归。
+- 进入 `v0.7.1` DNSIntercept manual 策略和本地 DNS server 验证，确保默认不改系统 DNS。
+- 进入 `v0.7.3` Page Enhance 透明 pipeline 设计，确保默认关闭且无隐藏跳过规则。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
-- 开始 `v0.8.0` 独立 Go Library 抽取准备。
+- 将 `v0.8.0` 独立 Go Library 抽取顺延到 DNSIntercept / Page Enhance 主能力边界验证之后。
 
 中期：
 
 - 整理未来独立 Go library 的 API 草案和迁移清单。
 - 将 CLI 与核心能力的边界整理到可迁移状态。
+- 设计外部 DNS 工具导出和 enhancement pack 的 adapter 边界。
 
 长期：
 
 - `v1.0.0` 作为本实验仓库的稳定验证基线，而不是正式通用库发布。
 - 新建独立 Go library 仓库，复用本仓库验证过的核心能力和经验。
 - Steam 是稳定 provider；GitHub 先从 skeleton / experimental 逐步进入真实验证。
-- DNSIntercept、TUN/VPN、JS 注入只在主线稳定后逐步进入。
+- DNSIntercept 和 JS / Page Enhance 作为抽库前主能力验证；TUN/VPN 使用成熟外部库或独立项目，不进入当前 core 前置目标。
 
 ## 关键风险
 
@@ -381,10 +487,13 @@ stop / restore 恢复系统修改
 |---|---|---|
 | AppHost named pipe 仍缺少用户会话绑定 | 同一交互用户下的本地恶意进程仍可能尝试请求受限系统修改 | 已有 DACL、远程拒绝、pipe client PID、客户端二进制路径校验和命令白名单；后续补用户会话绑定、审计日志和按需启动 |
 | AppHost 重启后自动拉起 smoke 未记录 | 电脑重启后的无管理员启动闭环可能仍有遗漏 | 已完成安装、health、named pipe、普通用户 Hosts 闭环、stop/restore、uninstall 主流程记录；下一步补 `reboot -> apphost status -> no-admin start` |
-| v1.1+ 高级能力过早进入 v0.7 | Provider 抽象被 DNSIntercept、TUN 或 JS 注入细节污染，未来 Go library 边界变重 | v0.6.5 先冻结能力边界；高级能力只作为 extension points 和 non-goals 记录 |
+| DNSIntercept 默认接管系统 DNS | 占用 53 端口或把开发者系统 DNS 指向不可用服务，导致全局网络异常 | 默认只做 `manual` 策略，不改系统 DNS；`system` 策略必须显式启用、preflight、rollback、stop/restore 幂等 |
+| DNS server 占用 53 端口 | 与 AdGuard、Clash、dnscrypt-proxy、Docker 等本地服务冲突 | 启动前检测端口，冲突时报错；支持 `manual` 非系统接管和 `external` 规则导出路线 |
+| Page Enhance 隐藏规则过多 | 开发者配置了注入却被库内置规则跳过，难以排查 | 不内置不可见的安全跳过；跳过和错误必须输出 reason；是否注入 login/checkout 等页面由开发者显式决定 |
+| v0.7.x 能力扩展污染 Provider 抽象 | Provider 同时承担系统修改、DNS 接管或页面改写执行职责，未来 Go library 边界变重 | Provider 只声明 rules/profile/probes/可选 enhancement metadata；DNS 接管属于 takeover，页面增强属于 reverse transform pipeline |
 | Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 已完成 provider registry、配置迁移错误和 CLI 新参数；Go module / CLI 名称保留为实验仓库历史包袱 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |
-| hosts 无法覆盖 wildcard | 部分域名无法接管 | v1.x DNSIntercept / TUN 作为高级能力 |
+| hosts 无法覆盖 wildcard | 部分域名无法接管 | v0.7.1 先做 DNSIntercept manual/server 基础，v0.7.2 再做显式系统 DNS 接管和恢复 |
 | Root CA 信任风险 | 用户安全顾虑 | 显式安装 / 卸载、清晰文档、最小命令面、日志脱敏 |
 | 80 / 443 端口占用 | Hosts 模式启动失败 | 诊断命令、错误提示、高端口 smoke |
 | 复制 SteamTools 源码 | 许可证和维护风险 | 坚持 clean-room，只参考架构思想 |
