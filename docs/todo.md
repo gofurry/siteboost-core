@@ -2,7 +2,7 @@
 
 ## Short-Term Tasks
 
-- Keep the DNSIntercept manual high-port and Windows system DNS smoke records current for the v0.7.3-dev path.
+- Keep the DNSIntercept manual high-port, Windows system DNS, and Steam API smoke records current for the v0.7.4-dev path.
 - Keep Page Enhance high-port and real-browser smoke records current.
 - Finish real Windows smoke for the provider registry and Hosts/AppHost path.
 - Prepare the v0.8.0 `gofurry/web-boost` API, package boundary, and directory plan after DNSIntercept/Page Enhance boundaries are validated.

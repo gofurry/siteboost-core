@@ -1,6 +1,6 @@
 # Steam Compatibility Matrix
 
-This document tracks the v0.6.0 default Steam web-acceleration coverage. It is a clean-room compatibility checklist, not a copy of Steam++ / Watt Toolkit data.
+This document tracks the default Steam web-acceleration coverage. It is a clean-room compatibility checklist. Steam++ / Watt Toolkit behavior is used only as a public behavior-level reference when validating domain/profile choices.
 
 ## Startup Probes
 
@@ -9,7 +9,7 @@ Hosts + Direct mode runs non-fatal startup probes through the same DoH and outbo
 `start` and `status` print:
 
 ```text
-startup_probes: ok=6 failed=0
+startup_probes: ok=7 failed=0
 startup_probe_failed: host=store.steampowered.com target=cdn-a.akamaihd.net stage=tcp error=tcp ...
 ```
 
@@ -19,6 +19,7 @@ Default probe targets:
 |---|---|---|
 | `steamcommunity.com` | `steamcommunity-a.akamaihd.net` | Community entry point |
 | `store.steampowered.com` | `cdn-a.akamaihd.net` | Store entry point |
+| `api.steampowered.com` | `steamstore.rmbgame.net` | Official Steam Web API |
 | `help.steampowered.com` | `cdn-a.akamaihd.net` | Support entry point |
 | `media.steampowered.com` | `cdn-a.akamaihd.net` | Media/static asset host |
 | `community.steamstatic.com` | `community.steamstatic.com` | Community static assets |
@@ -63,7 +64,7 @@ For a wildcard subdomain that must be tested in Hosts mode, add that specific ho
 |---|---|---|---|---|
 | Store | `store.steampowered.com`, `checkout.steampowered.com`, `help.steampowered.com`, `login.steampowered.com`, `media.steampowered.com` | `cdn-a.akamaihd.net` | store/help/media | Windows China-network smoke passed |
 | Community | `steamcommunity.com`, plus wildcard `*.steamcommunity.com` outside Hosts exact coverage | `steamcommunity-a.akamaihd.net` | `steamcommunity.com` | Windows China-network smoke passed |
-| API | `api.steampowered.com`, `partner.steam-api.com` | Original host direct fallback | Not probed by default | API smoke pending |
+| API | `api.steampowered.com`, `partner.steam-api.com` | `api.steampowered.com` prefers `steamstore.rmbgame.net` with certificate-chain validation and hostname-mismatch tolerance; `partner.steam-api.com` still uses original host fallback | `api.steampowered.com` | Go API smoke pending |
 | Chat | `steam-chat.com`, plus wildcard `*.steam-chat.com` outside Hosts exact coverage | Original host direct fallback | Not probed by default | `steamcommunity.com/chat/` smoke passed |
 | Static | `community.steamstatic.com`, `steamstatic.com`, `akamai.steamstatic.com`, plus static wildcards outside Hosts exact coverage | `community.steamstatic.com` has explicit profile; other static hosts use original host fallback | `community.steamstatic.com` | Windows China-network smoke passed |
 | CDN | `steamcdn-a.akamaihd.net` | `steamcdn-a.akamaihd.net` | `steamcdn-a.akamaihd.net` | Windows China-network smoke passed |
@@ -89,6 +90,7 @@ Browser / Steam client:
 | Community homepage | `https://steamcommunity.com/` | Page content loads |  |  |
 | Store homepage | `https://store.steampowered.com/` | Page content loads |  |  |
 | Help homepage | `https://help.steampowered.com/` | Page content loads |  |  |
+| Official Web API | `https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v1/?format=json` | JSON response is returned |  |  |
 | Login page | Open Steam login flow | Login page assets load |  |  |
 | Static asset | `https://community.steamstatic.com/` | HTTP response is returned |  |  |
 | CDN asset | `https://steamcdn-a.akamaihd.net/` | HTTP response is returned |  |  |

@@ -4,7 +4,7 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 已进入 `v0.7.3-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server、显式 Windows system DNS 接管 / rollback / restore，以及默认关闭的 Page Enhance 响应转换 pipeline；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问、卸载主流程和 Windows system DNS 接管 / 恢复 smoke 记录，真实 Windows 重启后的 AppHost 自动拉起仍建议补充单独记录
+> 当前代码阶段：`version.go` 已进入 `v0.7.4-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server、显式 Windows system DNS 接管 / rollback / restore、默认关闭的 Page Enhance 响应转换 pipeline，以及 Steam 官方 Web API outbound profile；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问、卸载主流程和 Windows system DNS 接管 / 恢复 smoke 记录，真实 Windows 重启后的 AppHost 自动拉起仍建议补充单独记录
 
 ## 当前定位
 
@@ -75,7 +75,7 @@ stop / restore 恢复系统修改
 
 ### 当前限制
 
-- `version.go` 已进入 `v0.7.3-dev`，但 Go module、CLI、配置字段和部分包名仍带 Steam 专用命名。
+- `version.go` 已进入 `v0.7.4-dev`，但 Go module、CLI、配置字段和部分包名仍带 Steam 专用命名。
 - 运行时基本仍在 `internal/`，公共 Go API 尚未稳定。
 - AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程验证；仍建议补充 `install -> reboot -> no-admin start` 的单独重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
@@ -331,6 +331,28 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 - [x] 库不内置不可见的“安全跳过”规则；任何跳过都必须有明确原因。
 - [x] 页面增强不会写系统 DNS、hosts、证书、浏览器配置或开发者环境。
 - [x] 开发者可以通过关闭 `page_enhance.enabled` 或移除 transform 完全恢复原始响应行为。
+
+---
+
+### v0.7.4 - Steam 官方 Web API outbound profile
+
+**状态：** 代码与自动化验证已完成，等待真实 Go API smoke 记录
+**范围：** Provider / Upstream Profile / Diagnostics / Smoke
+**目标：** 修复 `api.steampowered.com` 在中国网络下虽被 hosts 接管但反代上游仍走原始直连导致 Go 程序请求超时的问题。
+
+#### Focus
+
+- 借鉴 Steam++ / Watt Toolkit 公开远端加速项目的行为层经验：`api.steampowered.com` 随 Steam 商店项目走 `steamstore.rmbgame.net` 前置域。
+- 只补 API provider profile，不整体替换已通过 smoke 的 store/community profile。
+- 保留原始 HTTP Host；TLS 仍验证证书链，但允许该前置域场景下的 hostname mismatch。
+- 把 `api.steampowered.com` 加入默认 startup probes，让 API 链路断点在启动时可见。
+
+#### Acceptance Criteria
+
+- [x] 默认 Steam provider 输出 `profiles=5 probes=7`。
+- [x] `api.steampowered.com` 匹配 Steam provider API rule，并优先连接 `steamstore.rmbgame.net`。
+- [x] `partner.steam-api.com` 仍保留规则捕获，但未把未经验证的 profile 强加到该域名。
+- [x] 文档记录 API smoke 命令和 profile 语义。
 
 ---
 

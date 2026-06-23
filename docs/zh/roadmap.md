@@ -15,7 +15,7 @@
 - 远端仓库已经改为 `gofurry/siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已是 `v0.7.3-dev`。
+- `version.go` 已是 `v0.7.4-dev`。
 - 主干代码已包含 Windows AppHost Service 与 named pipe IPC：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务名：`SiteBoostCoreAppHost`。
@@ -161,6 +161,12 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 **状态：** 代码、自动化验证与真实浏览器 Page Enhance smoke 已完成。
 
 目标是在 reverse proxy 内增加默认关闭的 response transform pipeline。已实现 provider / host / path / content-type / status 匹配、header 修改、HTML 注入、本地 asset、replace 和 Go 自定义 transformer 扩展点。库只提供机械能力，不做隐藏安全跳过；每次应用、跳过或失败都能在 status / log 里看到原因。关闭 `page_enhance.enabled` 或移除 transform 后即可恢复原始响应行为，不会修改系统 DNS、hosts、证书、浏览器配置或开发者环境。
+
+### v0.7.4 - Steam 官方 Web API outbound profile
+
+**状态：** 代码与自动化验证已完成，仍建议补真实 Go API smoke 记录。
+
+已为 `api.steampowered.com` 增加独立 Steam provider profile。该选择参考 Steam++ / Watt Toolkit 公开远端加速项目的行为层经验：Steam 商店/API 项目走 `steamstore.rmbgame.net`。实现保留原始 HTTP Host，继续校验证书链，但对这个前置域场景显式容忍 hostname mismatch，并把官方 API 端点加入 startup probes。`partner.steam-api.com` 仍保留规则捕获，但在单独验证前继续使用原始域名 fallback。
 
 ### v0.8.0 - 独立 Go Library 抽取准备
 

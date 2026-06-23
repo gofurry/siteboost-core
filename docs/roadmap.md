@@ -13,7 +13,7 @@ Current facts:
 - The remote repository is `gofurry/siteboost-core`.
 - The Go module is still `github.com/gofurry/go-steam-core`.
 - The CLI is still `steam-accelerator`.
-- `version.go` reports `v0.7.3-dev`.
+- `version.go` reports `v0.7.4-dev`.
 - The main branch contains Windows AppHost Service and named pipe IPC work.
 - Local real-machine validation has passed for AppHost health, named pipe RPC, the normal-user Hosts loop, China-network Steam access, `stop`, `restore`, uninstall behavior, and explicit Windows system DNS takeover/restore. A dedicated reboot auto-start smoke is still recommended.
 
@@ -94,6 +94,12 @@ Implemented explicit `strategy: system` for Windows DNSIntercept. It requires `m
 **Status:** Code, automated validation, and real browser Page Enhance smoke completed.
 
 Implemented an opt-in reverse-proxy response transform pipeline. It provides mechanical transforms such as provider/host/path/content-type/status matching, header edits, HTML injection, local asset serving, replacements, and custom transformer hooks. It does not hide developer choices behind black-box safety skips. Every applied, skipped, or failed transform is observable through logs and `page_enhance` status counters.
+
+### v0.7.4 - Steam Official Web API Outbound Profile
+
+**Status:** Code and automated validation completed; real Go API smoke is still recommended.
+
+Added a focused Steam provider profile for `api.steampowered.com`, using the public Steam++ / Watt Toolkit behavior-level reference that routes the Steam store/API project through `steamstore.rmbgame.net`. The profile preserves the original HTTP Host, keeps certificate-chain validation, tolerates hostname mismatch for this fronting case, and adds the official API endpoint to startup probes. `partner.steam-api.com` remains rule-captured but still uses original-host fallback until separately validated.
 
 ### v0.8.0 - Library Extraction Readiness
 

@@ -1,6 +1,6 @@
 # Steam 兼容性清单
 
-本文记录 v0.6.0 默认 Steam Web 加速覆盖情况。这是一份 clean-room 兼容性清单，不复制 Steam++ / Watt Toolkit 的规则数据。
+本文记录默认 Steam Web 加速覆盖情况。这是一份 clean-room 兼容性清单；Steam++ / Watt Toolkit 只作为公开行为层参考，用来验证域名/profile 选择，不复制实现代码。
 
 ## 启动探测
 
@@ -9,7 +9,7 @@ Hosts + Direct 模式会通过反代实际使用的同一条 DoH 和 outbound pr
 `start` 和 `status` 会输出：
 
 ```text
-startup_probes: ok=6 failed=0
+startup_probes: ok=7 failed=0
 startup_probe_failed: host=store.steampowered.com target=cdn-a.akamaihd.net stage=tcp error=tcp ...
 ```
 
@@ -19,6 +19,7 @@ startup_probe_failed: host=store.steampowered.com target=cdn-a.akamaihd.net stag
 |---|---|---|
 | `steamcommunity.com` | `steamcommunity-a.akamaihd.net` | 社区入口 |
 | `store.steampowered.com` | `cdn-a.akamaihd.net` | 商店入口 |
+| `api.steampowered.com` | `steamstore.rmbgame.net` | Steam 官方 Web API |
 | `help.steampowered.com` | `cdn-a.akamaihd.net` | 帮助入口 |
 | `media.steampowered.com` | `cdn-a.akamaihd.net` | 媒体 / 静态资源域名 |
 | `community.steamstatic.com` | `community.steamstatic.com` | 社区静态资源 |
@@ -63,7 +64,7 @@ store.steampowered.com
 |---|---|---|---|---|
 | 商店 | `store.steampowered.com`、`checkout.steampowered.com`、`help.steampowered.com`、`login.steampowered.com`、`media.steampowered.com` | `cdn-a.akamaihd.net` | store / help / media | Windows 中国网络 smoke 通过 |
 | 社区 | `steamcommunity.com`，以及 Hosts exact 无法覆盖的 `*.steamcommunity.com` | `steamcommunity-a.akamaihd.net` | `steamcommunity.com` | Windows 中国网络 smoke 通过 |
-| API | `api.steampowered.com`、`partner.steam-api.com` | 原始域名 direct fallback | 默认不探测 | API smoke 待记录 |
+| API | `api.steampowered.com`、`partner.steam-api.com` | `api.steampowered.com` 优先走 `steamstore.rmbgame.net`，保留证书链校验并容忍 hostname mismatch；`partner.steam-api.com` 仍走原始域名 fallback | `api.steampowered.com` | Go API smoke 待记录 |
 | 聊天 | `steam-chat.com`，以及 Hosts exact 无法覆盖的 `*.steam-chat.com` | 原始域名 direct fallback | 默认不探测 | `steamcommunity.com/chat/` smoke 通过 |
 | 静态资源 | `community.steamstatic.com`、`steamstatic.com`、`akamai.steamstatic.com`，以及 Hosts exact 无法覆盖的 static wildcard | `community.steamstatic.com` 有显式 profile；其他 static 域名走原始域名 fallback | `community.steamstatic.com` | Windows 中国网络 smoke 通过 |
 | CDN | `steamcdn-a.akamaihd.net` | `steamcdn-a.akamaihd.net` | `steamcdn-a.akamaihd.net` | Windows 中国网络 smoke 通过 |
@@ -89,6 +90,7 @@ Root CA 状态：
 | 社区首页 | `https://steamcommunity.com/` | 页面内容加载 |  |  |
 | 商店首页 | `https://store.steampowered.com/` | 页面内容加载 |  |  |
 | 帮助首页 | `https://help.steampowered.com/` | 页面内容加载 |  |  |
+| 官方 Web API | `https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v1/?format=json` | 返回 JSON 响应 |  |  |
 | 登录页 | 打开 Steam 登录流程 | 登录页资源加载 |  |  |
 | 静态资源 | `https://community.steamstatic.com/` | 返回 HTTP 响应 |  |  |
 | CDN 资源 | `https://steamcdn-a.akamaihd.net/` | 返回 HTTP 响应 |  |  |

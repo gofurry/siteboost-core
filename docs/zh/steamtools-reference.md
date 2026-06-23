@@ -48,7 +48,7 @@
 - `v0.4.0` 已实现 Windows-first Hosts、Root CA 与 HTTPS Reverse Proxy。
 - `v0.5.0` 已补齐第一版 Hosts + DoH 一键默认闭环，避免 Hosts 模式出站解析自绕回。
 - `v0.5.1` 已补齐出站失败诊断和 HTTPS Direct 出口的 TCP + TLS 候选尝试链。
-- `v0.6.0` 已落地默认 Steam 出站 profile：community 优先 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 优先 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。HTTP Host 保留原始 Steam 域名，TLS SNI 按 profile 使用可达 CDN 域名。
+- `v0.6.0` 已落地默认 Steam 出站 profile：community 优先 `steamcommunity-a.akamaihd.net`，store / checkout / help / login / media 优先 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 这类常见静态资源 / CDN 域名。`v0.7.4` 参考 Steam++ / Watt Toolkit 公开远端加速项目的行为层经验，补齐 `api.steampowered.com -> steamstore.rmbgame.net`。HTTP Host 保留原始 Steam 域名；需要前置域的场景通过显式 profile 处理 TLS SNI / hostname mismatch。
 - `v0.7.1` / `v0.7.2` 已落地 DNSIntercept manual 与 Windows system 显式接管；`v0.7.3` 已落地默认关闭的 Page Enhance pipeline。VPN / TUN 继续延期到成熟外部 adapter 或独立项目。
 
 ## 相关文档

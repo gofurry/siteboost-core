@@ -50,10 +50,11 @@ func TestSteamProviderKeepsRulesProfilesAndProbes(t *testing.T) {
 	if info.GroupCount != 6 || info.ExactCount != 13 || info.WildcardCount != 4 {
 		t.Fatalf("bad steam rule counts: %#v", info)
 	}
-	if len(steam.OutboundProfiles) != 4 {
+	if len(steam.OutboundProfiles) != 5 {
 		t.Fatalf("steam outbound profiles = %#v", steam.OutboundProfiles)
 	}
 	for _, host := range []string{
+		"api.steampowered.com",
 		"steamcdn-a.akamaihd.net",
 		"community.steamstatic.com",
 		"media.steampowered.com",
@@ -68,8 +69,11 @@ func TestSteamProviderKeepsRulesProfilesAndProbes(t *testing.T) {
 			}
 		})
 	}
-	if len(steam.ProbeTargets) != 6 {
+	if len(steam.ProbeTargets) != 7 {
 		t.Fatalf("steam probe targets = %#v", steam.ProbeTargets)
+	}
+	if !profileIgnoresTLSNameMismatch(steam.OutboundProfiles, "api.steampowered.com") {
+		t.Fatalf("steam API profile should tolerate CDN hostname mismatch: %#v", steam.OutboundProfiles)
 	}
 }
 
@@ -93,6 +97,28 @@ func TestGitHubProviderIsExperimentalSkeleton(t *testing.T) {
 	if len(github.ProbeTargets) == 0 {
 		t.Fatalf("github probe targets are empty")
 	}
+}
+
+func profileIgnoresTLSNameMismatch(profiles []upstream.Profile, host string) bool {
+	normalized, err := rules.NormalizeHost(host)
+	if err != nil {
+		return false
+	}
+	for _, profile := range profiles {
+		if !profile.IgnoreTLSNameMismatch {
+			continue
+		}
+		for _, domain := range profile.MatchDomains {
+			normalizedDomain, err := rules.NormalizeHost(strings.TrimPrefix(domain, "*."))
+			if err != nil {
+				continue
+			}
+			if normalized == normalizedDomain {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func profileMatches(profiles []upstream.Profile, host string) bool {

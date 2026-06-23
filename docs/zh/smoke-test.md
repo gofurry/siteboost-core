@@ -182,7 +182,7 @@ error: open apphost service: The specified service does not exist as an installe
 ./bin/steam-accelerator.exe status --state ./tmp/runtime.json
 ```
 
-默认 Hosts + Direct 闭环的状态中应出现 `provider: id=steam status=stable rule_set=steam-web@2026.06.22 profiles=4 probes=6`、`resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.22`、`upstream_profiles: 4` 和 `startup_probes:`。默认单 Steam provider 下继续保留独立 `rule_set:` 行，方便沿用既有 smoke 阅读习惯。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认 Steam outbound profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，同时保留原始 HTTP Host。
+默认 Hosts + Direct 闭环的状态中应出现 `provider: id=steam status=stable rule_set=steam-web@2026.06.23 profiles=5 probes=7`、`resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.23`、`upstream_profiles: 5` 和 `startup_probes:`。默认单 Steam provider 下继续保留独立 `rule_set:` 行，方便沿用既有 smoke 阅读习惯。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认 Steam outbound profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，并让 `api.steampowered.com` 优先连接 `steamstore.rmbgame.net`，同时保留原始 HTTP Host。
 
 如需验证 v0.7 provider skeleton，可创建临时配置显式启用 GitHub：
 
@@ -195,7 +195,7 @@ providers:
 
 用该配置启动后检查 `status`。输出应同时包含 `provider: id=steam status=stable ...` 和 `provider: id=github status=experimental rule_set=github-web@2026.06.23 probes=3`。GitHub 只是用于验证架构扩展的 skeleton provider；该 smoke 不应要求 GitHub 真实可达，也不表示已经具备 GitHub 真实加速。
 
-`system_change:` 行应显示 Root CA 检查/安装、hosts preflight、反代监听和 hosts 写入结果。普通 PowerShell 通过 AppHost 成功时，Root CA 或 hosts 行的 detail 中应包含 `helper=elevated`。`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
+`system_change:` 行应显示 Root CA 检查/安装、hosts preflight、反代监听和 hosts 写入结果。普通 PowerShell 通过 AppHost 成功时，Root CA 或 hosts 行的 detail 中应包含 `helper=elevated`。`startup_probes: ok=7 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
 
 如果访问页面返回 `upstream request failed`，响应体不应只有这一句，还应包含类似 `direct upstream resolve ... failed`、`resolve steamcommunity-a.akamaihd.net:443 failed`、`tcp 1.2.3.4:443 failed` 或 `tls 1.2.3.4:443 failed` 的摘要。该摘要用来判断失败发生在 DoH、ForwardDestination 解析、TCP 直连还是 TLS 握手阶段。
 
@@ -209,6 +209,8 @@ curl.exe --ssl-no-revoke -I --max-time 30 https://store.steampowered.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://community.steamstatic.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://media.steampowered.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
+curl.exe --ssl-no-revoke --max-time 30 `
+  "https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v1/?format=json"
 ```
 
 停止并卸载证书：
@@ -363,7 +365,7 @@ curl.exe -H "Host: store.steampowered.com" http://127.0.0.1:28080/siteboost/loca
 
 ## 期望输出
 
-版本命令应输出项目名、`v0.7.3-dev` 和模块路径。
+版本命令应输出项目名、`v0.7.4-dev` 和模块路径。
 
 basic 示例应输出项目名和模块路径。
 

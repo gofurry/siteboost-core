@@ -16,6 +16,7 @@ The project has not published a runtime release yet.
 - DNSIntercept manual mode with a local UDP/TCP DNS server, target-domain mapping, non-target forwarding, response cache, timeout handling, listen-conflict detection, and status counters.
 - Explicit Windows DNSIntercept system mode with selected-interface DNS takeover, AppHost allowlisted requests, `system_dns` rollback state, and restore support.
 - Opt-in Page Enhance pipeline for reverse-proxy responses, including provider/host/path/content-type/status matching, header set/remove, HTML head/body injection, local asset serving, simple replacements, custom transformer hooks, apply/skip/error events, and status counters.
+- Steam API outbound profile for `api.steampowered.com`, preferring `steamstore.rmbgame.net` while preserving the original HTTP Host and validating the certificate chain.
 - Generic domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
 - HTTP proxy and HTTPS CONNECT tunnel for enabled provider rule domains.
 - Configurable non-target behavior: `reject` by default, or `direct`.
@@ -40,7 +41,7 @@ The project has not published a runtime release yet.
 
 ### Changed
 
-- Version metadata now reports `v0.7.3-dev`.
+- Version metadata now reports `v0.7.4-dev`.
 - Default configuration uses `providers.enabled: [steam]` and `proxy.non_target_behavior: reject`.
 - Steam default rules, outbound profiles, and startup probes now live behind the Steam provider instead of the generic rules/upstream packages.
 - `start --non-target reject|direct` replaces the old Steam-specific CLI flag.
@@ -57,7 +58,7 @@ The project has not published a runtime release yet.
 
 - Runtime, resolver, upstream, PAC, and system proxy implementations remain internal; no stable public Go integration API is exposed yet.
 - `github.com/miekg/dns` is used for DNS wire message handling.
-- Hosts mode is Windows-first in v0.7.3-dev. macOS/Linux Hosts and certificate-store setup return unsupported.
+- Hosts mode is Windows-first in v0.7.4-dev. macOS/Linux Hosts and certificate-store setup return unsupported.
 - Hosts files cannot express wildcard rules, so Hosts mode writes exact domains only; DNSIntercept manual mode can cover wildcard rules when a DNS client is explicitly pointed at the local listener.
 - DNSIntercept system mode is explicit and Windows-only; manual mode remains the default non-system-changing DNS path.
 - Page Enhance is disabled by default and does not write system DNS, hosts, certificates, browser settings, or developer environment state.

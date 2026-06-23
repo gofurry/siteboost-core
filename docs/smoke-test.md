@@ -182,7 +182,7 @@ Check status from another terminal:
 ./bin/steam-accelerator.exe status --state ./tmp/runtime.json
 ```
 
-The default Hosts + Direct loop should show `provider: id=steam status=stable rule_set=steam-web@2026.06.22 profiles=4 probes=6`, `resolver: doh`, `resolver_servers:`, `rule_set: steam-web@2026.06.22`, `upstream_profiles: 4`, and `startup_probes:` in status output. The standalone `rule_set:` line is kept for the default single Steam provider smoke-reading habit. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block. Starting in v0.6.0, the default Steam outbound profile also makes `steamcommunity.com` prefer `steamcommunity-a.akamaihd.net`, `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` prefer `cdn-a.akamaihd.net`, and covers `community.steamstatic.com` plus `steamcdn-a.akamaihd.net`, while preserving the original HTTP Host.
+The default Hosts + Direct loop should show `provider: id=steam status=stable rule_set=steam-web@2026.06.23 profiles=5 probes=7`, `resolver: doh`, `resolver_servers:`, `rule_set: steam-web@2026.06.23`, `upstream_profiles: 5`, and `startup_probes:` in status output. The standalone `rule_set:` line is kept for the default single Steam provider smoke-reading habit. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block. Starting in v0.6.0, the default Steam outbound profile also makes `steamcommunity.com` prefer `steamcommunity-a.akamaihd.net`, `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` prefer `cdn-a.akamaihd.net`, covers `community.steamstatic.com` plus `steamcdn-a.akamaihd.net`, and now makes `api.steampowered.com` prefer `steamstore.rmbgame.net`, while preserving the original HTTP Host.
 
 To smoke the v0.7 provider skeleton, create a temporary config that explicitly enables GitHub:
 
@@ -195,7 +195,7 @@ providers:
 
 Start with that config and check `status`. It should show both `provider: id=steam status=stable ...` and `provider: id=github status=experimental rule_set=github-web@2026.06.23 probes=3`. GitHub is a skeleton provider for architecture validation only; this smoke must not require live GitHub reachability or claim real GitHub acceleration.
 
-`system_change:` lines should show the root CA check/install, hosts preflight, reverse-proxy listeners, and hosts apply result. When the normal PowerShell AppHost path succeeds, root CA or hosts details should include `helper=elevated`. `startup_probes: ok=6 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
+`system_change:` lines should show the root CA check/install, hosts preflight, reverse-proxy listeners, and hosts apply result. When the normal PowerShell AppHost path succeeds, root CA or hosts details should include `helper=elevated`. `startup_probes: ok=7 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
 
 If a page returns `upstream request failed`, the response body should include more than that generic message. It should append a summary such as `direct upstream resolve ... failed`, `resolve steamcommunity-a.akamaihd.net:443 failed`, `tcp 1.2.3.4:443 failed`, or `tls 1.2.3.4:443 failed`. That summary is the key check for locating whether failure happened in DoH, ForwardDestination resolution, direct TCP reachability, or TLS handshake.
 
@@ -209,6 +209,8 @@ curl.exe --ssl-no-revoke -I --max-time 30 https://store.steampowered.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://community.steamstatic.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://media.steampowered.com/
 curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
+curl.exe --ssl-no-revoke --max-time 30 `
+  "https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v1/?format=json"
 ```
 
 Stop and uninstall the CA:
@@ -363,7 +365,7 @@ Expected behavior:
 
 ## Expected Output
 
-The version command should print project name, `v0.7.3-dev`, and module path.
+The version command should print project name, `v0.7.4-dev`, and module path.
 
 The basic example should print the project name and module path.
 

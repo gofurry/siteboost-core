@@ -310,6 +310,10 @@ upstream:
       forward_host: "cdn-a.akamaihd.net"
       tls_server_name: "cdn-a.akamaihd.net"
     - match_domains:
+        - "api.steampowered.com"
+      forward_host: "steamstore.rmbgame.net"
+      ignore_tls_name_mismatch: true
+    - match_domains:
         - "community.steamstatic.com"
       forward_host: "community.steamstatic.com"
       tls_server_name: "community.steamstatic.com"
@@ -407,7 +411,7 @@ AppHost only accepts the default Windows hosts path plus rollback and certificat
 
 If the browser or Steam embedded browser still shows `upstream request failed`, the response body and logs include an outbound diagnostic summary. It should indicate whether the failure came from DoH resolution, TCP connect attempts to candidate IPs, or TLS handshake. Use that message to decide whether the next issue is DNS/DoH, ForwardDestination reachability, certificate/SNI behavior, or missing rule/profile coverage.
 
-In Hosts + Direct mode, `start` and `status` include a non-fatal startup probe summary. `startup_probes: ok=6 failed=0` means the default Steam probe targets passed DoH resolution, TCP 443, TLS, and a lightweight HTTPS `HEAD /` check through the active outbound profile path. Failed rows are printed as `startup_probe_failed` with `host`, `target`, `stage`, and a trimmed error. The exact host list, wildcard gaps, default probe targets, and manual smoke table are maintained in the [Steam compatibility matrix](steam-compatibility.md).
+In Hosts + Direct mode, `start` and `status` include a non-fatal startup probe summary. `startup_probes: ok=7 failed=0` means the default Steam probe targets passed DoH resolution, TCP 443, TLS, and a lightweight HTTPS `HEAD /` check through the active outbound profile path. Failed rows are printed as `startup_probe_failed` with `host`, `target`, `stage`, and a trimmed error. The exact host list, wildcard gaps, default probe targets, and manual smoke table are maintained in the [Steam compatibility matrix](steam-compatibility.md).
 
 Windows `curl.exe` uses Schannel and checks certificate revocation by default. Because this project dynamically issues local site certificates without public OCSP / CRL endpoints, command-line checks may report `CRYPT_E_NO_REVOCATION_CHECK`. Use `--ssl-no-revoke` to skip revocation checking while keeping certificate-chain and hostname validation, which is a better local acceleration check than `-k/--insecure`:
 
@@ -436,4 +440,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.3-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.4-dev.

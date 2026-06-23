@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已把 Windows AppHost Service 从 loopback HTTP 原型迁移到 named pipe IPC，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。当前本机主流程已验证到 `apphost health=ok`、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop`、`restore`、`apphost uninstall` 和 Windows system DNS 接管 / 恢复可用；真实重启后 AppHost 自动拉起仍建议补一条单独 smoke 记录。当前代码已进入 `v0.7.3-dev`：Steam 是默认 stable provider，GitHub 是显式启用的 experimental skeleton provider，DNSIntercept manual 已提供本地 UDP/TCP DNS server、目标映射、非目标转发、缓存和 status 统计；Windows system 策略已提供显式网卡 DNS 接管、rollback 和 restore；Page Enhance 已提供默认关闭、显式配置、可观察的 reverse response transform pipeline。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；正式通用 Go 加速库已经确定为 `gofurry/web-boost`，只从这里抽取核心能力，不继承 Steam 历史命名、CLI/AppHost 包袱或实验目录结构。
+这个仓库已经具备 Steam Windows Hosts + DoH + HTTPS Reverse Proxy 的可用闭环，并已把 Windows AppHost Service 从 loopback HTTP 原型迁移到 named pipe IPC，用于靠近 Steam++ / Watt Toolkit 的“一次管理员初始化，后续普通用户启动”体验。当前本机主流程已验证到 `apphost health=ok`、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop`、`restore`、`apphost uninstall` 和 Windows system DNS 接管 / 恢复可用；真实重启后 AppHost 自动拉起仍建议补一条单独 smoke 记录。当前代码已进入 `v0.7.4-dev`：Steam 是默认 stable provider，GitHub 是显式启用的 experimental skeleton provider，DNSIntercept manual 已提供本地 UDP/TCP DNS server、目标映射、非目标转发、缓存和 status 统计；Windows system 策略已提供显式网卡 DNS 接管、rollback 和 restore；Page Enhance 已提供默认关闭、显式配置、可观察的 reverse response transform pipeline；`api.steampowered.com` 已补入 Steam API outbound profile。这个仓库是实验验证仓库，不是未来正式 Go 开源库本体；正式通用 Go 加速库已经确定为 `gofurry/web-boost`，只从这里抽取核心能力，不继承 Steam 历史命名、CLI/AppHost 包袱或实验目录结构。
 
 ## 当前事实
 
@@ -16,8 +16,8 @@
 - 本地目录是 `D:\WorkSpace\Git\siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已显示 `v0.7.3-dev`。
-- 主干代码已经进入 `v0.7.3-dev` 阶段，包含 AppHost Service 自动启动、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server、Windows system DNS 显式接管 / rollback / restore 和默认关闭的 Page Enhance pipeline。
+- `version.go` 已显示 `v0.7.4-dev`。
+- 主干代码已经进入 `v0.7.4-dev` 阶段，包含 AppHost Service 自动启动、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server、Windows system DNS 显式接管 / rollback / restore、默认关闭的 Page Enhance pipeline 和 Steam API outbound profile。
 - 本仓库定位为实验场和迁移来源；正式 Go library 在 `gofurry/web-boost` 维护。
 - 正式 Go library 目标仓库为 `https://github.com/gofurry/web-boost`。
 - 最近关键提交：
@@ -90,6 +90,8 @@
 
 - `steamcommunity.com` / `*.steamcommunity.com` 优先走 `steamcommunity-a.akamaihd.net`。
 - store / checkout / help / login / media 优先走 `cdn-a.akamaihd.net`。
+- `api.steampowered.com` 优先走 `steamstore.rmbgame.net`，保留证书链校验并显式容忍 hostname mismatch；这是参考 Steam++ / Watt Toolkit 公开远端加速项目的行为层经验补齐的 API 链路。
+- `partner.steam-api.com` 目前只做规则捕获，未验证前仍走原始域名 fallback。
 - `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net` 覆盖静态资源 / CDN。
 - 反代保持原始 HTTP Host，同时按 profile 使用可达 CDN 的 TLS SNI。
 - HTTP / SOCKS5 upstream 只是可选增强，不是默认加速前提。
@@ -282,7 +284,7 @@ https://help.steampowered.com/
 
 ## 下一阶段建议顺序
 
-1. 跑完 `v0.7.3-dev` 自动化验证：`git diff --check`、`go test ./...`、`go vet ./...`、race 子集、build、version。
+1. 跑完 `v0.7.4-dev` 自动化验证：`git diff --check`、`go test ./...`、`go vet ./...`、race 子集、build、version。
 2. 保留 Page Enhance 高端口 manual smoke 与真实浏览器 smoke 记录：`mode: dns` 可验证本地 asset 与 `page_enhance:` status，`mode: hosts` 可验证浏览器 Console 输出 `siteboost page enhance`。
 3. 补做默认 Steam Hosts + DoH + AppHost 真实 Windows smoke，并确认 `status` 同时显示 `provider: id=steam ...`、兼容 `rule_set: steam-web@...` 和 Page Enhance 默认不输出。
 4. 补做 `providers.enabled: [steam, github]` skeleton smoke：确认 GitHub 显示 `experimental`，但不要求 GitHub live 可达，也不写成真实加速能力。

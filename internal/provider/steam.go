@@ -7,8 +7,8 @@ import (
 
 const (
 	SteamRuleSetName      = "steam-web"
-	SteamRuleSetVersion   = "2026.06.22"
-	SteamRuleSetUpdatedAt = "2026-06-22"
+	SteamRuleSetVersion   = "2026.06.23"
+	SteamRuleSetUpdatedAt = "2026-06-23"
 )
 
 func Steam() Provider {
@@ -90,6 +90,13 @@ func Steam() Provider {
 			},
 			{
 				MatchDomains: []string{
+					"api.steampowered.com",
+				},
+				ForwardHost:           "steamstore.rmbgame.net",
+				IgnoreTLSNameMismatch: true,
+			},
+			{
+				MatchDomains: []string{
 					"community.steamstatic.com",
 				},
 				ForwardHost:   "community.steamstatic.com",
@@ -106,6 +113,7 @@ func Steam() Provider {
 		ProbeTargets: []upstream.ProbeTarget{
 			{Host: "steamcommunity.com", Port: "443", Path: "/"},
 			{Host: "store.steampowered.com", Port: "443", Path: "/"},
+			{Host: "api.steampowered.com", Port: "443", Path: "/ISteamWebAPIUtil/GetSupportedAPIList/v1/?format=json"},
 			{Host: "help.steampowered.com", Port: "443", Path: "/"},
 			{Host: "media.steampowered.com", Port: "443", Path: "/"},
 			{Host: "community.steamstatic.com", Port: "443", Path: "/"},

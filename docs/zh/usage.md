@@ -309,6 +309,10 @@ upstream:
       forward_host: "cdn-a.akamaihd.net"
       tls_server_name: "cdn-a.akamaihd.net"
     - match_domains:
+        - "api.steampowered.com"
+      forward_host: "steamstore.rmbgame.net"
+      ignore_tls_name_mismatch: true
+    - match_domains:
         - "community.steamstatic.com"
       forward_host: "community.steamstatic.com"
       tls_server_name: "community.steamstatic.com"
@@ -406,7 +410,7 @@ AppHost 只接受默认 Windows hosts 路径，以及默认项目 runtime / cert
 
 如果浏览器或 Steam 内置浏览器仍显示 `upstream request failed`，响应体和日志会带出站诊断摘要，例如 DoH 解析失败、某个候选 IP 的 TCP 连接失败，或 TLS 握手失败。下一步应根据该错误判断是 DNS/DoH、ForwardDestination 可达性、证书/SNI，还是规则/profile 覆盖问题。
 
-在 Hosts + Direct 模式下，`start` 和 `status` 会包含非致命启动探测摘要。`startup_probes: ok=6 failed=0` 表示默认 Steam 探测目标已经通过当前 outbound profile 链路完成 DoH 解析、TCP 443、TLS 和轻量 HTTPS `HEAD /` 检查。失败项会以 `startup_probe_failed` 输出 `host`、`target`、`stage` 和裁剪后的错误。exact hosts 清单、wildcard 缺口、默认探测目标和手动 smoke 表维护在 [Steam 兼容性清单](steam-compatibility.md)。
+在 Hosts + Direct 模式下，`start` 和 `status` 会包含非致命启动探测摘要。`startup_probes: ok=7 failed=0` 表示默认 Steam 探测目标已经通过当前 outbound profile 链路完成 DoH 解析、TCP 443、TLS 和轻量 HTTPS `HEAD /` 检查。失败项会以 `startup_probe_failed` 输出 `host`、`target`、`stage` 和裁剪后的错误。exact hosts 清单、wildcard 缺口、默认探测目标和手动 smoke 表维护在 [Steam 兼容性清单](steam-compatibility.md)。
 
 Windows 自带 `curl.exe` 默认使用 Schannel 检查证书吊销状态。由于本项目动态签发的本地站点证书没有公网 OCSP / CRL，命令行验证时如果看到 `CRYPT_E_NO_REVOCATION_CHECK`，可使用 `--ssl-no-revoke` 跳过吊销检查；这仍会保留证书链和域名校验，比 `-k/--insecure` 更适合验证本地加速链路：
 
@@ -435,4 +439,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.7.3-dev 中仍明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.7.4-dev 中仍明确不支持，会返回 unsupported。

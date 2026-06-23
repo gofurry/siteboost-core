@@ -115,8 +115,8 @@ func TestRunAppHostRejectsUnsupportedSubcommand(t *testing.T) {
 
 func TestPrintRuleSet(t *testing.T) {
 	var stdout bytes.Buffer
-	printRuleSet(&stdout, engine.Status{RuleSetName: "steam-web", RuleSetVersion: "2026.06.22"})
-	if got, want := strings.TrimSpace(stdout.String()), "rule_set: steam-web@2026.06.22"; got != want {
+	printRuleSet(&stdout, engine.Status{RuleSetName: "steam-web", RuleSetVersion: "2026.06.23"})
+	if got, want := strings.TrimSpace(stdout.String()), "rule_set: steam-web@2026.06.23"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

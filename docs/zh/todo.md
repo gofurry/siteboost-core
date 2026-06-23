@@ -2,7 +2,7 @@
 
 ## 短期任务
 
-- 继续维护 `v0.7.3-dev` DNSIntercept manual 高端口和 Windows system DNS smoke 记录。
+- 继续维护 `v0.7.4-dev` DNSIntercept manual 高端口、Windows system DNS 和 Steam API smoke 记录。
 - 继续维护 Page Enhance 高端口和真实浏览器 smoke 记录。
 - 完成 provider registry 与 Hosts/AppHost 路径的真实 Windows smoke。
 - 在 DNSIntercept / Page Enhance 边界验证后准备 `v0.8.0` `gofurry/web-boost` API、包边界和目录层级草案。
