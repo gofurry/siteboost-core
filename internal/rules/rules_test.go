@@ -3,7 +3,15 @@ package rules
 import "testing"
 
 func TestMatcherMatchesDefaultRules(t *testing.T) {
-	matcher, err := NewMatcher(DefaultSteamRules, nil)
+	matcher, err := NewMatcher([]RuleGroup{
+		{
+			Name: "main",
+			Domains: []string{
+				"example.com",
+				"*.example.org",
+			},
+		},
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -12,15 +20,11 @@ func TestMatcherMatchesDefaultRules(t *testing.T) {
 		host string
 		want bool
 	}{
-		{host: "store.steampowered.com", want: true},
-		{host: "STORE.STEAMPOWERED.COM:443", want: true},
-		{host: "login.steampowered.com", want: true},
-		{host: "media.steampowered.com", want: true},
-		{host: "foo.steamcommunity.com", want: true},
-		{host: "steamcommunity.com", want: true},
-		{host: "community.steamstatic.com", want: true},
-		{host: "steamcdn-a.akamaihd.net", want: true},
-		{host: "example.com", want: false},
+		{host: "example.com", want: true},
+		{host: "EXAMPLE.COM:443", want: true},
+		{host: "foo.example.org", want: true},
+		{host: "example.org", want: false},
+		{host: "other.test", want: false},
 	}
 
 	for _, tt := range tests {
@@ -76,13 +80,16 @@ func TestMatcherRulesExportIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestDefaultSteamRuleSetInfo(t *testing.T) {
-	info := DefaultSteamRuleSetInfo()
-	if info.Name != DefaultSteamRuleSetName || info.Version == "" || info.UpdatedAt == "" {
+func TestNewRuleSetInfo(t *testing.T) {
+	groups := []RuleGroup{
+		{Name: "a", Domains: []string{"a.example", "*.b.example"}},
+	}
+	info := NewRuleSetInfo("example-web", "2026.06.23", "2026-06-23", groups)
+	if info.Name != "example-web" || info.Version == "" || info.UpdatedAt == "" {
 		t.Fatalf("bad rule set info: %#v", info)
 	}
-	if info.GroupCount != len(DefaultSteamRules) {
-		t.Fatalf("group count = %d, want %d", info.GroupCount, len(DefaultSteamRules))
+	if info.GroupCount != len(groups) {
+		t.Fatalf("group count = %d, want %d", info.GroupCount, len(groups))
 	}
 	if info.ExactCount == 0 || info.WildcardCount == 0 {
 		t.Fatalf("rule counts were not populated: %#v", info)

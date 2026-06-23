@@ -45,15 +45,18 @@ mode: proxy_only
 
 proxy:
   listen_addr: "127.0.0.1:26501"
-  non_steam_behavior: "reject" # reject | direct
+  non_target_behavior: "reject" # reject | direct
   allow_lan: false
   read_header_timeout: "10s"
   idle_timeout: "2m"
   dial_timeout: "30s"
   shutdown_timeout: "5s"
 
+providers:
+  enabled:
+    - steam
+
 rules:
-  enable_default_steam_rules: true
   custom_domains: []
 
 pac:
@@ -95,8 +98,7 @@ upstream:
   address: ""
   username: ""
   password: ""
-  # Hosts + Direct mode enables the built-in Steam outbound profile by default.
-  enable_default_steam_profiles: true
+  # Enabled providers may contribute outbound profiles in Hosts + Direct mode.
   profiles: []
 
 runtime:
@@ -125,12 +127,14 @@ go run ./cmd/steam-accelerator start \
   --pac-listen 127.0.0.1:26502 \
   --hosts-http 127.0.0.1:28080 \
   --hosts-https 127.0.0.1:28443 \
-  --non-steam reject
+  --non-target reject
 ```
 
 Resolver, upstream, macOS system service, and most Hosts options are YAML-only. The CLI keeps lifecycle and local listen overrides small.
 
-Note: `resolver.mode: system` is the general default. When `mode: hosts` and `upstream.type: direct` are active, runtime resolution automatically switches to the built-in DoH defaults for real Steam IP lookup and enables the default Steam outbound profile. This avoids resolving outbound reverse-proxy connections back to `127.0.0.1` after the hosts marker block is written. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
+Note: `providers.enabled: [steam]`, `resolver.mode: system`, and `upstream.type: direct` are the general defaults. When `mode: hosts` and `upstream.type: direct` are active, runtime resolution automatically switches to the built-in DoH defaults and appends outbound profiles from enabled providers. This avoids resolving outbound reverse-proxy connections back to `127.0.0.1` after the hosts marker block is written. External HTTP/SOCKS5 upstream proxies remain optional enhancements, not a default acceleration prerequisite.
+
+v0.7 removed the old Steam-specific config keys. Replace `proxy.non_steam_behavior` with `proxy.non_target_behavior`, replace `rules.enable_default_steam_rules` with `providers.enabled`, and remove `upstream.enable_default_steam_profiles`. Loading old keys returns a migration error.
 
 ## Common Examples
 
@@ -141,7 +145,18 @@ HTTP proxy: 127.0.0.1
 Port: 26501
 ```
 
-Default behavior only allows Steam rule domains. Non-Steam traffic is rejected unless `non_steam_behavior` is set to `direct`. `direct` means "allow forwarding"; the actual outbound path is selected by `upstream.type`.
+Default behavior enables only the Steam provider. Non-target traffic is rejected unless `non_target_behavior` is set to `direct`. `direct` means "allow forwarding"; the actual outbound path is selected by `upstream.type`.
+
+Enable the GitHub skeleton provider explicitly:
+
+```yaml
+providers:
+  enabled:
+    - steam
+    - github
+```
+
+GitHub is `experimental` in v0.7. It participates in matching and status output, but it does not define a default outbound profile and should not be described as real acceleration.
 
 Use DoH with direct outbound dialing:
 
@@ -156,7 +171,6 @@ resolver:
 
 upstream:
   type: "direct"
-  enable_default_steam_profiles: true
 ```
 
 Customize Steam outbound profiles:
@@ -164,7 +178,6 @@ Customize Steam outbound profiles:
 ```yaml
 upstream:
   type: "direct"
-  enable_default_steam_profiles: true
   profiles:
     - match_domains:
         - "steamcommunity.com"
@@ -234,7 +247,7 @@ Start System Proxy mode:
 mode: system
 ```
 
-System mode writes system HTTP and HTTPS proxy settings to the local proxy address. Non-Steam traffic still follows `proxy.non_steam_behavior`, which defaults to `reject`.
+System mode writes system HTTP and HTTPS proxy settings to the local proxy address. Non-target traffic still follows `proxy.non_target_behavior`, which defaults to `reject`.
 
 Start Windows Hosts mode:
 
@@ -267,7 +280,7 @@ For an explicit/manual workflow, or if `cert.auto_install: false` is set, instal
 
 `cert install` checks the configured Windows Root store by certificate thumbprint first. If this project's root CA is already installed, it returns without running the install action again. From a normal PowerShell, writing the default `machine` store goes through the installed AppHost Service; `cert uninstall` is always an explicit user action.
 
-Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact Steam domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. When the normal PowerShell AppHost path succeeds, `system_change` detail currently includes `helper=elevated` for compatibility with the existing status field. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA; restoring hosts from a normal PowerShell also uses AppHost. To uninstall it, run:
+Hosts mode writes a project-owned marker block into the Windows hosts file and maps exact provider domains to the local reverse proxy. `*.domain` wildcard rules are not written to hosts. The default Hosts + Direct loop uses built-in DoH for real outbound resolution and does not require an external upstream proxy. Startup checks the root CA, hosts read/write access, rollback directory writability, and reverse-proxy listeners; `status` shows the runtime `provider`, `resolver`, `resolver_servers`, `rule_set`, `upstream_profiles`, `system_change`, and `startup_probes`. When the normal PowerShell AppHost path succeeds, `system_change` detail currently includes `helper=elevated` for compatibility with the existing status field. `stop` or `restore` removes the project marker block, but does not uninstall the trusted Root CA; restoring hosts from a normal PowerShell also uses AppHost. To uninstall it, run:
 
 ```bash
 ./bin/steam-accelerator.exe cert uninstall
@@ -306,4 +319,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.6.4-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.0-dev.

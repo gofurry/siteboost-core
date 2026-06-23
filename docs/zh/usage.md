@@ -45,15 +45,18 @@ mode: proxy_only
 
 proxy:
   listen_addr: "127.0.0.1:26501"
-  non_steam_behavior: "reject" # reject | direct
+  non_target_behavior: "reject" # reject | direct
   allow_lan: false
   read_header_timeout: "10s"
   idle_timeout: "2m"
   dial_timeout: "30s"
   shutdown_timeout: "5s"
 
+providers:
+  enabled:
+    - steam
+
 rules:
-  enable_default_steam_rules: true
   custom_domains: []
 
 pac:
@@ -94,8 +97,7 @@ upstream:
   address: ""
   username: ""
   password: ""
-  # Hosts + Direct 模式默认启用内置 Steam 出站 profile。
-  enable_default_steam_profiles: true
+  # Hosts + Direct 模式会追加已启用 provider 的出站 profile。
   profiles: []
 
 runtime:
@@ -124,12 +126,14 @@ go run ./cmd/steam-accelerator start \
   --pac-listen 127.0.0.1:26502 \
   --hosts-http 127.0.0.1:28080 \
   --hosts-https 127.0.0.1:28443 \
-  --non-steam reject
+  --non-target reject
 ```
 
 resolver、upstream 与 macOS system service 选项只通过 YAML 配置。CLI 保持简单的生命周期与本地监听覆盖参数。
 
-说明：`resolver.mode: system` 是通用默认值；当 `mode: hosts` 且 `upstream.type: direct` 时，运行时会自动切到内置 DoH 解析真实 Steam IP，避免 hosts 写入后把反代出站连接解析回 `127.0.0.1`，并启用默认 Steam 出站 profile。外部 HTTP / SOCKS5 upstream 仍然只是可选增强，不是默认加速前提。
+说明：`providers.enabled: [steam]`、`resolver.mode: system` 和 `upstream.type: direct` 是通用默认值；当 `mode: hosts` 且 `upstream.type: direct` 时，运行时会自动切到内置 DoH，并追加已启用 provider 的 outbound profile，避免 hosts 写入后把反代出站连接解析回 `127.0.0.1`。外部 HTTP / SOCKS5 upstream 仍然只是可选增强，不是默认加速前提。
+
+v0.7 已移除旧 Steam 专用配置名。请将 `proxy.non_steam_behavior` 改为 `proxy.non_target_behavior`，将 `rules.enable_default_steam_rules` 改为 `providers.enabled`，并移除 `upstream.enable_default_steam_profiles`。继续使用旧 key 会得到迁移错误。
 
 ## 常见示例
 
@@ -140,7 +144,18 @@ HTTP proxy: 127.0.0.1
 Port: 26501
 ```
 
-默认只允许 Steam 规则域名。非 Steam 流量默认拒绝，除非将 `non_steam_behavior` 设置为 `direct`。`direct` 表示“允许转发”，实际出口由 `upstream.type` 决定。
+默认只启用 Steam provider。非目标流量默认拒绝，除非将 `non_target_behavior` 设置为 `direct`。`direct` 表示“允许转发”，实际出口由 `upstream.type` 决定。
+
+显式启用 GitHub skeleton provider：
+
+```yaml
+providers:
+  enabled:
+    - steam
+    - github
+```
+
+GitHub 在 v0.7 中是 `experimental`，只参与匹配和状态输出，不定义默认 outbound profile，也不应描述成真实加速。
 
 使用 DoH 与 Direct 出口：
 
@@ -155,7 +170,6 @@ resolver:
 
 upstream:
   type: "direct"
-  enable_default_steam_profiles: true
 ```
 
 自定义 Steam 出站 profile：
@@ -163,7 +177,6 @@ upstream:
 ```yaml
 upstream:
   type: "direct"
-  enable_default_steam_profiles: true
   profiles:
     - match_domains:
         - "steamcommunity.com"
@@ -233,7 +246,7 @@ go run ./cmd/steam-accelerator restore
 mode: system
 ```
 
-System 模式会把系统 HTTP 与 HTTPS 代理写入本地代理地址。非 Steam 流量仍遵循 `proxy.non_steam_behavior`，默认是 `reject`。
+System 模式会把系统 HTTP 与 HTTPS 代理写入本地代理地址。非目标流量仍遵循 `proxy.non_target_behavior`，默认是 `reject`。
 
 启动 Windows Hosts 模式：
 
@@ -266,7 +279,7 @@ go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
 
 `cert install` 会先按证书 thumbprint 检查配置的 Windows Root store；如果本项目 Root CA 已安装，会直接返回，不会重复执行安装动作。普通 PowerShell 下写入默认 `machine` store 时会通过已安装的 AppHost Service；`cert uninstall` 也是显式用户动作。
 
-Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact Steam 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `resolver`、`resolver_servers`、`rule_set`、`upstream_profiles`、`system_change` 和 `startup_probes`。普通 PowerShell 通过 AppHost 成功时，`system_change` 的 detail 当前仍会出现 `helper=elevated`，这是为了兼容既有状态字段。`stop` 或 `restore` 会删除项目标记区块，但不会卸载受信的 Root CA；普通 PowerShell 下恢复 hosts 也会通过 AppHost。卸载证书请执行：
+Hosts 模式会写入 Windows hosts 文件中的项目标记区块，把 exact provider 域名指向本地 reverse server；`*.domain` 通配符不会写入 hosts。默认 Hosts + Direct 闭环会使用内置 DoH 做出站真实解析，不需要配置外部上游代理。启动时会先检查 Root CA、hosts 可读写、rollback 目录可写和反代监听；`status` 会显示运行时 `provider`、`resolver`、`resolver_servers`、`rule_set`、`upstream_profiles`、`system_change` 和 `startup_probes`。普通 PowerShell 通过 AppHost 成功时，`system_change` 的 detail 当前仍会出现 `helper=elevated`，这是为了兼容既有状态字段。`stop` 或 `restore` 会删除项目标记区块，但不会卸载受信的 Root CA；普通 PowerShell 下恢复 hosts 也会通过 AppHost。卸载证书请执行：
 
 ```bash
 ./bin/steam-accelerator.exe cert uninstall
@@ -305,4 +318,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.6.4-dev 中仍明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.7.0-dev 中仍明确不支持，会返回 unsupported。

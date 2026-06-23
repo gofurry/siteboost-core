@@ -1,6 +1,6 @@
 # Windows One-Click System Flow
 
-This document records the v0.6.4-dev Windows Hosts-mode system-change boundary.
+This document records the Windows Hosts-mode system-change boundary introduced in v0.6.4 and still used by the v0.7.0-dev provider architecture.
 
 ## Boundary
 
@@ -18,7 +18,7 @@ The core does not bypass UAC, enterprise policy, or file-system permissions. The
 
 The privileged side exposes only narrow whitelisted commands and accepts no arbitrary shell execution, arbitrary file writes, proxy credentials, cookies, or user secrets.
 
-## v0.6.4-dev Behavior
+## v0.7.0-dev Behavior
 
 `cert.auto_install` defaults to `true`, and `cert.store_scope` defaults to `machine`. In Hosts mode:
 

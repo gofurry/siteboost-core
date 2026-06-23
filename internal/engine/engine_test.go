@@ -14,7 +14,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/privilege"
-	"github.com/gofurry/go-steam-core/internal/rules"
+	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
@@ -43,8 +43,11 @@ func TestEngineStartStopStatus(t *testing.T) {
 	if status.RuleCount == 0 {
 		t.Fatalf("rule count is zero")
 	}
-	if status.RuleSetName != rules.DefaultSteamRuleSetName || status.RuleSetVersion == "" {
+	if status.RuleSetName != provider.SteamRuleSetName || status.RuleSetVersion == "" {
 		t.Fatalf("rule set was not reported: %#v", status)
+	}
+	if len(status.Providers) != 1 || status.Providers[0].ID != provider.IDSteam {
+		t.Fatalf("providers were not reported: %#v", status.Providers)
 	}
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -54,6 +57,39 @@ func TestEngineStartStopStatus(t *testing.T) {
 	}
 	if eng.Status().Running {
 		t.Fatalf("engine should be stopped")
+	}
+}
+
+func TestEngineGitHubProviderOnlyReportsExperimental(t *testing.T) {
+	cfg := config.Default()
+	cfg.Providers.Enabled = []string{provider.IDGitHub}
+	cfg.Proxy.ListenAddr = "127.0.0.1:0"
+	cfg.Runtime.StatePath = t.TempDir() + "/runtime.json"
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if status.RuleSetName != provider.GitHubRuleSetName || status.RuleSetVersion == "" {
+		t.Fatalf("github rule set was not reported: %#v", status)
+	}
+	if status.UpstreamProfiles != 0 {
+		t.Fatalf("github skeleton should not report default upstream profiles: %#v", status)
+	}
+	if len(status.Providers) != 1 || status.Providers[0].ID != provider.IDGitHub || status.Providers[0].Status != provider.StatusExperimental {
+		t.Fatalf("providers were not reported: %#v", status.Providers)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
 	}
 }
 
@@ -232,8 +268,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 		func(path string) bool { return true },
 	)
 	defer restoreFns()
-	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
 		return []upstream.ProbeResult{{
+			ProviderID: provider.IDSteam,
 			Host:       "steamcommunity.com",
 			Target:     "steamcommunity-a.akamaihd.net",
 			OK:         true,
@@ -270,6 +307,9 @@ func TestEngineHostsModeStartsReverseAndRestoresHosts(t *testing.T) {
 	}
 	if status.UpstreamProfiles == 0 {
 		t.Fatalf("default upstream profiles were not reported")
+	}
+	if len(status.Providers) != 1 || status.Providers[0].ID != provider.IDSteam || status.Providers[0].Status != provider.StatusStable {
+		t.Fatalf("providers were not reported: %#v", status.Providers)
 	}
 	if len(status.SystemChanges) == 0 {
 		t.Fatalf("system changes were not reported")
@@ -313,7 +353,7 @@ func TestEngineHostsModeAutoInstallsCert(t *testing.T) {
 		func(path string) bool { return true },
 	)
 	defer restoreFns()
-	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
 		return nil
 	})
 	defer restoreProbe()
@@ -424,7 +464,7 @@ func TestEngineHostsModeUsesElevatedHelper(t *testing.T) {
 		prepareHostsElevated = oldPrepare
 		shouldUseHostHelper = oldShouldUseHelper
 	}()
-	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
 		return nil
 	})
 	defer restoreProbe()
@@ -517,7 +557,7 @@ func TestEngineHostsModeFallsBackToElevatedHelperOnAccessDenied(t *testing.T) {
 	defer func() {
 		prepareHostsElevated = oldPrepare
 	}()
-	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
 		return nil
 	})
 	defer restoreProbe()
@@ -605,7 +645,7 @@ func hasSystemChange(changes []SystemChange, component, action, status string) b
 	return false
 }
 
-func replaceStartupProbeHook(probe func(context.Context, *upstream.DirectDialer) []upstream.ProbeResult) func() {
+func replaceStartupProbeHook(probe func(context.Context, *upstream.DirectDialer, []upstream.ProbeTarget) []upstream.ProbeResult) func() {
 	oldProbe := runStartupProbes
 	runStartupProbes = probe
 	return func() {

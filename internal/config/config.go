@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -18,8 +19,8 @@ const (
 	ModeSystem    = "system"
 	ModeHosts     = "hosts"
 
-	NonSteamReject = "reject"
-	NonSteamDirect = "direct"
+	NonTargetReject = "reject"
+	NonTargetDirect = "direct"
 
 	ResolverSystem = "system"
 	ResolverUDP    = "udp"
@@ -70,21 +71,22 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type Config struct {
-	Mode     string         `yaml:"mode"`
-	Proxy    ProxyConfig    `yaml:"proxy"`
-	PAC      PACConfig      `yaml:"pac"`
-	Hosts    HostsConfig    `yaml:"hosts"`
-	Cert     CertConfig     `yaml:"cert"`
-	Resolver ResolverConfig `yaml:"resolver"`
-	Upstream UpstreamConfig `yaml:"upstream"`
-	System   SystemConfig   `yaml:"system_proxy"`
-	Rules    RulesConfig    `yaml:"rules"`
-	Runtime  RuntimeConfig  `yaml:"runtime"`
+	Mode      string          `yaml:"mode"`
+	Providers ProvidersConfig `yaml:"providers"`
+	Proxy     ProxyConfig     `yaml:"proxy"`
+	PAC       PACConfig       `yaml:"pac"`
+	Hosts     HostsConfig     `yaml:"hosts"`
+	Cert      CertConfig      `yaml:"cert"`
+	Resolver  ResolverConfig  `yaml:"resolver"`
+	Upstream  UpstreamConfig  `yaml:"upstream"`
+	System    SystemConfig    `yaml:"system_proxy"`
+	Rules     RulesConfig     `yaml:"rules"`
+	Runtime   RuntimeConfig   `yaml:"runtime"`
 }
 
 type ProxyConfig struct {
 	ListenAddr        string   `yaml:"listen_addr"`
-	NonSteamBehavior  string   `yaml:"non_steam_behavior"`
+	NonTargetBehavior string   `yaml:"non_target_behavior"`
 	AllowLAN          bool     `yaml:"allow_lan"`
 	ReadHeaderTimeout Duration `yaml:"read_header_timeout"`
 	IdleTimeout       Duration `yaml:"idle_timeout"`
@@ -92,9 +94,12 @@ type ProxyConfig struct {
 	ShutdownTimeout   Duration `yaml:"shutdown_timeout"`
 }
 
+type ProvidersConfig struct {
+	Enabled []string `yaml:"enabled"`
+}
+
 type RulesConfig struct {
-	EnableDefaultSteamRules bool     `yaml:"enable_default_steam_rules"`
-	CustomDomains           []string `yaml:"custom_domains"`
+	CustomDomains []string `yaml:"custom_domains"`
 }
 
 type PACConfig struct {
@@ -128,12 +133,11 @@ type ResolverConfig struct {
 }
 
 type UpstreamConfig struct {
-	Type                       string                  `yaml:"type"`
-	Address                    string                  `yaml:"address"`
-	Username                   string                  `yaml:"username"`
-	Password                   string                  `yaml:"password"`
-	EnableDefaultSteamProfiles bool                    `yaml:"enable_default_steam_profiles"`
-	Profiles                   []OutboundProfileConfig `yaml:"profiles"`
+	Type     string                  `yaml:"type"`
+	Address  string                  `yaml:"address"`
+	Username string                  `yaml:"username"`
+	Password string                  `yaml:"password"`
+	Profiles []OutboundProfileConfig `yaml:"profiles"`
 }
 
 type OutboundProfileConfig struct {
@@ -158,9 +162,12 @@ type RuntimeConfig struct {
 func Default() Config {
 	return Config{
 		Mode: ModeProxyOnly,
+		Providers: ProvidersConfig{
+			Enabled: []string{"steam"},
+		},
 		Proxy: ProxyConfig{
 			ListenAddr:        "127.0.0.1:26501",
-			NonSteamBehavior:  NonSteamReject,
+			NonTargetBehavior: NonTargetReject,
 			AllowLAN:          false,
 			ReadHeaderTimeout: Duration(10 * time.Second),
 			IdleTimeout:       Duration(2 * time.Minute),
@@ -181,9 +188,6 @@ func Default() Config {
 			AutoInstall: true,
 			StoreScope:  CertStoreMachine,
 		},
-		Rules: RulesConfig{
-			EnableDefaultSteamRules: true,
-		},
 		Resolver: ResolverConfig{
 			Mode:       ResolverSystem,
 			PreferIPv4: true,
@@ -191,8 +195,7 @@ func Default() Config {
 			Timeout:    Duration(5 * time.Second),
 		},
 		Upstream: UpstreamConfig{
-			Type:                       UpstreamDirect,
-			EnableDefaultSteamProfiles: true,
+			Type: UpstreamDirect,
 		},
 		Runtime: RuntimeConfig{
 			StatePath:    DefaultStatePath(),
@@ -252,6 +255,9 @@ func LoadFile(path string) (Config, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("read config %q: %w", path, err)
 	}
+	if err := rejectLegacyConfigKeys(data); err != nil {
+		return cfg, fmt.Errorf("parse config %q: %w", path, err)
+	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config %q: %w", path, err)
 	}
@@ -259,6 +265,48 @@ func LoadFile(path string) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func rejectLegacyConfigKeys(data []byte) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+	node := &root
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		node = root.Content[0]
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	legacy := map[string]string{
+		"proxy.non_steam_behavior":               "proxy.non_steam_behavior was removed in v0.7; use proxy.non_target_behavior",
+		"rules.enable_default_steam_rules":       "rules.enable_default_steam_rules was removed in v0.7; use providers.enabled",
+		"upstream.enable_default_steam_profiles": "upstream.enable_default_steam_profiles was removed in v0.7; provider outbound profiles now come from providers.enabled",
+	}
+	if message := findLegacyConfigKey(node, nil, legacy); message != "" {
+		return errors.New(message)
+	}
+	return nil
+}
+
+func findLegacyConfigKey(node *yaml.Node, path []string, legacy map[string]string) string {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return ""
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		valueNode := node.Content[i+1]
+		key := strings.TrimSpace(keyNode.Value)
+		nextPath := append(append([]string(nil), path...), key)
+		if message, ok := legacy[strings.Join(nextPath, ".")]; ok {
+			return message
+		}
+		if message := findLegacyConfigKey(valueNode, nextPath, legacy); message != "" {
+			return message
+		}
+	}
+	return ""
 }
 
 func (c *Config) Validate() error {
@@ -269,11 +317,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("unsupported mode %q", c.Mode)
 	}
 
-	c.Proxy.NonSteamBehavior = normalizeNonSteamBehavior(c.Proxy.NonSteamBehavior)
-	switch c.Proxy.NonSteamBehavior {
-	case NonSteamReject, NonSteamDirect:
+	c.Providers.Enabled = normalizeProviderIDs(c.Providers.Enabled)
+	if c.Providers.Enabled == nil {
+		c.Providers.Enabled = []string{"steam"}
+	}
+
+	c.Proxy.NonTargetBehavior = normalizeNonTargetBehavior(c.Proxy.NonTargetBehavior)
+	switch c.Proxy.NonTargetBehavior {
+	case NonTargetReject, NonTargetDirect:
 	default:
-		return fmt.Errorf("unsupported non_steam_behavior %q", c.Proxy.NonSteamBehavior)
+		return fmt.Errorf("unsupported non_target_behavior %q", c.Proxy.NonTargetBehavior)
 	}
 
 	if c.Proxy.ListenAddr == "" {
@@ -477,12 +530,26 @@ func normalizeMode(mode string) string {
 	}
 }
 
-func normalizeNonSteamBehavior(behavior string) string {
+func normalizeProviderIDs(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	normalized := values[:0]
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" {
+			normalized = append(normalized, value)
+		}
+	}
+	return normalized
+}
+
+func normalizeNonTargetBehavior(behavior string) string {
 	switch strings.ToLower(strings.TrimSpace(behavior)) {
-	case "", NonSteamReject:
-		return NonSteamReject
-	case NonSteamDirect:
-		return NonSteamDirect
+	case "", NonTargetReject:
+		return NonTargetReject
+	case NonTargetDirect:
+		return NonTargetDirect
 	default:
 		return strings.ToLower(strings.TrimSpace(behavior))
 	}

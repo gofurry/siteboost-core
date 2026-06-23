@@ -5,13 +5,12 @@
 Run these commands from the repository root:
 
 ```bash
-go mod tidy
-gofmt -w .
-go vet ./...
+git diff --check
 go test ./...
-go test -race ./internal/hosts ./internal/certstore ./internal/reverse ./internal/pac ./internal/systemproxy ./internal/resolver ./internal/upstream ./internal/proxy ./internal/engine ./internal/runtime
+go vet ./...
+go test -race ./internal/hosts ./internal/privilege ./internal/engine ./cmd/steam-accelerator
+go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
 go run ./cmd/steam-accelerator --version
-go run ./examples/basic
 ```
 
 ## CLI Runtime Check
@@ -89,6 +88,79 @@ go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
 ./bin/steam-accelerator.exe apphost status
 ```
 
+### v0.6.4 Windows AppHost Main-Flow Record
+
+On 2026-06-23, a real Windows machine on a China-network environment completed the AppHost + Hosts main-flow smoke. The record confirms that AppHost installs as an automatic delayed-start service, health checks work, Steam target hosts are taken over to `127.0.0.1` with local TCP 443 reachable, `stop` / `restore` keep AppHost healthy as the privileged standby service, and `apphost status` reports a clear error after uninstall.
+
+Administrator PowerShell:
+
+```powershell
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost install
+apphost installed and started
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost status
+apphost: running start_type=automatic delayed_auto_start=true pid=98084 health=ok
+```
+
+From a normal PowerShell, `already running` is acceptable when a previous acceleration instance is active. Continue by checking hosts takeover and local 443 reachability:
+
+```powershell
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe start --mode hosts
+error: steam-accelerator is already running
+
+PS D:\WorkSpace\Git\siteboost-core> Test-NetConnection steamcommunity.com -Port 443
+ComputerName     : steamcommunity.com
+RemoteAddress    : 127.0.0.1
+RemotePort       : 443
+InterfaceAlias   : Loopback Pseudo-Interface 1
+SourceAddress    : 127.0.0.1
+TcpTestSucceeded : True
+
+PS D:\WorkSpace\Git\siteboost-core> Test-NetConnection store.steampowered.com -Port 443
+ComputerName     : store.steampowered.com
+RemoteAddress    : 127.0.0.1
+RemotePort       : 443
+InterfaceAlias   : Loopback Pseudo-Interface 1
+SourceAddress    : 127.0.0.1
+TcpTestSucceeded : True
+
+PS D:\WorkSpace\Git\siteboost-core> Test-NetConnection help.steampowered.com -Port 443
+ComputerName     : help.steampowered.com
+RemoteAddress    : 127.0.0.1
+RemotePort       : 443
+InterfaceAlias   : Loopback Pseudo-Interface 1
+SourceAddress    : 127.0.0.1
+TcpTestSucceeded : True
+```
+
+Stop, restore, and uninstall:
+
+```powershell
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe stop
+stopped
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe restore
+restored
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost status
+apphost: running start_type=automatic delayed_auto_start=true pid=98084 health=ok
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost uninstall
+apphost uninstalled
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost status
+error: open apphost service: The specified service does not exist as an installed service.
+```
+
+This record does not replace a dedicated real-reboot smoke. Before release, still record:
+
+```powershell
+.\bin\steam-accelerator.exe apphost install
+# reboot Windows
+.\bin\steam-accelerator.exe apphost status
+.\bin\steam-accelerator.exe start --mode hosts
+```
+
 Optional pre-install for this project's root CA. When `cert.auto_install` is true, `start --mode hosts` can install it automatically during startup; from a normal PowerShell, this command requests restricted system changes through AppHost:
 
 ```bash
@@ -110,7 +182,18 @@ Check status from another terminal:
 ./bin/steam-accelerator.exe status --state ./tmp/runtime.json
 ```
 
-The default Hosts + Direct loop should show `resolver: doh`, `resolver_servers:`, `rule_set: steam-web@2026.06.22`, `upstream_profiles: 4`, and `startup_probes:` in status output. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block. Starting in v0.6.0, the default outbound profile also makes `steamcommunity.com` prefer `steamcommunity-a.akamaihd.net`, `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` prefer `cdn-a.akamaihd.net`, and covers `community.steamstatic.com` plus `steamcdn-a.akamaihd.net`, while preserving the original HTTP Host.
+The default Hosts + Direct loop should show `provider: id=steam status=stable rule_set=steam-web@2026.06.22 profiles=4 probes=6`, `resolver: doh`, `resolver_servers:`, `rule_set: steam-web@2026.06.22`, `upstream_profiles: 4`, and `startup_probes:` in status output. The standalone `rule_set:` line is kept for the default single Steam provider smoke-reading habit. That confirms outbound reverse-proxy resolution is not using the system resolver and will not loop back through the local hosts marker block. Starting in v0.6.0, the default Steam outbound profile also makes `steamcommunity.com` prefer `steamcommunity-a.akamaihd.net`, `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` prefer `cdn-a.akamaihd.net`, and covers `community.steamstatic.com` plus `steamcdn-a.akamaihd.net`, while preserving the original HTTP Host.
+
+To smoke the v0.7 provider skeleton, create a temporary config that explicitly enables GitHub:
+
+```yaml
+providers:
+  enabled:
+    - steam
+    - github
+```
+
+Start with that config and check `status`. It should show both `provider: id=steam status=stable ...` and `provider: id=github status=experimental rule_set=github-web@2026.06.23 probes=3`. GitHub is a skeleton provider for architecture validation only; this smoke must not require live GitHub reachability or claim real GitHub acceleration.
 
 `system_change:` lines should show the root CA check/install, hosts preflight, reverse-proxy listeners, and hosts apply result. When the normal PowerShell AppHost path succeeds, root CA or hosts details should include `helper=elevated`. `startup_probes: ok=6 failed=0` is the ideal result. If failures appear, inspect the `startup_probe_failed` lines before opening the browser; `stage=resolve`, `stage=tcp`, `stage=tls`, and `stage=http` narrow the failing layer. The default probe targets, exact hosts list, wildcard gaps, and manual record table are tracked in [Steam compatibility matrix](steam-compatibility.md).
 
@@ -139,7 +222,7 @@ When testing from a normal PowerShell, `stop` / `restore` for hosts recovery and
 
 ## Expected Output
 
-The version command should print project name, version, and module path.
+The version command should print project name, `v0.7.0-dev`, and module path.
 
 The basic example should print the project name and module path.
 

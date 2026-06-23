@@ -17,6 +17,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/pac"
 	"github.com/gofurry/go-steam-core/internal/privilege"
+	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/proxy"
 	"github.com/gofurry/go-steam-core/internal/resolver"
 	"github.com/gofurry/go-steam-core/internal/reverse"
@@ -39,8 +40,8 @@ var (
 	prepareHostsStart    = privilege.PrepareHostsStart
 	prepareHostsElevated = privilege.PrepareHostsStartElevated
 	shouldUseHostHelper  = privilege.ShouldUseHelper
-	runStartupProbes     = func(ctx context.Context, dialer *upstream.DirectDialer) []upstream.ProbeResult {
-		return dialer.ProbeHTTPS(ctx, upstream.DefaultSteamProbeTargets(), upstream.ProbeOptions{})
+	runStartupProbes     = func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
+		return dialer.ProbeHTTPS(ctx, targets, upstream.ProbeOptions{})
 	}
 )
 
@@ -69,6 +70,7 @@ type Status struct {
 	RuleSetName      string                 `json:"rule_set_name,omitempty"`
 	RuleSetVersion   string                 `json:"rule_set_version,omitempty"`
 	RuleSetUpdatedAt string                 `json:"rule_set_updated_at,omitempty"`
+	Providers        []provider.Summary     `json:"providers,omitempty"`
 	RuleCount        int                    `json:"rule_count"`
 	ActiveConns      int64                  `json:"active_conns"`
 	SystemChanges    []SystemChange         `json:"system_changes,omitempty"`
@@ -92,6 +94,7 @@ type Engine struct {
 	upstreamProfiles int
 	startupProbes    []upstream.ProbeResult
 	ruleSet          rules.RuleSetInfo
+	providers        []provider.Summary
 	systemChanges    []SystemChange
 }
 
@@ -117,6 +120,10 @@ func (e *Engine) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("build rules matcher: %w", err)
 	}
+	enabledProviders, err := e.enabledProviders()
+	if err != nil {
+		return err
+	}
 
 	resolverCfg := effectiveResolverConfig(e.cfg)
 	if e.cfg.Mode == config.ModeHosts && usesDirectUpstream(e.cfg.Upstream.Type) && resolverCfg.Mode == config.ResolverDoH {
@@ -126,7 +133,11 @@ func (e *Engine) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("build resolver: %w", err)
 	}
-	upstreamCfg := upstream.ConfigFromApp(e.cfg)
+	providerProfiles := []upstream.Profile(nil)
+	if e.cfg.Mode == config.ModeHosts && usesDirectUpstream(e.cfg.Upstream.Type) {
+		providerProfiles = provider.OutboundProfiles(enabledProviders)
+	}
+	upstreamCfg := upstream.ConfigFromApp(e.cfg, providerProfiles)
 	dialer, err := upstream.NewDialer(upstreamCfg, dnsResolver)
 	if err != nil {
 		return fmt.Errorf("build upstream dialer: %w", err)
@@ -150,8 +161,9 @@ func (e *Engine) Start(ctx context.Context) error {
 			e.logger.Info("hosts mode skipped wildcard rules", "count", len(skipped))
 		}
 		hostsCfg := hosts.ConfigFromApp(e.cfg, entries)
-		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(upstreamCfg.Profiles) > 0 {
-			startupProbes = runStartupProbes(ctx, directDialer)
+		probeTargets := provider.ProbeTargets(enabledProviders)
+		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(probeTargets) > 0 {
+			startupProbes = runStartupProbes(ctx, directDialer, probeTargets)
 			logStartupProbes(e.logger, startupProbes)
 		}
 		reverseServer = reverse.New(reverse.ConfigFromApp(e.cfg), matcher, dialer, certManager, e.logger)
@@ -213,7 +225,8 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.resolver = cloneResolverConfig(resolverCfg)
 	e.upstreamProfiles = len(upstreamCfg.Profiles)
 	e.startupProbes = cloneStartupProbes(startupProbes)
-	e.ruleSet = ruleSetInfo(e.cfg, matcher)
+	e.ruleSet = ruleSetInfo(enabledProviders, matcher)
+	e.providers = provider.Summaries(enabledProviders)
 	e.systemChanges = cloneSystemChanges(systemChanges)
 	e.startedAt = time.Now()
 	e.lastErr = nil
@@ -245,6 +258,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.upstreamProfiles = 0
 	e.startupProbes = nil
 	e.ruleSet = rules.RuleSetInfo{}
+	e.providers = nil
 	e.systemChanges = nil
 	e.running = false
 	e.mu.Unlock()
@@ -305,6 +319,7 @@ func (e *Engine) Status() Status {
 		RuleSetName:      e.ruleSet.Name,
 		RuleSetVersion:   e.ruleSet.Version,
 		RuleSetUpdatedAt: e.ruleSet.UpdatedAt,
+		Providers:        cloneProviderSummaries(e.providers),
 	}
 	status.ResolverServers = append([]string(nil), e.resolver.Servers...)
 	status.StartupProbes = cloneStartupProbes(e.startupProbes)
@@ -428,6 +443,13 @@ func cloneSystemChanges(changes []SystemChange) []SystemChange {
 	return append([]SystemChange(nil), changes...)
 }
 
+func cloneProviderSummaries(providers []provider.Summary) []provider.Summary {
+	if len(providers) == 0 {
+		return nil
+	}
+	return append([]provider.Summary(nil), providers...)
+}
+
 func certTrustChange(trust certstore.TrustResult) SystemChange {
 	change := SystemChange{Component: "root_ca", Action: "install", Status: "ok", Detail: fmt.Sprintf("store=%s", trust.StoreScope)}
 	if trust.AlreadyTrusted {
@@ -443,9 +465,18 @@ func certTrustChange(trust certstore.TrustResult) SystemChange {
 	return change
 }
 
-func ruleSetInfo(cfg config.Config, matcher *rules.Matcher) rules.RuleSetInfo {
-	if cfg.Rules.EnableDefaultSteamRules {
-		return rules.DefaultSteamRuleSetInfo()
+func ruleSetInfo(providers []provider.Provider, matcher *rules.Matcher) rules.RuleSetInfo {
+	if len(providers) == 1 {
+		return provider.RuleSetInfo(providers[0])
+	}
+	if len(providers) > 1 {
+		compiled := matcher.Rules()
+		return rules.RuleSetInfo{
+			Name:          "multi-provider",
+			GroupCount:    len(provider.RuleGroups(providers)),
+			ExactCount:    len(compiled.Exact),
+			WildcardCount: len(compiled.Wildcard),
+		}
 	}
 	compiled := matcher.Rules()
 	return rules.RuleSetInfo{
@@ -466,7 +497,8 @@ func logStartupProbes(logger *slog.Logger, probes []upstream.ProbeResult) {
 			okCount++
 			continue
 		}
-		logger.Warn("startup steam probe failed",
+		logger.Warn("startup provider probe failed",
+			"provider", probe.ProviderID,
 			"host", probe.Host,
 			"target", probe.Target,
 			"stage", probe.Stage,
@@ -474,17 +506,26 @@ func logStartupProbes(logger *slog.Logger, probes []upstream.ProbeResult) {
 			"duration_ms", probe.DurationMillis,
 		)
 	}
-	logger.Info("startup steam probes completed", "ok", okCount, "failed", len(probes)-okCount)
+	logger.Info("startup provider probes completed", "ok", okCount, "failed", len(probes)-okCount)
 }
 
 func (e *Engine) buildMatcher() (*rules.Matcher, error) {
-	groups := []rules.RuleGroup(nil)
-	if e.cfg.Rules.EnableDefaultSteamRules {
-		groups = rules.DefaultSteamRules
+	enabledProviders, err := e.enabledProviders()
+	if err != nil {
+		return nil, err
 	}
+	groups := provider.RuleGroups(enabledProviders)
 	custom := append([]string(nil), e.cfg.Rules.CustomDomains...)
 	if e.cfg.Mode == config.ModeHosts {
 		custom = append(custom, e.cfg.Hosts.ExtraDomains...)
 	}
 	return rules.NewMatcher(groups, custom)
+}
+
+func (e *Engine) enabledProviders() ([]provider.Provider, error) {
+	providers, err := provider.ResolveEnabled(e.cfg.Providers.Enabled)
+	if err != nil {
+		return nil, err
+	}
+	return providers, nil
 }

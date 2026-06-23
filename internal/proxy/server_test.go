@@ -57,7 +57,7 @@ func newTestProxyWithDialer(t *testing.T, behavior string, dialer Dialer, logw i
 	}
 	server := New(Config{
 		ListenAddr:        "127.0.0.1:0",
-		NonSteamBehavior:  behavior,
+		NonTargetBehavior: behavior,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,
 		ShutdownTimeout:   5 * time.Second,
@@ -84,7 +84,7 @@ func TestHTTPProxyForSteamHost(t *testing.T) {
 	target := strings.TrimPrefix(upstream.URL, "http://")
 
 	var logs bytes.Buffer
-	proxy := newTestProxy(t, config.NonSteamReject, target, &logs)
+	proxy := newTestProxy(t, config.NonTargetReject, target, &logs)
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
 	req, err := http.NewRequest(http.MethodGet, "http://store.steam.test/path?token=secret", nil)
@@ -111,13 +111,13 @@ func TestHTTPProxyForSteamHost(t *testing.T) {
 	}
 }
 
-func TestHTTPProxyRejectsNonSteamByDefault(t *testing.T) {
+func TestHTTPProxyRejectsNonTargetByDefault(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, "unexpected")
 	}))
 	defer upstream.Close()
 	target := strings.TrimPrefix(upstream.URL, "http://")
-	proxy := newTestProxy(t, config.NonSteamReject, target, io.Discard)
+	proxy := newTestProxy(t, config.NonTargetReject, target, io.Discard)
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
 	resp, err := client.Get("http://example.com/")
@@ -142,7 +142,7 @@ func TestHTTPProxyUpstreamErrorIncludesDiagnostic(t *testing.T) {
 		}},
 	}
 	var logs bytes.Buffer
-	proxy := newTestProxyWithDialer(t, config.NonSteamReject, failingDialer{err: dialErr}, &logs)
+	proxy := newTestProxyWithDialer(t, config.NonTargetReject, failingDialer{err: dialErr}, &logs)
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
 	resp, err := client.Get("http://store.steam.test/")
@@ -165,13 +165,13 @@ func TestHTTPProxyUpstreamErrorIncludesDiagnostic(t *testing.T) {
 	}
 }
 
-func TestHTTPProxyDirectsNonSteamWhenConfigured(t *testing.T) {
+func TestHTTPProxyDirectsNonTargetWhenConfigured(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, "direct")
 	}))
 	defer upstream.Close()
 	target := strings.TrimPrefix(upstream.URL, "http://")
-	proxy := newTestProxy(t, config.NonSteamDirect, target, io.Discard)
+	proxy := newTestProxy(t, config.NonTargetDirect, target, io.Discard)
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
 	resp, err := client.Get("http://example.com/")
@@ -207,7 +207,7 @@ func TestConnectProxyForSteamHost(t *testing.T) {
 		_, _ = conn.Write([]byte("pong"))
 	}()
 
-	proxy := newTestProxy(t, config.NonSteamReject, ln.Addr().String(), io.Discard)
+	proxy := newTestProxy(t, config.NonTargetReject, ln.Addr().String(), io.Discard)
 	conn, err := net.Dial("tcp", proxy.Addr())
 	if err != nil {
 		t.Fatal(err)
@@ -258,7 +258,7 @@ func TestHTTPProxyThroughDirectResolver(t *testing.T) {
 	upstreamAddr := strings.TrimPrefix(upstreamServer.URL, "http://")
 	targetURL := "http://store.steam.test:" + portOf(upstreamAddr) + "/"
 	dialer := upstream.NewDirectDialer(proxyTestResolver{ips: []net.IP{net.ParseIP("127.0.0.1")}}, 5*time.Second)
-	proxy := newTestProxyWithDialer(t, config.NonSteamReject, dialer, io.Discard)
+	proxy := newTestProxyWithDialer(t, config.NonTargetReject, dialer, io.Discard)
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(ProxyURL(proxy.Addr()))}}
 	resp, err := client.Get(targetURL)
@@ -284,7 +284,7 @@ func TestConnectProxyThroughHTTPUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := newTestProxyWithDialer(t, config.NonSteamReject, dialer, io.Discard)
+	proxy := newTestProxyWithDialer(t, config.NonTargetReject, dialer, io.Discard)
 	assertConnectTunnel(t, proxy.Addr(), "api.steam.test:443")
 	if got := <-done; got != "ping" {
 		t.Fatalf("HTTP upstream got %q", got)
@@ -303,7 +303,7 @@ func TestConnectProxyThroughSOCKS5Upstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := newTestProxyWithDialer(t, config.NonSteamReject, dialer, io.Discard)
+	proxy := newTestProxyWithDialer(t, config.NonTargetReject, dialer, io.Discard)
 	assertConnectTunnel(t, proxy.Addr(), "api.steam.test:443")
 	if got := <-done; got != "ping" {
 		t.Fatalf("SOCKS5 upstream got %q", got)

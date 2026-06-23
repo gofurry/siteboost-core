@@ -29,44 +29,6 @@ type compiledProfileDomain struct {
 	wildcard bool
 }
 
-func DefaultSteamProfiles() []Profile {
-	return []Profile{
-		{
-			MatchDomains: []string{
-				"steamcommunity.com",
-				"*.steamcommunity.com",
-			},
-			ForwardHost:   "steamcommunity-a.akamaihd.net",
-			TLSServerName: "steamcommunity-a.akamaihd.net",
-		},
-		{
-			MatchDomains: []string{
-				"store.steampowered.com",
-				"checkout.steampowered.com",
-				"help.steampowered.com",
-				"login.steampowered.com",
-				"media.steampowered.com",
-			},
-			ForwardHost:   "cdn-a.akamaihd.net",
-			TLSServerName: "cdn-a.akamaihd.net",
-		},
-		{
-			MatchDomains: []string{
-				"community.steamstatic.com",
-			},
-			ForwardHost:   "community.steamstatic.com",
-			TLSServerName: "community.steamstatic.com",
-		},
-		{
-			MatchDomains: []string{
-				"steamcdn-a.akamaihd.net",
-			},
-			ForwardHost:   "steamcdn-a.akamaihd.net",
-			TLSServerName: "steamcdn-a.akamaihd.net",
-		},
-	}
-}
-
 func compileProfiles(profiles []Profile) ([]compiledProfile, error) {
 	if len(profiles) == 0 {
 		return nil, nil

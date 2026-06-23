@@ -146,34 +146,23 @@ func TestDirectDialerProfileUsesForwardHostAndTLSServerName(t *testing.T) {
 	}
 }
 
-func TestConfigFromAppAddsDefaultSteamProfilesForHosts(t *testing.T) {
+func TestConfigFromAppAppendsProviderAndUserProfiles(t *testing.T) {
 	cfg := config.Default()
 	cfg.Mode = config.ModeHosts
-	got := ConfigFromApp(cfg)
-	if len(got.Profiles) != 4 {
-		t.Fatalf("default steam profiles were not enabled")
+	cfg.Upstream.Profiles = []config.OutboundProfileConfig{{
+		MatchDomains: []string{"user.example"},
+		ForwardHost:  "user-cdn.example",
+	}}
+	providerProfiles := []Profile{{
+		MatchDomains: []string{"provider.example"},
+		ForwardHost:  "provider-cdn.example",
+	}}
+	got := ConfigFromApp(cfg, providerProfiles)
+	if len(got.Profiles) != 2 {
+		t.Fatalf("profiles = %#v", got.Profiles)
 	}
-}
-
-func TestDefaultSteamProfilesCoverSteamPlusOneClickDomains(t *testing.T) {
-	dialer, err := NewDirectDialerWithProfiles(fakeResolver{}, time.Second, DefaultSteamProfiles())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, host := range []string{
-		"steamcdn-a.akamaihd.net",
-		"community.steamstatic.com",
-		"media.steampowered.com",
-		"steamcommunity.com",
-		"store.steampowered.com",
-		"help.steampowered.com",
-		"login.steampowered.com",
-	} {
-		t.Run(host, func(t *testing.T) {
-			if dialer.matchProfile(host) == nil {
-				t.Fatalf("default profile does not match %s", host)
-			}
-		})
+	if got.Profiles[0].ForwardHost != "provider-cdn.example" || got.Profiles[1].ForwardHost != "user-cdn.example" {
+		t.Fatalf("profiles order = %#v", got.Profiles)
 	}
 }
 
@@ -274,9 +263,9 @@ func TestDirectDialerProbeHTTPSReportsResolveFailure(t *testing.T) {
 	}
 }
 
-func TestConfigFromAppSkipsDefaultSteamProfilesOutsideHosts(t *testing.T) {
+func TestConfigFromAppAllowsNoProviderProfiles(t *testing.T) {
 	cfg := config.Default()
-	got := ConfigFromApp(cfg)
+	got := ConfigFromApp(cfg, nil)
 	if len(got.Profiles) != 0 {
 		t.Fatalf("profiles = %#v", got.Profiles)
 	}

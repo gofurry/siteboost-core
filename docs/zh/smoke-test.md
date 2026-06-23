@@ -5,13 +5,12 @@
 在仓库根目录运行：
 
 ```bash
-go mod tidy
-gofmt -w .
-go vet ./...
+git diff --check
 go test ./...
-go test -race ./internal/hosts ./internal/certstore ./internal/reverse ./internal/pac ./internal/systemproxy ./internal/resolver ./internal/upstream ./internal/proxy ./internal/engine ./internal/runtime
+go vet ./...
+go test -race ./internal/hosts ./internal/privilege ./internal/engine ./cmd/steam-accelerator
+go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
 go run ./cmd/steam-accelerator --version
-go run ./examples/basic
 ```
 
 ## CLI 运行时检查
@@ -89,6 +88,79 @@ go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
 ./bin/steam-accelerator.exe apphost status
 ```
 
+### v0.6.4 Windows AppHost 主流程记录
+
+2026-06-23，本机 Windows + 中国网络环境下已完成一次 AppHost + Hosts 模式主流程记录。该记录证明 AppHost 可以安装为自动延迟启动服务，健康检查可用，当前 Hosts 反代链路可让 Steam 目标域名解析到本地并连通 443，`stop` / `restore` 后 AppHost 仍作为常驻提权底座保持健康，卸载后 `apphost status` 会返回服务不存在错误。
+
+管理员 PowerShell：
+
+```powershell
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost install
+apphost installed and started
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost status
+apphost: running start_type=automatic delayed_auto_start=true pid=98084 health=ok
+```
+
+普通 PowerShell 中，当前已有加速实例运行时，重复启动会返回 `already running`。这不是失败；继续检查 hosts 接管和本地 443 连通性即可：
+
+```powershell
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe start --mode hosts
+error: steam-accelerator is already running
+
+PS D:\WorkSpace\Git\siteboost-core> Test-NetConnection steamcommunity.com -Port 443
+ComputerName     : steamcommunity.com
+RemoteAddress    : 127.0.0.1
+RemotePort       : 443
+InterfaceAlias   : Loopback Pseudo-Interface 1
+SourceAddress    : 127.0.0.1
+TcpTestSucceeded : True
+
+PS D:\WorkSpace\Git\siteboost-core> Test-NetConnection store.steampowered.com -Port 443
+ComputerName     : store.steampowered.com
+RemoteAddress    : 127.0.0.1
+RemotePort       : 443
+InterfaceAlias   : Loopback Pseudo-Interface 1
+SourceAddress    : 127.0.0.1
+TcpTestSucceeded : True
+
+PS D:\WorkSpace\Git\siteboost-core> Test-NetConnection help.steampowered.com -Port 443
+ComputerName     : help.steampowered.com
+RemoteAddress    : 127.0.0.1
+RemotePort       : 443
+InterfaceAlias   : Loopback Pseudo-Interface 1
+SourceAddress    : 127.0.0.1
+TcpTestSucceeded : True
+```
+
+停止、恢复与卸载：
+
+```powershell
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe stop
+stopped
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe restore
+restored
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost status
+apphost: running start_type=automatic delayed_auto_start=true pid=98084 health=ok
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost uninstall
+apphost uninstalled
+
+PS D:\WorkSpace\Git\siteboost-core> .\bin\steam-accelerator.exe apphost status
+error: open apphost service: The specified service does not exist as an installed service.
+```
+
+该记录仍不替代一次完整的真实重启 smoke。发布前建议继续补充：
+
+```powershell
+.\bin\steam-accelerator.exe apphost install
+# reboot Windows
+.\bin\steam-accelerator.exe apphost status
+.\bin\steam-accelerator.exe start --mode hosts
+```
+
 可选预安装本项目 Root CA。`cert.auto_install` 为 true 时，`start --mode hosts` 可以在启动流程内自动安装；普通 PowerShell 下该命令也会通过 AppHost 请求受限系统修改：
 
 ```bash
@@ -110,7 +182,18 @@ go build -o ./bin/steam-accelerator.exe ./cmd/steam-accelerator
 ./bin/steam-accelerator.exe status --state ./tmp/runtime.json
 ```
 
-默认 Hosts + Direct 闭环的状态中应出现 `resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.22`、`upstream_profiles: 4` 和 `startup_probes:`。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认出站 profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，同时保留原始 HTTP Host。
+默认 Hosts + Direct 闭环的状态中应出现 `provider: id=steam status=stable rule_set=steam-web@2026.06.22 profiles=4 probes=6`、`resolver: doh`、`resolver_servers:`、`rule_set: steam-web@2026.06.22`、`upstream_profiles: 4` 和 `startup_probes:`。默认单 Steam provider 下继续保留独立 `rule_set:` 行，方便沿用既有 smoke 阅读习惯。这表示反代出站解析没有继续使用 system resolver，从而避免 hosts 自绕回。v0.6.0 起，默认 Steam outbound profile 还会让 `steamcommunity.com` 优先连接 `steamcommunity-a.akamaihd.net`，让 `store.steampowered.com` / `checkout.steampowered.com` / `help.steampowered.com` / `login.steampowered.com` / `media.steampowered.com` 优先连接 `cdn-a.akamaihd.net`，并覆盖 `community.steamstatic.com` 与 `steamcdn-a.akamaihd.net`，同时保留原始 HTTP Host。
+
+如需验证 v0.7 provider skeleton，可创建临时配置显式启用 GitHub：
+
+```yaml
+providers:
+  enabled:
+    - steam
+    - github
+```
+
+用该配置启动后检查 `status`。输出应同时包含 `provider: id=steam status=stable ...` 和 `provider: id=github status=experimental rule_set=github-web@2026.06.23 probes=3`。GitHub 只是用于验证架构扩展的 skeleton provider；该 smoke 不应要求 GitHub 真实可达，也不表示已经具备 GitHub 真实加速。
 
 `system_change:` 行应显示 Root CA 检查/安装、hosts preflight、反代监听和 hosts 写入结果。普通 PowerShell 通过 AppHost 成功时，Root CA 或 hosts 行的 detail 中应包含 `helper=elevated`。`startup_probes: ok=6 failed=0` 是理想结果。如果有失败，先查看 `startup_probe_failed` 行再打开浏览器；`stage=resolve`、`stage=tcp`、`stage=tls`、`stage=http` 可以缩小失败层级。默认探测目标、exact hosts 清单、wildcard 缺口和手动记录表维护在 [Steam 兼容性清单](steam-compatibility.md)。
 
@@ -139,7 +222,7 @@ curl.exe --ssl-no-revoke -I --max-time 30 https://steamcdn-a.akamaihd.net/
 
 ## 期望输出
 
-版本命令应输出项目名、版本号和模块路径。
+版本命令应输出项目名、`v0.7.0-dev` 和模块路径。
 
 basic 示例应输出项目名和模块路径。
 

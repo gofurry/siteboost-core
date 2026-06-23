@@ -79,10 +79,13 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	pacListen := fs.String("pac-listen", "", "PAC server listen address")
 	hostsHTTP := fs.String("hosts-http", "", "hosts mode HTTP listen address")
 	hostsHTTPS := fs.String("hosts-https", "", "hosts mode HTTPS listen address")
-	nonSteam := fs.String("non-steam", "", "non-Steam behavior: reject or direct")
+	nonTarget := fs.String("non-target", "", "non-target behavior: reject or direct")
 	allowLAN := fs.Bool("allow-lan", false, "allow non-loopback proxy listen address")
 	statePath := fs.String("state", "", "runtime state file path")
 	controlAddr := fs.String("control", "", "control listen address")
+	if hasLegacyFlag(args, "non-steam") {
+		return fmt.Errorf("--non-steam was removed in v0.7; use --non-target")
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -92,7 +95,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *nonSteam, *allowLAN, *statePath, *controlAddr)
+	applyStartOverrides(&cfg, visited, *mode, *listen, *pacListen, *hostsHTTP, *hostsHTTPS, *nonTarget, *allowLAN, *statePath, *controlAddr)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -176,6 +179,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if status.UpstreamProfiles > 0 {
 		fmt.Fprintf(stdout, "upstream_profiles: %d\n", status.UpstreamProfiles)
 	}
+	printProviders(stdout, status)
 	printRuleSet(stdout, status)
 	printSystemChanges(stdout, status.SystemChanges)
 	printStartupProbes(stdout, status.StartupProbes)
@@ -233,6 +237,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if status.UpstreamProfiles > 0 {
 		fmt.Fprintf(stdout, "upstream_profiles: %d\n", status.UpstreamProfiles)
 	}
+	printProviders(stdout, status)
 	printRuleSet(stdout, status)
 	printSystemChanges(stdout, status.SystemChanges)
 	printStartupProbes(stdout, status.StartupProbes)
@@ -488,7 +493,7 @@ func runningFromState(path string) (bool, error) {
 	return true, nil
 }
 
-func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, hostsHTTP, hostsHTTPS, nonSteam string, allowLAN bool, statePath, controlAddr string) {
+func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, listen, pacListen, hostsHTTP, hostsHTTPS, nonTarget string, allowLAN bool, statePath, controlAddr string) {
 	if visited["mode"] {
 		cfg.Mode = mode
 	}
@@ -504,8 +509,8 @@ func applyStartOverrides(cfg *config.Config, visited map[string]bool, mode, list
 	if visited["hosts-https"] {
 		cfg.Hosts.HTTPSListenAddr = hostsHTTPS
 	}
-	if visited["non-steam"] {
-		cfg.Proxy.NonSteamBehavior = nonSteam
+	if visited["non-target"] {
+		cfg.Proxy.NonTargetBehavior = nonTarget
 	}
 	if visited["allow-lan"] {
 		cfg.Proxy.AllowLAN = allowLAN
@@ -547,6 +552,39 @@ func visitedFlags(fs *flag.FlagSet) map[string]bool {
 	return visited
 }
 
+func hasLegacyFlag(args []string, name string) bool {
+	prefix := "--" + name
+	shortPrefix := "-" + name
+	for _, arg := range args {
+		if arg == prefix || strings.HasPrefix(arg, prefix+"=") || arg == shortPrefix || strings.HasPrefix(arg, shortPrefix+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func printProviders(w io.Writer, status engine.Status) {
+	for _, p := range status.Providers {
+		if p.ID == "" {
+			continue
+		}
+		fmt.Fprintf(w, "provider: id=%s status=%s", p.ID, p.Status)
+		if p.RuleSetName != "" {
+			fmt.Fprintf(w, " rule_set=%s", p.RuleSetName)
+			if p.RuleSetVersion != "" {
+				fmt.Fprintf(w, "@%s", p.RuleSetVersion)
+			}
+		}
+		if p.OutboundProfiles > 0 {
+			fmt.Fprintf(w, " profiles=%d", p.OutboundProfiles)
+		}
+		if p.ProbeTargets > 0 {
+			fmt.Fprintf(w, " probes=%d", p.ProbeTargets)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
 func printStartupProbes(w io.Writer, probes []upstream.ProbeResult) {
 	if len(probes) == 0 {
 		return
@@ -563,7 +601,11 @@ func printStartupProbes(w io.Writer, probes []upstream.ProbeResult) {
 		if probe.OK {
 			continue
 		}
-		fmt.Fprintf(w, "startup_probe_failed: host=%s", probe.Host)
+		fmt.Fprintf(w, "startup_probe_failed:")
+		if probe.ProviderID != "" {
+			fmt.Fprintf(w, " provider=%s", probe.ProviderID)
+		}
+		fmt.Fprintf(w, " host=%s", probe.Host)
 		if probe.Target != "" {
 			fmt.Fprintf(w, " target=%s", probe.Target)
 		}
@@ -614,7 +656,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   steam-accelerator --version
-  steam-accelerator start [--config path] [--mode proxy-only|pac|system|hosts] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--hosts-http 127.0.0.1:80] [--hosts-https 127.0.0.1:443] [--non-steam reject|direct]
+  steam-accelerator start [--config path] [--mode proxy-only|pac|system|hosts] [--listen 127.0.0.1:26501] [--pac-listen 127.0.0.1:26502] [--hosts-http 127.0.0.1:80] [--hosts-https 127.0.0.1:443] [--non-target reject|direct]
   steam-accelerator status [--config path] [--state path]
   steam-accelerator stop [--config path] [--state path]
   steam-accelerator restore [--config path] [--rollback path]

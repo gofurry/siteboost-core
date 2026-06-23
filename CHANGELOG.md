@@ -12,9 +12,10 @@ The project has not published a runtime release yet.
 - Go module `github.com/gofurry/go-steam-core`.
 - CLI at `cmd/steam-accelerator` with `start`, `status`, `stop`, and `restore`.
 - YAML configuration with safe loopback defaults.
-- Steam domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
-- HTTP proxy and HTTPS CONNECT tunnel for Steam rule domains.
-- Configurable non-Steam behavior: `reject` by default, or `direct`.
+- Provider registry with Steam as the default stable provider and GitHub as an explicit experimental skeleton provider.
+- Generic domain rules matcher with exact, wildcard, port stripping, lowercase, and IDNA handling.
+- HTTP proxy and HTTPS CONNECT tunnel for enabled provider rule domains.
+- Configurable non-target behavior: `reject` by default, or `direct`.
 - Configurable resolver modes: system DNS, UDP DNS, TCP DNS, and DoH.
 - DNS cache, resolver timeout, server fallback, and IPv4/IPv6 selection policy.
 - Direct upstream dialing through the configured resolver.
@@ -36,13 +37,21 @@ The project has not published a runtime release yet.
 
 ### Changed
 
-- Version metadata now reports `v0.4.0-dev`.
-- `non_steam_behavior: direct` still means non-Steam traffic is allowed, but the outbound path is now selected by `upstream.type`.
+- Version metadata now reports `v0.7.0-dev`.
+- Default configuration uses `providers.enabled: [steam]` and `proxy.non_target_behavior: reject`.
+- Steam default rules, outbound profiles, and startup probes now live behind the Steam provider instead of the generic rules/upstream packages.
+- `start --non-target reject|direct` replaces the old Steam-specific CLI flag.
+
+### Removed
+
+- `proxy.non_steam_behavior`, `rules.enable_default_steam_rules`, and `upstream.enable_default_steam_profiles` now fail with migration guidance instead of being silently accepted.
+- `start --non-steam` now fails with guidance to use `--non-target`.
 
 ### Notes
 
 - Runtime, resolver, upstream, PAC, and system proxy implementations remain internal; no stable public Go integration API is exposed yet.
 - `github.com/miekg/dns` is used for DNS wire message handling.
-- Hosts mode is Windows-first in v0.4.0. macOS/Linux Hosts and certificate-store setup return unsupported.
+- Hosts mode is Windows-first in v0.7.0-dev. macOS/Linux Hosts and certificate-store setup return unsupported.
 - Hosts files cannot express wildcard rules, so Hosts mode writes exact domains only; wildcard coverage is deferred to a future DNSIntercept-style mode.
+- GitHub is a skeleton provider for architecture validation only and does not promise real acceleration.
 - SteamTools is used as an architecture reference only; no source code is copied or ported.

@@ -9,9 +9,9 @@ Language: [中文文档](./README_zh.md)
 
 ## Introduction
 
-steam-accelerator-core is a Go-based Steam local acceleration core. It is designed to provide reusable network acceleration primitives for local desktop tools, sidecars, and future SteamScope or steam-go integrations.
+steam-accelerator-core is an experimental Go-based local site acceleration core. It is designed to validate reusable network acceleration primitives for local desktop tools, sidecars, and a future standalone Go library.
 
-The current v0.6.4-dev line includes a runnable local acceleration core. It supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, Steam domain matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected runtime control interface. Hosts + Direct mode uses built-in DoH defaults for real Steam IP lookup to avoid local hosts loopback, and now includes a default Steam outbound profile: community domains prefer `steamcommunity-a.akamaihd.net`, store / checkout / help / login / media domains prefer `cdn-a.akamaihd.net`, and common static/CDN hosts such as `community.steamstatic.com` and `steamcdn-a.akamaihd.net` are covered. The original Steam HTTP Host is preserved and TLS SNI follows the profile target. Startup probes expose DoH/TCP/TLS/HTTP smoke status in `start` and `status`. Windows system writes now use a Steam++-style AppHost Service path: install `SiteBoostCoreAppHost` once with administrator authorization, then normal PowerShell runs can request narrow root CA, hosts, and restore actions through the local named pipe `\\.\pipe\SiteBoostCoreAppHost`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
+The current v0.7.0-dev line includes a provider registry. Steam is the default stable provider. GitHub is available only as an explicit experimental skeleton provider for architecture validation, not as a real acceleration promise. The runtime supports ProxyOnly, PAC, System Proxy, and Windows-first Hosts reverse proxy modes, generic provider matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected runtime control interface. Hosts + Direct mode uses built-in DoH defaults to avoid local hosts loopback and applies the enabled providers' outbound profiles. Windows system writes use a Steam++-style AppHost Service path: install `SiteBoostCoreAppHost` once with administrator authorization, then normal PowerShell runs can request narrow root CA, hosts, and restore actions through the local named pipe `\\.\pipe\SiteBoostCoreAppHost`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -20,7 +20,8 @@ This project references the network acceleration architecture ideas of Watt Tool
 Current capabilities:
 
 - Local HTTP proxy and HTTPS CONNECT proxy.
-- Steam domain rules and safe host matching.
+- Provider registry with Steam stable provider and GitHub experimental skeleton provider.
+- Generic provider domain rules and safe host matching.
 - YAML configuration with safe defaults.
 - System DNS, UDP DNS, TCP DNS, DoH, DNS cache, and IPv4/IPv6 policy.
 - Direct, HTTP CONNECT upstream, and SOCKS5 upstream dialing.
@@ -31,7 +32,7 @@ Current capabilities:
 - Local HTTP/HTTPS reverse proxy with dynamic site certificates for Hosts mode.
 - Windows Hosts one-click flow with root CA auto-install, AppHost named pipe IPC, hosts preflight, rollback, and system-change status output.
 - Hosts + Direct default DoH outbound resolution, hosts preflight, and resolver status output.
-- Hosts + Direct default Steam outbound profile with ForwardDestination, TLS SNI, candidate IP, and original-domain fallback support.
+- Hosts + Direct provider outbound profiles with ForwardDestination, TLS SNI, candidate IP, and original-domain fallback support.
 - Hosts + Direct startup probes for DoH resolution, TCP 443, TLS handshake, and lightweight HTTPS smoke status.
 - Outbound failure diagnostics with candidate IPs, TCP / TLS stages, and trimmed 502 error summaries.
 - Foreground `start`, `status`, `stop`, and `restore` CLI lifecycle.
@@ -111,7 +112,7 @@ Run the basic module example:
 go run ./examples/basic
 ```
 
-Resolver, upstream, PAC, system proxy, and Hosts options are configured through YAML. The general defaults remain `resolver.mode: system` and `upstream.type: direct`; `start --mode hosts` automatically uses built-in DoH plus the default Steam outbound profile with Direct outbound dialing, and `status` shows `resolver: doh`.
+Resolver, upstream, provider, PAC, system proxy, and Hosts options are configured through YAML. The general defaults remain `providers.enabled: [steam]`, `resolver.mode: system`, and `upstream.type: direct`; `start --mode hosts` automatically uses built-in DoH plus enabled provider outbound profiles with Direct outbound dialing, and `status` shows `provider:`, `resolver: doh`, and `rule_set:`.
 
 ## Documentation
 
@@ -173,8 +174,9 @@ The implementation order is foundation-first:
 9. `v0.6.2`: Windows machine-scope certificate default.
 10. `v0.6.3`: Windows privileged helper foundation.
 11. `v0.6.4`: Windows AppHost Service and named pipe IPC.
-12. `v0.7.0`: general acceleration core refactor and rename preparation.
-13. `v1.0.0`: stable API and integration release.
+12. `v0.7.0`: provider registry, Steam stable provider, and GitHub experimental skeleton.
+13. `v0.8.0`: public Go library extraction preparation.
+14. `v1.0.0`: stable API and integration release.
 
 See [ROADMAP.md](./ROADMAP.md) for the canonical Chinese plan.
 

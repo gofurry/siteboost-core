@@ -35,11 +35,9 @@ type Config struct {
 	Profiles []Profile
 }
 
-func ConfigFromApp(cfg config.Config) Config {
-	profiles := make([]Profile, 0, len(cfg.Upstream.Profiles)+len(DefaultSteamProfiles()))
-	if cfg.Mode == config.ModeHosts && cfg.Rules.EnableDefaultSteamRules && cfg.Upstream.EnableDefaultSteamProfiles {
-		profiles = append(profiles, DefaultSteamProfiles()...)
-	}
+func ConfigFromApp(cfg config.Config, providerProfiles []Profile) Config {
+	profiles := make([]Profile, 0, len(providerProfiles)+len(cfg.Upstream.Profiles))
+	profiles = append(profiles, cloneProfiles(providerProfiles)...)
 	for _, profile := range cfg.Upstream.Profiles {
 		profiles = append(profiles, Profile{
 			MatchDomains:          append([]string(nil), profile.MatchDomains...),
@@ -57,6 +55,23 @@ func ConfigFromApp(cfg config.Config) Config {
 		Timeout:  cfg.Proxy.DialTimeout.Std(),
 		Profiles: profiles,
 	}
+}
+
+func cloneProfiles(profiles []Profile) []Profile {
+	if len(profiles) == 0 {
+		return nil
+	}
+	cloned := make([]Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		cloned = append(cloned, Profile{
+			MatchDomains:          append([]string(nil), profile.MatchDomains...),
+			CandidateIPs:          append([]string(nil), profile.CandidateIPs...),
+			ForwardHost:           profile.ForwardHost,
+			TLSServerName:         profile.TLSServerName,
+			IgnoreTLSNameMismatch: profile.IgnoreTLSNameMismatch,
+		})
+	}
+	return cloned
 }
 
 func NewDialer(cfg Config, resolver Resolver) (Dialer, error) {

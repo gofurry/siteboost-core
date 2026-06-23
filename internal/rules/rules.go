@@ -52,77 +52,21 @@ type ruleEntry struct {
 	host  string
 }
 
-const (
-	DefaultSteamRuleSetName      = "steam-web"
-	DefaultSteamRuleSetVersion   = "2026.06.22"
-	DefaultSteamRuleSetUpdatedAt = "2026-06-22"
-)
-
-var DefaultSteamRules = []RuleGroup{
-	{
-		Name: "store",
-		Domains: []string{
-			"store.steampowered.com",
-			"checkout.steampowered.com",
-			"help.steampowered.com",
-			"login.steampowered.com",
-			"media.steampowered.com",
-		},
-	},
-	{
-		Name: "community",
-		Domains: []string{
-			"steamcommunity.com",
-			"*.steamcommunity.com",
-		},
-	},
-	{
-		Name: "api",
-		Domains: []string{
-			"api.steampowered.com",
-			"partner.steam-api.com",
-		},
-	},
-	{
-		Name: "chat",
-		Domains: []string{
-			"steam-chat.com",
-			"*.steam-chat.com",
-		},
-	},
-	{
-		Name: "static",
-		Domains: []string{
-			"community.steamstatic.com",
-			"steamstatic.com",
-			"*.steamstatic.com",
-			"akamai.steamstatic.com",
-			"*.akamai.steamstatic.com",
-		},
-	},
-	{
-		Name: "cdn",
-		Domains: []string{
-			"steamcdn-a.akamaihd.net",
-		},
-	},
-}
-
-func DefaultSteamRuleSetInfo() RuleSetInfo {
-	matcher, err := NewMatcher(DefaultSteamRules, nil)
+func NewRuleSetInfo(name, version, updatedAt string, groups []RuleGroup) RuleSetInfo {
+	matcher, err := NewMatcher(groups, nil)
 	if err != nil {
 		return RuleSetInfo{
-			Name:      DefaultSteamRuleSetName,
-			Version:   DefaultSteamRuleSetVersion,
-			UpdatedAt: DefaultSteamRuleSetUpdatedAt,
+			Name:      name,
+			Version:   version,
+			UpdatedAt: updatedAt,
 		}
 	}
 	compiled := matcher.Rules()
 	return RuleSetInfo{
-		Name:          DefaultSteamRuleSetName,
-		Version:       DefaultSteamRuleSetVersion,
-		UpdatedAt:     DefaultSteamRuleSetUpdatedAt,
-		GroupCount:    len(DefaultSteamRules),
+		Name:          name,
+		Version:       version,
+		UpdatedAt:     updatedAt,
+		GroupCount:    len(groups),
 		ExactCount:    len(compiled.Exact),
 		WildcardCount: len(compiled.Wildcard),
 	}

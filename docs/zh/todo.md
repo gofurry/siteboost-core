@@ -2,10 +2,9 @@
 
 ## 短期任务
 
-- 推进 `v0.7.0` 通用加速核心重构和命名迁移准备。
-- 审计代码、配置、CLI、状态输出和文档中的 Steam 专用命名与硬编码假设。
-- 设计 provider / rule pack / outbound profile / takeover mode / restore state 的通用模型。
-- 增加一个非 Steam 示例 provider，证明核心可支持其他站点或服务的本地加速。
+- 完成 `v0.7.0-dev` provider registry 路径的真实 Windows smoke。
+- 准备 `v0.8.0` 公共 Go library 抽离计划和包边界草案。
+- 用 GitHub skeleton provider 补一份最小 provider 开发示例文档。
 - 增加 malformed request、dial failure 和 upstream failure 等代理边界测试。
 - 在下一轮文档整理时增加配置示例文件。
 - 在公共 API 设计稳定前，继续保持运行时实现为 internal。
@@ -25,6 +24,7 @@
 ## 已知限制
 
 - 当前已实现 ProxyOnly、PAC、System Proxy、Windows Hosts、证书与反代能力。
+- Steam 是默认 stable provider；GitHub 是显式启用的 experimental skeleton provider，不承诺真实加速。
 - Windows 普通 PowerShell 已支持通过已安装 AppHost named pipe 完成默认 Hosts / Root CA / restore 系统修改；自定义 hosts / cert / rollback 路径仍需要管理员进程或后续受控桌面集成。
 - Hosts 文件不能表达通配符，当前 Hosts 模式只写入 exact 域名。
 - Linux 桌面系统代理处理延后。

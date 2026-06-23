@@ -13,11 +13,11 @@ Current facts:
 - The remote repository is `gofurry/siteboost-core`.
 - The Go module is still `github.com/gofurry/go-steam-core`.
 - The CLI is still `steam-accelerator`.
-- `version.go` reports `v0.6.4-dev`.
+- `version.go` reports `v0.7.0-dev`.
 - The main branch contains Windows AppHost Service and named pipe IPC work.
-- Local real-machine validation has passed for AppHost health, named pipe RPC, normal-user `start --mode hosts`, `stop`, and `restore`. Reboot auto-start still needs one explicit smoke record.
+- Local real-machine validation has passed for AppHost health, named pipe RPC, the normal-user Hosts loop, China-network Steam access, `stop`, `restore`, and uninstall behavior. A dedicated reboot auto-start smoke is still recommended.
 
-Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Reverse Proxy path has been manually validated in a China-network environment for Steam store, community, help, chat/login, static assets, and common CDN hosts. GitHub is not implemented as a real acceleration provider yet; it should first appear as a skeleton provider for architecture validation.
+Steam is currently the only real provider. The Windows Hosts + DoH + HTTPS Reverse Proxy path has been manually validated in a China-network environment for Steam store, community, help, chat/login, static assets, and common CDN hosts. GitHub is available as an explicit experimental skeleton provider for architecture validation only.
 
 ## Direction
 
@@ -40,7 +40,7 @@ HTTP and SOCKS5 upstreams are optional enhancements. They are not the default ac
 
 ### v0.6.4 - Windows AppHost Service Validation
 
-**Status:** Main local flow validated; reboot auto-start smoke pending.
+**Status:** Main user flow recorded; dedicated reboot auto-start smoke still recommended.
 
 Validate the Steam++-style privilege boundary:
 
@@ -49,14 +49,31 @@ Validate the Steam++-style privilege boundary:
 - pipe DACL, local-client-only pipe mode, pipe client PID checks, and client executable path checks
 - normal PowerShell `start --mode hosts`
 - normal PowerShell `stop` / `restore`
+- Steam target hosts resolving to `127.0.0.1` with local TCP 443 reachable in Hosts mode
 - `apphost status` health check reporting `health=ok`
 - AppHost remaining `running` after `stop` / `restore` by design, because it is the privileged standby service and not the active acceleration state
-- automatic service startup after reboot, still to be recorded
+- automatic service startup after reboot, still recommended as a dedicated record
 - clear diagnostics when the service is missing, stopped, or unhealthy
+
+### v0.6.5 - Capability Boundary Freeze and v0.7 Preflight
+
+Freeze capability ownership before the provider refactor. The decision is that real GitHub acceleration, DNSIntercept, TUN/VPN, JS injection, and cross-platform privilege loops stay in `v1.1+` as future extension points and non-goals. They should not be implemented before `v0.7.0`.
+
+The boundary is documented in [capability-boundary.md](capability-boundary.md):
+
+- Providers define sites, rules, outbound profiles, exact hosts, probes, and smoke targets.
+- Providers must not write hosts, install Root CA, call AppHost, create TUN/DNSIntercept state, or perform system changes.
+- Takeover modes own traffic capture behavior.
+- AppHost is a platform privilege executor, not a provider feature.
+- The current Steam Windows Hosts + DoH + AppHost smoke remains the provider-refactor regression baseline.
 
 ### v0.7.0 - Provider Architecture and Generic Site Skeleton
 
-Refactor Steam-specific rules, outbound profiles, probes, and smoke targets into a built-in Steam provider. Add a GitHub skeleton provider marked experimental. Core reverse proxy, resolver, and upstream packages should depend on generic provider data instead of Steam-specific assumptions.
+**Status:** Development and automated validation completed; real Windows smoke regression still recommended.
+
+Completed the provider refactor. Steam-specific rules, outbound profiles, probes, and smoke targets now live behind the built-in Steam provider. GitHub is available as an explicit skeleton provider marked experimental. Core reverse proxy, resolver, and upstream packages consume generic matcher/profile data instead of Steam default data.
+
+Validated automatically with `git diff --check`, `go test ./...`, `go vet ./...`, race tests for the core Windows/AppHost-facing packages, Windows binary build, and `--version`. Remaining manual smoke should verify the default Steam Hosts + DoH + AppHost path and an explicit `[steam, github]` provider config.
 
 ### v0.8.0 - Library Extraction Readiness
 
@@ -98,6 +115,7 @@ Possible post-v1 work:
 ## Non-goals Before v1
 
 - Do not promise real GitHub acceleration before provider validation.
+- Do not implement DNSIntercept, TUN/VPN, JS injection, or cross-platform AppHost loops before the v0.7 provider boundary is stable.
 - Do not treat an upstream proxy as required for the default loop.
 - Do not describe this repository as the final Go library repository.
 - Do not copy, translate, or port SteamTools source code.

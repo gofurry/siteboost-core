@@ -25,7 +25,7 @@ type Dialer interface {
 
 type Config struct {
 	ListenAddr        string
-	NonSteamBehavior  string
+	NonTargetBehavior string
 	ReadHeaderTimeout time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
@@ -62,7 +62,7 @@ func New(cfg Config, matcher *rules.Matcher, dialer Dialer, logger *slog.Logger)
 func ConfigFromApp(cfg config.Config) Config {
 	return Config{
 		ListenAddr:        cfg.Proxy.ListenAddr,
-		NonSteamBehavior:  cfg.Proxy.NonSteamBehavior,
+		NonTargetBehavior: cfg.Proxy.NonTargetBehavior,
 		ReadHeaderTimeout: cfg.Proxy.ReadHeaderTimeout.Std(),
 		IdleTimeout:       cfg.Proxy.IdleTimeout.Std(),
 		ShutdownTimeout:   cfg.Proxy.ShutdownTimeout.Std(),
@@ -185,9 +185,9 @@ func (s *Server) handleHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	allowed, match, host := s.matchRequestHost(req.URL.Host)
-	if !allowed && s.cfg.NonSteamBehavior == config.NonSteamReject {
+	if !allowed && s.cfg.NonTargetBehavior == config.NonTargetReject {
 		s.logRequest("http_reject", req.Method, host, match, "reject", http.StatusForbidden)
-		http.Error(w, "host is not allowed by Steam rules", http.StatusForbidden)
+		http.Error(w, "host is not allowed by provider rules", http.StatusForbidden)
 		return
 	}
 
@@ -214,9 +214,9 @@ func (s *Server) handleHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (s *Server) handleConnect(w http.ResponseWriter, req *http.Request) {
 	allowed, match, host := s.matchRequestHost(req.Host)
-	if !allowed && s.cfg.NonSteamBehavior == config.NonSteamReject {
+	if !allowed && s.cfg.NonTargetBehavior == config.NonTargetReject {
 		s.logRequest("connect_reject", req.Method, host, match, "reject", http.StatusForbidden)
-		http.Error(w, "host is not allowed by Steam rules", http.StatusForbidden)
+		http.Error(w, "host is not allowed by provider rules", http.StatusForbidden)
 		return
 	}
 
@@ -274,9 +274,9 @@ func (s *Server) matchRequestHost(rawHost string) (bool, rules.MatchResult, stri
 
 func (s *Server) behaviorFor(allowed bool) string {
 	if allowed {
-		return "steam"
+		return "target"
 	}
-	return s.cfg.NonSteamBehavior
+	return s.cfg.NonTargetBehavior
 }
 
 func (s *Server) logRequest(event, method, host string, match rules.MatchResult, behavior string, status int) {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gofurry/go-steam-core/internal/engine"
+	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
 
@@ -24,17 +25,45 @@ func TestRestoreNoRollbackState(t *testing.T) {
 func TestPrintStartupProbes(t *testing.T) {
 	var stdout bytes.Buffer
 	printStartupProbes(&stdout, []upstream.ProbeResult{
-		{Host: "steamcommunity.com", OK: true, Stage: "http"},
-		{Host: "store.steampowered.com", Target: "cdn-a.akamaihd.net", Stage: "tcp", Error: "tcp 1.2.3.4:443 failed"},
+		{ProviderID: provider.IDSteam, Host: "steamcommunity.com", OK: true, Stage: "http"},
+		{ProviderID: provider.IDSteam, Host: "store.steampowered.com", Target: "cdn-a.akamaihd.net", Stage: "tcp", Error: "tcp 1.2.3.4:443 failed"},
 	})
 	got := stdout.String()
 	for _, want := range []string{
 		"startup_probes: ok=1 failed=1",
-		"startup_probe_failed: host=store.steampowered.com target=cdn-a.akamaihd.net stage=tcp error=tcp 1.2.3.4:443 failed",
+		"startup_probe_failed: provider=steam host=store.steampowered.com target=cdn-a.akamaihd.net stage=tcp error=tcp 1.2.3.4:443 failed",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stdout = %q, want %q", got, want)
 		}
+	}
+}
+
+func TestRunStartRejectsLegacyNonSteamFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"start", "--non-steam", "direct"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "use --non-target") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestPrintProviders(t *testing.T) {
+	var stdout bytes.Buffer
+	printProviders(&stdout, engine.Status{Providers: []provider.Summary{{
+		ID:               provider.IDGitHub,
+		Status:           provider.StatusExperimental,
+		RuleSetName:      provider.GitHubRuleSetName,
+		RuleSetVersion:   provider.GitHubRuleSetVersion,
+		OutboundProfiles: 0,
+		ProbeTargets:     3,
+	}}})
+	got := strings.TrimSpace(stdout.String())
+	want := "provider: id=github status=experimental rule_set=github-web@2026.06.23 probes=3"
+	if got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }
 

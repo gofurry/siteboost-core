@@ -4,11 +4,11 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 已进入 `v0.6.4-dev`，主干包含 Windows AppHost Service 自动启动与 named pipe IPC 能力；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore` 主流程验证，重启自动拉起仍需补充 smoke 记录
+> 当前代码阶段：`version.go` 已进入 `v0.7.0-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider 和 GitHub experimental skeleton provider；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问和卸载主流程 smoke 记录，真实 Windows 重启后的自动拉起仍建议补充单独记录
 
 ## 当前定位
 
-这个仓库是本地站点加速核心的实验性验证仓库。它当前以 Steam 为唯一真实落地目标，用来验证 Steam++ / Watt Toolkit 式本地加速闭环：规则接管、本地反代、Root CA、DoH、出站 profile、权限编排和恢复。后续会在本仓库内继续实验多站点 provider 形态，例如先用 GitHub skeleton 验证扩展边界，但本仓库不计划直接改造成正式 Go 开源库。
+这个仓库是本地站点加速核心的实验性验证仓库。它当前以 Steam 为唯一真实落地目标，用来验证 Steam++ / Watt Toolkit 式本地加速闭环：规则接管、本地反代、Root CA、DoH、出站 profile、权限编排和恢复。v0.7 已加入 provider registry：Steam 是默认 stable provider，GitHub 是需要显式启用的 experimental skeleton provider，只用于验证扩展边界，不承诺真实加速。本仓库不计划直接改造成正式 Go 开源库。
 
 正式的通用 Go 加速库会在功能和架构验证后另起新仓库维护。届时可以直接借鉴、拆分或复用本仓库中已经验证过的核心内容，包括 resolver、reverse proxy、certstore、privilege/AppHost、provider 规则模型和 diagnostics。本仓库的主要价值是作为实验场、行为样板、smoke 记录和迁移来源，而不是最终稳定库本身。
 
@@ -76,9 +76,9 @@ stop / restore 恢复系统修改
 
 - `version.go`、Go module、CLI、配置字段和大量包名仍带 Steam 专用命名。
 - 运行时基本仍在 `internal/`，公共 Go API 尚未稳定。
-- AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 `start --mode hosts`、`stop` / `restore` 主流程验证；仍需要补充 `install -> reboot -> no-admin start` 的重启 smoke 记录。
+- AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程验证；仍建议补充 `install -> reboot -> no-admin start` 的单独重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
-- GitHub 还没有真实 provider，下一阶段只做骨架占位和架构验证。
+- GitHub 已有 experimental skeleton provider，可通过 `providers.enabled` 显式启用；它不包含默认 outbound profile，也不承诺真实加速。
 - hosts 只能覆盖 exact 域名，wildcard 完整覆盖需要 DNSIntercept 或更高级接管模式。
 - macOS / Linux Hosts 与证书安装未落地。
 - 桌面 installer、服务升级、日志位置、卸载清理和发布包还没有产品化。
@@ -111,7 +111,7 @@ stop / restore 恢复系统修改
 
 ### v0.6.4 - Windows AppHost Service 闭环验收
 
-**状态：** 主流程已在本机通过，重启自动拉起 smoke 待补
+**状态：** 主体验闭环已记录，真实重启自动拉起 smoke 建议继续补充
 **范围：** Windows / User-facing / Security-Safety / Testing
 **目标：** 把 Steam++ 式 Root/AppHost 权限边界变成可重复的一键初始化与无管理员日常启动体验。
 
@@ -139,25 +139,61 @@ stop / restore 恢复系统修改
 - [x] 验证 `apphost status` 输出 `start_type=automatic delayed_auto_start=true ... health=ok`。
 - [x] 普通 PowerShell 执行 `start --mode hosts`，验证不再要求管理员终端。
 - [x] 验证 `stop` / `restore` 在普通 PowerShell 下通过 AppHost 恢复 hosts；AppHost 保持 `running health=ok` 是预期行为。
-- [ ] 重启 Windows 后验证服务自动运行。
-- [ ] 将本机输出整理进 smoke 文档：安装、健康检查、普通用户 start、stop、restore、重启后 start。
+- [x] 将本机输出整理进 smoke 文档：安装、健康检查、普通用户 Hosts 闭环、stop、restore、uninstall 和服务不存在错误。
+- [ ] 补充真实 Windows 重启后的服务自动拉起记录：`install -> reboot -> apphost status health=ok -> no-admin start --mode hosts`。
 - [ ] 继续补充失败场景文档：服务未安装、服务未运行、named pipe 无法连接、AppHost 请求失败、二进制路径变更。
-- [ ] 设计下一版 AppHost IPC 加固方案：用户会话绑定、请求审计、按需启动。
+- [ ] 在 v0.6.5 / v0.9 中继续设计 AppHost IPC 加固方案：用户会话绑定、请求审计、按需启动。
 
 #### Acceptance Criteria
 
 - 首次安装只需要一次管理员授权。
 - AppHost 常驻运行但不表示加速正在运行；加速状态由 `start/stop/restore/status` 管理。
 - 普通用户可以执行 `start --mode hosts`、`stop` 和 `restore`。
-- 重启后 AppHost 自动运行。
+- 服务已配置为 `StartAutomatic` + `DelayedAutoStart`，真实重启后自动运行需要保留单独 smoke 记录。
 - AppHost 失败时错误信息能指导用户安装、启动或恢复。
 - AppHost 不接受任意 shell、任意路径写入或敏感凭据。
 
 ---
 
+### v0.6.5 - 能力边界冻结与 v0.7 预检
+
+**状态：** 已完成
+**范围：** Architecture / Security-Safety / Documentation / Developer-facing
+**目标：** 在 provider 架构重构前冻结核心能力边界，避免 v1.1+ 高级能力提前污染 v0.7 的开源库抽取准备。
+
+#### Focus
+
+- 明确 provider、takeover mode、privilege/AppHost、certificate、resolver/upstream 和 diagnostics 的责任边界。
+- 将 GitHub 真实加速、DNSIntercept、TUN/VPN、JS 注入和跨平台 AppHost 等高级能力保留为 v1.1+ 候选，不在 v0.7 前实现。
+- 为 v0.7 Provider 抽象提供可执行的 non-goals 和 extension points。
+- 保留 Steam 当前 Windows Hosts + DoH + AppHost 闭环作为后续重构的回归基线。
+
+#### Tasks
+
+- [x] 记录 v0.6.4 AppHost + Steam 真实中国网络主流程 smoke。
+- [x] 新增 v0.6.5 能力边界文档，说明 provider / takeover / privilege / cert / diagnostics 的归属。
+- [x] 明确 v1.1+ 高级能力不提前实现，只作为 future extension points。
+- [x] 审计 Steam 专用命名和核心包依赖，形成 v0.7 重构清单。
+- [x] 为 v0.7 Provider 接口草案列出必需字段和禁止职责。
+- [x] 更新 smoke 文档，明确 v0.7 后 Steam provider 必须保持当前 Windows 闭环回归。
+
+#### Acceptance Criteria
+
+- Provider 不拥有 hosts 写入、Root CA 安装、AppHost 调用、TUN/DNSIntercept 控制或任意系统修改权限。
+- Takeover mode 负责流量接管方式，Provider 只提供站点规则、outbound profile 和 smoke targets。
+- AppHost 只执行白名单系统修改请求，不暴露任意 shell、任意路径写入或 provider 私有命令。
+- DNSIntercept、TUN/VPN、JS 注入、GitHub 真实加速和跨平台权限闭环在 v0.7 前只记录边界，不进入实现。
+- v0.7 可以在不修改 reverse / resolver / upstream 核心语义的前提下加入 Steam provider 和 GitHub skeleton provider。
+
+#### Notes
+
+详细边界维护在 [docs/zh/capability-boundary.md](docs/zh/capability-boundary.md)。
+
+---
+
 ### v0.7.0 - Provider 架构与通用站点骨架
 
-**状态：** 计划中
+**状态：** 开发与自动化验证已完成，等待真实 Windows smoke 回归
 **范围：** Architecture / Maintainability / Developer-facing / Testing
 **目标：** 将 Steam 从核心硬编码中抽离成内置 provider，并以 GitHub 骨架 provider 验证扩展模型。
 
@@ -170,22 +206,25 @@ stop / restore 恢复系统修改
 
 #### Tasks
 
-- [ ] 审计 Steam 专用命名：`DefaultSteamRules`、`DefaultSteamProfiles`、`NonSteamBehavior`、错误文案、CLI help、docs。
-- [ ] 设计 `Provider` 接口：ID、名称、规则、出站 profile、hosts exact 列表、startup probes、smoke targets。
-- [ ] 将 Steam rules/profile/smoke targets 收敛到 `provider/steam` 或等价包。
-- [ ] 增加 `provider/github` 骨架：GitHub 域名分组、规则版本、空或实验 outbound profile、明确 `experimental` 状态。
-- [ ] 配置层支持选择 providers，例如 `providers.enabled: [steam]`，并保留旧 `enable_default_steam_rules` / `enable_default_steam_profiles` 兼容读取。
-- [ ] 将 `NonSteamBehavior` 重命名规划为 `non_target_behavior`，保留迁移兼容。
-- [ ] 让 reverse/proxy/resolver/upstream 只依赖通用 matcher 和 profile，不依赖 Steam 语义。
-- [ ] 增加 provider 单元测试：Steam 行为不变，GitHub 骨架可编译、可匹配、不会影响 Steam。
-- [ ] 更新 smoke 文档，区分 Steam stable provider 和 GitHub skeleton provider。
+- [x] 审计 Steam 专用命名：`DefaultSteamRules`、`DefaultSteamProfiles`、`NonSteamBehavior`、错误文案、CLI help、docs。
+- [x] 设计 provider 数据结构：ID、名称、状态、规则、出站 profile、startup probes。
+- [x] 将 Steam rules/profile/smoke targets 收敛到 `internal/provider`。
+- [x] 增加 `provider/github` 骨架：GitHub 域名分组、规则版本、空 outbound profile、明确 `experimental` 状态。
+- [x] 配置层支持选择 providers，例如 `providers.enabled: [steam]`；旧 Steam 专用 key 返回迁移错误。
+- [x] 将 `NonSteamBehavior` 重命名为 `non_target_behavior`，CLI 改为 `--non-target`，旧 `--non-steam` 返回迁移错误。
+- [x] 让 reverse/proxy/resolver/upstream 只依赖通用 matcher 和 profile，不依赖 Steam 默认数据。
+- [x] 增加 provider 单元测试：Steam 行为不变，GitHub 骨架可编译、可匹配、不会影响 Steam。
+- [x] 完成自动化验证：`git diff --check`、`go test ./...`、`go vet ./...`、race 子集、Windows 二进制 build、`--version`。
+- [x] 更新 smoke 文档，区分 Steam stable provider 和 GitHub skeleton provider。
 
 #### Acceptance Criteria
 
-- 新增 GitHub provider 骨架不需要修改 reverse / resolver / upstream 核心逻辑。
-- Steam 当前 Windows Hosts + DoH 闭环在重构后保持通过。
-- 旧配置仍可运行，迁移提示清晰。
-- GitHub 被标记为骨架 / experimental，不夸大为已可用真实加速。
+- [x] 新增 GitHub provider 骨架不需要修改 reverse / resolver / upstream 核心逻辑。
+- [x] Steam 默认 provider 的规则、outbound profile、startup probes 和 status 兼容输出保持可测。
+- [x] 旧配置不再静默兼容，迁移提示清晰。
+- [x] GitHub 被标记为骨架 / experimental，不夸大为已可用真实加速。
+- [ ] Steam 当前 Windows Hosts + DoH + AppHost 真实环境回归 smoke 在重构后保持通过。
+- [ ] `providers.enabled: [steam, github]` 真实启动 smoke 显示两个 provider，GitHub 为 `experimental`，且不要求 GitHub live 可达。
 
 ---
 
@@ -267,7 +306,7 @@ stop / restore 恢复系统修改
 - [ ] 冻结 provider / rule pack / outbound profile schema。
 - [ ] 冻结实验 CLI 主命令和配置迁移策略。
 - [ ] 完成 Steam provider Windows smoke 回归。
-- [ ] 明确 GitHub provider 状态：skeleton / experimental / stable 之一。
+- [x] 明确 GitHub provider 状态：skeleton / experimental / stable 之一。
 - [ ] 完成安全边界文档：Root CA、hosts、AppHost、DoH、日志脱敏。
 
 #### Acceptance Criteria
@@ -319,14 +358,13 @@ stop / restore 恢复系统修改
 
 短期：
 
-- 补齐 `v0.6.4` Windows AppHost Service 重启自动拉起 smoke 记录。
+- 补齐 `v0.6.4` Windows AppHost Service 单独重启自动拉起 smoke 记录。
+- 完成 `v0.7.0` provider 架构真实 Windows smoke 回归。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
-- 进入 `v0.7.0` provider 架构重构。
+- 开始 `v0.8.0` 独立 Go Library 抽取准备。
 
 中期：
 
-- 完成 Steam provider 抽离。
-- 加入 GitHub skeleton provider。
 - 整理未来独立 Go library 的 API 草案和迁移清单。
 - 将 CLI 与核心能力的边界整理到可迁移状态。
 
@@ -342,8 +380,9 @@ stop / restore 恢复系统修改
 | 风险 | 影响 | 应对 |
 |---|---|---|
 | AppHost named pipe 仍缺少用户会话绑定 | 同一交互用户下的本地恶意进程仍可能尝试请求受限系统修改 | 已有 DACL、远程拒绝、pipe client PID、客户端二进制路径校验和命令白名单；后续补用户会话绑定、审计日志和按需启动 |
-| AppHost 重启后自动拉起 smoke 未记录 | 电脑重启后的无管理员启动闭环可能仍有遗漏 | 已完成安装、health、named pipe、普通用户 start/stop/restore；下一步补 `reboot -> apphost status -> no-admin start` |
-| Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 先做命名审计和兼容迁移 |
+| AppHost 重启后自动拉起 smoke 未记录 | 电脑重启后的无管理员启动闭环可能仍有遗漏 | 已完成安装、health、named pipe、普通用户 Hosts 闭环、stop/restore、uninstall 主流程记录；下一步补 `reboot -> apphost status -> no-admin start` |
+| v1.1+ 高级能力过早进入 v0.7 | Provider 抽象被 DNSIntercept、TUN 或 JS 注入细节污染，未来 Go library 边界变重 | v0.6.5 先冻结能力边界；高级能力只作为 extension points 和 non-goals 记录 |
+| Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 已完成 provider registry、配置迁移错误和 CLI 新参数；Go module / CLI 名称保留为实验仓库历史包袱 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |
 | hosts 无法覆盖 wildcard | 部分域名无法接管 | v1.x DNSIntercept / TUN 作为高级能力 |
 | Root CA 信任风险 | 用户安全顾虑 | 显式安装 / 卸载、清晰文档、最小命令面、日志脱敏 |

@@ -32,7 +32,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - 支持独立 `restore`。
 - 文档写明手动恢复方式。
 - 只修改项目拥有的配置项或 hosts 标记区块。
-- AppHost 必须保持窄命令面。v0.6.4-dev AppHost 只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca` 和 health 请求，通过 Windows named pipe 传输，带 DACL，平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`，随机 token 非空校验、pipe client PID 与请求父进程 PID 绑定、客户端二进制路径校验，限制默认 hosts 路径与项目 runtime / cert 目录，并对请求设置超时。
+- AppHost 必须保持窄命令面。v0.7.0-dev AppHost 仍只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca` 和 health 请求，通过 Windows named pipe 传输，带 DACL，平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`，随机 token 非空校验、pipe client PID 与请求父进程 PID 绑定、客户端二进制路径校验，限制默认 hosts 路径与项目 runtime / cert 目录，并对请求设置超时。
 
 ## 证书风险
 

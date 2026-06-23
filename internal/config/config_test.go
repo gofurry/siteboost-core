@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,8 +16,11 @@ func TestDefaultConfigValid(t *testing.T) {
 	if cfg.Mode != ModeProxyOnly {
 		t.Fatalf("mode = %q, want %q", cfg.Mode, ModeProxyOnly)
 	}
-	if cfg.Proxy.NonSteamBehavior != NonSteamReject {
-		t.Fatalf("non-steam behavior = %q, want %q", cfg.Proxy.NonSteamBehavior, NonSteamReject)
+	if len(cfg.Providers.Enabled) != 1 || cfg.Providers.Enabled[0] != "steam" {
+		t.Fatalf("providers = %#v", cfg.Providers.Enabled)
+	}
+	if cfg.Proxy.NonTargetBehavior != NonTargetReject {
+		t.Fatalf("non-target behavior = %q, want %q", cfg.Proxy.NonTargetBehavior, NonTargetReject)
 	}
 	if cfg.Resolver.Mode != ResolverSystem {
 		t.Fatalf("resolver mode = %q, want %q", cfg.Resolver.Mode, ResolverSystem)
@@ -68,8 +72,12 @@ func TestLoadFileYAML(t *testing.T) {
 mode: proxy_only
 proxy:
   listen_addr: "127.0.0.1:28080"
-  non_steam_behavior: "direct"
+  non_target_behavior: "direct"
   read_header_timeout: "3s"
+providers:
+  enabled:
+    - steam
+    - github
 pac:
   listen_addr: "127.0.0.1:28082"
 hosts:
@@ -97,7 +105,6 @@ upstream:
   address: "127.0.0.1:18080"
   username: "user"
   password: "secret"
-  enable_default_steam_profiles: false
   profiles:
     - match_domains:
         - "steamcommunity.com"
@@ -120,8 +127,8 @@ system_proxy:
 	if cfg.Proxy.ListenAddr != "127.0.0.1:28080" {
 		t.Fatalf("listen addr = %q", cfg.Proxy.ListenAddr)
 	}
-	if cfg.Proxy.NonSteamBehavior != NonSteamDirect {
-		t.Fatalf("non-steam behavior = %q", cfg.Proxy.NonSteamBehavior)
+	if cfg.Proxy.NonTargetBehavior != NonTargetDirect {
+		t.Fatalf("non-target behavior = %q", cfg.Proxy.NonTargetBehavior)
 	}
 	if got := cfg.Proxy.ReadHeaderTimeout.Std(); got != 3*time.Second {
 		t.Fatalf("read header timeout = %v", got)
@@ -138,8 +145,8 @@ system_proxy:
 	if cfg.Upstream.Type != UpstreamHTTP || cfg.Upstream.Address != "127.0.0.1:18080" {
 		t.Fatalf("upstream = %#v", cfg.Upstream)
 	}
-	if cfg.Upstream.EnableDefaultSteamProfiles {
-		t.Fatalf("default steam profiles should be disabled")
+	if len(cfg.Providers.Enabled) != 2 || cfg.Providers.Enabled[0] != "steam" || cfg.Providers.Enabled[1] != "github" {
+		t.Fatalf("providers = %#v", cfg.Providers.Enabled)
 	}
 	if len(cfg.Upstream.Profiles) != 1 {
 		t.Fatalf("upstream profiles = %#v", cfg.Upstream.Profiles)
@@ -209,9 +216,9 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			},
 		},
 		{
-			name: "non steam",
+			name: "non target",
 			mutate: func(cfg *Config) {
-				cfg.Proxy.NonSteamBehavior = "tunnel"
+				cfg.Proxy.NonTargetBehavior = "tunnel"
 			},
 		},
 		{
@@ -290,6 +297,38 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			tt.mutate(&cfg)
 			if err := cfg.Validate(); err == nil {
 				t.Fatalf("Validate returned nil")
+			}
+		})
+	}
+}
+
+func TestLoadFileRejectsLegacyConfigKeys(t *testing.T) {
+	tests := map[string]string{
+		"proxy.non_steam_behavior": `
+proxy:
+  non_steam_behavior: direct
+`,
+		"rules.enable_default_steam_rules": `
+rules:
+  enable_default_steam_rules: false
+`,
+		"upstream.enable_default_steam_profiles": `
+upstream:
+  enable_default_steam_profiles: false
+`,
+	}
+	for name, data := range tests {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadFile(path)
+			if err == nil {
+				t.Fatalf("expected legacy key error")
+			}
+			if !strings.Contains(err.Error(), name) && !strings.Contains(err.Error(), "removed in v0.7") {
+				t.Fatalf("error = %v", err)
 			}
 		})
 	}

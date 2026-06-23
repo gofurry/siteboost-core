@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gofurry/go-steam-core/internal/certstore"
+	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/rules"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
@@ -171,7 +172,7 @@ func TestHTTPSReverseUsesDynamicCertificateAndSNI(t *testing.T) {
 	}
 }
 
-func TestRejectsNonSteamHost(t *testing.T) {
+func TestRejectsNonTargetHost(t *testing.T) {
 	server := newTestServer(t, mapDialer{}, nil)
 	defer stopServer(t, server)
 
@@ -272,7 +273,7 @@ func newTestServerWithLogger(t *testing.T, dialer Dialer, roots *x509.CertPool, 
 
 func newTestServerWithLoggerAndManager(t *testing.T, dialer Dialer, roots *x509.CertPool, manager *certstore.Manager, logger *slog.Logger) *Server {
 	t.Helper()
-	matcher, err := rules.NewMatcher(rules.DefaultSteamRules, nil)
+	matcher, err := rules.NewMatcher(provider.Steam().Rules, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

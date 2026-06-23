@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gofurry/go-steam-core/internal/provider"
 	"github.com/gofurry/go-steam-core/internal/rules"
 )
 
@@ -70,7 +71,7 @@ func (p *fakePlatform) CheckWritable(path string) error {
 }
 
 func TestEntriesFromRulesSkipsWildcards(t *testing.T) {
-	matcher, err := rules.NewMatcher(rules.DefaultSteamRules, nil)
+	matcher, err := rules.NewMatcher(provider.Steam().Rules, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

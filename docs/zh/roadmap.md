@@ -15,7 +15,7 @@
 - 远端仓库已经改为 `gofurry/siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已是 `v0.6.4-dev`。
+- `version.go` 已是 `v0.7.0-dev`。
 - 主干代码已包含 Windows AppHost Service 与 named pipe IPC：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务名：`SiteBoostCoreAppHost`。
@@ -40,9 +40,9 @@
 当前仍不是稳定通用库，也不计划在本仓库内直接变成稳定通用库：
 
 - 公共 Go API 未冻结，核心仍主要在 `internal/`。
-- Steam 命名和假设仍大量存在。
-- GitHub 尚未实现真实 provider。
-- AppHost 已完成本机管理员安装、健康检查、named pipe RPC、普通 PowerShell `start --mode hosts`、`stop` / `restore` 主流程验证；仍需要补充重启 Windows 后自动拉起的 smoke 记录。
+- Go module 和 CLI 仍保留 Steam 历史命名，核心规则/profile 已完成 provider 化。
+- GitHub 已有 experimental skeleton provider，可显式启用用于架构验证，但不承诺真实加速。
+- AppHost 已完成本机管理员安装、健康检查、named pipe RPC、普通 PowerShell Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程记录；仍建议补充重启 Windows 后自动拉起的单独 smoke 记录。
 - AppHost IPC 已迁移到 Windows named pipe；后续还需要评估用户会话绑定、审计日志和按需启动。
 
 ## 总体方向
@@ -70,7 +70,7 @@
 
 ### v0.6.4 - Windows AppHost Service 闭环验收
 
-**状态：** 本机主流程已通过，重启自动拉起 smoke 待补。
+**状态：** 主体验闭环已记录，真实重启自动拉起 smoke 建议继续补充。
 
 目标是完成 Steam++ 式“一次管理员初始化，后续普通用户启动”的基础体验。
 
@@ -78,29 +78,46 @@
 
 - 管理员 PowerShell 执行 `apphost install`。
 - `apphost status` 显示 `start_type=automatic delayed_auto_start=true ... health=ok`。
-- 普通 PowerShell 执行 `start --mode hosts` 成功。
+- 普通 PowerShell 下 Hosts 模式已运行，Steam 目标域名解析到 `127.0.0.1` 且本地 443 可连通。
 - 普通 PowerShell 执行 `stop` / `restore` 成功。
 - 验证 named pipe IPC 在普通 PowerShell 下能完成 Root CA、hosts 和 restore 请求。
 - `stop` / `restore` 后 AppHost 保持 `running health=ok`，这是为了后续无管理员启动而常驻。
+- 管理员 PowerShell 执行 `apphost uninstall` 后，`apphost status` 返回服务不存在错误，符合预期。
 
-下一步必须补充：
+仍建议补充：
 
 - 重启电脑后服务自动运行。
 - 重启后普通 PowerShell 执行 `start --mode hosts` 成功。
-- 将本机输出补进 smoke 文档。
+
+### v0.6.5 - 能力边界冻结与 v0.7 预检
+
+目标是在进入 Provider 架构重构前，把能力边界固定下来。结论是：`v1.1+` 的 GitHub 真实加速、DNSIntercept、TUN/VPN、JS 注入和跨平台权限闭环不提前到 `v0.7` 前实现，只作为 future extension points 和 non-goals 记录。
+
+重点任务：
+
+- 新增 [能力边界冻结](./capability-boundary.md) 文档。
+- 明确 Provider 只描述站点规则、outbound profile、hosts exact list 和 smoke targets，不负责 hosts 写入、Root CA、AppHost、TUN 或系统修改。
+- 明确 takeover mode 负责流量接管方式，Provider 不携带系统接管职责。
+- 明确 AppHost 是平台权限执行器，不是 provider 能力。
+- 将 Steam 当前 Windows Hosts + DoH + AppHost smoke 作为 v0.7 重构回归基线。
+- 在 v0.7 前只做 Steam provider 和 GitHub skeleton provider，不承诺 GitHub 真实加速。
 
 ### v0.7.0 - Provider 架构与通用站点骨架
+
+**状态：** 开发与自动化验证已完成，等待真实 Windows smoke 回归。
 
 目标是把 Steam 从核心硬编码中抽离成内置 provider。
 
 重点任务：
 
-- 设计 provider 接口。
-- 抽出 Steam rules、profiles、smoke targets。
-- 加入 GitHub skeleton provider。
-- 配置支持 `providers.enabled`。
-- 保留旧 Steam 配置的迁移兼容。
-- 让 reverse / resolver / upstream 不再依赖 Steam 语义。
+- 已设计 provider 数据结构。
+- 已抽出 Steam rules、profiles、smoke targets。
+- 已加入 GitHub skeleton provider。
+- 已支持 `providers.enabled`。
+- 旧 Steam 专用配置 key 会返回迁移错误。
+- reverse / resolver / upstream 不再依赖 Steam 默认数据。
+- 已通过 `git diff --check`、`go test ./...`、`go vet ./...`、核心 race 子集、Windows 二进制 build 和 `--version`。
+- 仍需补做默认 Steam Hosts + DoH + AppHost 真实回归 smoke，以及 `[steam, github]` 显式 provider 配置 smoke。
 
 ### v0.8.0 - 独立 Go Library 抽取准备
 
@@ -156,13 +173,14 @@
 
 1. [handoff.md](./handoff.md)
 2. [ROADMAP.md](../../ROADMAP.md)
-3. [windows-one-click-flow.md](./windows-one-click-flow.md)
-4. [smoke-test.md](./smoke-test.md)
-5. `internal/privilege/privilege_windows.go`
-6. `internal/rules/rules.go`
-7. `internal/upstream/profile.go`
-8. `cmd/steam-accelerator/main.go`
+3. [capability-boundary.md](./capability-boundary.md)
+4. [windows-one-click-flow.md](./windows-one-click-flow.md)
+5. [smoke-test.md](./smoke-test.md)
+6. `internal/privilege/privilege_windows.go`
+7. `internal/rules/rules.go`
+8. `internal/upstream/profile.go`
+9. `cmd/steam-accelerator/main.go`
 
-最重要的下一步不是继续加 Steam 域名，而是补齐 AppHost 重启自动拉起 smoke，并开始 provider 架构重构。
+最重要的下一步不是继续加 Steam 域名，也不是提前做 DNSIntercept / TUN / GitHub 真实加速，而是对 v0.7 provider 架构做一次真实 Windows Hosts + DoH + AppHost 回归 smoke，并开始 v0.8 独立 Go Library 抽取准备。AppHost 真实重启自动拉起 smoke 仍建议单独补充。
 
 正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

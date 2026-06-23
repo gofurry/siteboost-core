@@ -6,9 +6,10 @@ the public Go API before the project reaches a stable release.
 Planned package boundaries:
 
 - `config`: YAML loading, defaults, validation, and CLI override support.
-- `rules`: Steam domain rules and host matching.
+- `provider`: built-in provider registry, provider metadata, rule packs, outbound profiles, and startup probe targets.
+- `rules`: generic domain rules and host matching.
 - `resolver`: system DNS, UDP DNS, TCP DNS, DoH, DNS cache, and IP preference policy.
-- `upstream`: direct, HTTP CONNECT upstream, and SOCKS5 outbound dialing.
+- `upstream`: direct, HTTP CONNECT upstream, SOCKS5 outbound dialing, and generic outbound profiles.
 - `proxy`: HTTP proxy and HTTPS CONNECT for ProxyOnly mode.
 - `pac`: PAC generation and local PAC server.
 - `systemproxy`: Windows/macOS system proxy setup, rollback, and restore.

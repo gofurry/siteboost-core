@@ -16,9 +16,10 @@ import (
 const defaultProbeTimeout = 5 * time.Second
 
 type ProbeTarget struct {
-	Host string
-	Port string
-	Path string
+	ProviderID string
+	Host       string
+	Port       string
+	Path       string
 }
 
 type ProbeOptions struct {
@@ -27,6 +28,7 @@ type ProbeOptions struct {
 }
 
 type ProbeResult struct {
+	ProviderID     string `json:"provider_id,omitempty"`
 	Host           string `json:"host"`
 	Target         string `json:"target,omitempty"`
 	TLSServerName  string `json:"tls_server_name,omitempty"`
@@ -35,17 +37,6 @@ type ProbeResult struct {
 	HTTPStatus     string `json:"http_status,omitempty"`
 	Error          string `json:"error,omitempty"`
 	DurationMillis int64  `json:"duration_ms"`
-}
-
-func DefaultSteamProbeTargets() []ProbeTarget {
-	return []ProbeTarget{
-		{Host: "steamcommunity.com", Port: "443", Path: "/"},
-		{Host: "store.steampowered.com", Port: "443", Path: "/"},
-		{Host: "help.steampowered.com", Port: "443", Path: "/"},
-		{Host: "media.steampowered.com", Port: "443", Path: "/"},
-		{Host: "community.steamstatic.com", Port: "443", Path: "/"},
-		{Host: "steamcdn-a.akamaihd.net", Port: "443", Path: "/"},
-	}
 }
 
 func (d *DirectDialer) ProbeHTTPS(ctx context.Context, targets []ProbeTarget, opts ProbeOptions) []ProbeResult {
@@ -71,8 +62,9 @@ func (d *DirectDialer) ProbeHTTPS(ctx context.Context, targets []ProbeTarget, op
 func (d *DirectDialer) probeHTTPS(ctx context.Context, target ProbeTarget, opts ProbeOptions) (result ProbeResult) {
 	start := time.Now()
 	result = ProbeResult{
-		Host:  target.Host,
-		Stage: "resolve",
+		ProviderID: target.ProviderID,
+		Host:       target.Host,
+		Stage:      "resolve",
 	}
 	defer func() {
 		result.DurationMillis = time.Since(start).Milliseconds()
