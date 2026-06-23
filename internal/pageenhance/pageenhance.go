@@ -172,6 +172,13 @@ func (p *Pipeline) Status() Status {
 	}
 }
 
+func (p *Pipeline) NeedsIdentityEncoding() bool {
+	if !p.Enabled() {
+		return false
+	}
+	return transformsNeedBody(p.cfg.Transforms) || transformersNeedBody(p.cfg.CustomTransformers)
+}
+
 func (p *Pipeline) ServeAsset(w http.ResponseWriter, req *http.Request, host string) (bool, []Event) {
 	if !p.Enabled() {
 		return false, nil

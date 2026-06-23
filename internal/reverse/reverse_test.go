@@ -258,7 +258,9 @@ func TestWebSocketUpgradeIsForwarded(t *testing.T) {
 }
 
 func TestReversePageEnhanceTransformsResponse(t *testing.T) {
+	var upstreamAcceptEncoding string
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		upstreamAcceptEncoding = req.Header.Get("Accept-Encoding")
 		w.Header().Set("Content-Type", "text/html")
 		w.Header().Set("ETag", `"old"`)
 		w.Header().Set("X-Remove", "gone")
@@ -291,6 +293,7 @@ func TestReversePageEnhanceTransformsResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Host = "store.steampowered.com"
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -308,6 +311,9 @@ func TestReversePageEnhanceTransformsResponse(t *testing.T) {
 	}
 	if got := resp.Header.Get("ETag"); got != "" {
 		t.Fatalf("ETag = %q", got)
+	}
+	if upstreamAcceptEncoding != "identity" {
+		t.Fatalf("upstream Accept-Encoding = %q", upstreamAcceptEncoding)
 	}
 	status := server.PageEnhanceStatus()
 	if status == nil || status.Applied == 0 || status.Errors != 0 {

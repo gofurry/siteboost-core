@@ -266,6 +266,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			out.RequestURI = ""
 			out.Header.Del("Proxy-Authorization")
 			out.Header.Del("Proxy-Connection")
+			if s.enhancer != nil && s.enhancer.NeedsIdentityEncoding() {
+				out.Header.Set("Accept-Encoding", "identity")
+			}
 		},
 		Transport: s.transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
