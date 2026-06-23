@@ -4,7 +4,7 @@
 > 当前仓库：`gofurry/siteboost-core`
 > 当前 Go module：`github.com/gofurry/go-steam-core`
 > 当前 CLI / ProjectName：`steam-accelerator` / `steam-accelerator-core`
-> 当前代码阶段：`version.go` 已进入 `v0.7.1-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider，以及 DNSIntercept manual 本地 DNS server 基础；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问和卸载主流程 smoke 记录，真实 Windows 重启后的自动拉起仍建议补充单独记录
+> 当前代码阶段：`version.go` 已进入 `v0.7.2-dev`，主干包含 Windows AppHost Service、named pipe IPC、provider registry、Steam stable provider、GitHub experimental skeleton provider、DNSIntercept manual 本地 DNS server，以及显式 Windows system DNS 接管 / rollback / restore 基础；本机已完成 AppHost health、named pipe RPC、普通用户 `start/stop/restore`、真实中国网络 Steam 访问和卸载主流程 smoke 记录，真实 Windows 重启后的自动拉起与 system DNS 接管 smoke 仍建议补充单独记录
 
 ## 当前定位
 
@@ -40,7 +40,7 @@ stop / restore 恢复系统修改
 - PAC：本地 PAC server 与 PAC 文件生成。
 - System Proxy：Windows / macOS 系统代理写入与恢复。
 - Hosts：Windows-first hosts 写入、本地 HTTP / HTTPS 反代、Root CA、动态站点证书、WebSocket 转发。
-- DNSIntercept：manual 策略下启动本地 UDP/TCP DNS server 与本地 HTTP / HTTPS 反代，不自动修改系统 DNS、hosts 或证书信任。
+- DNSIntercept：manual 策略下启动本地 UDP/TCP DNS server 与本地 HTTP / HTTPS 反代，不自动修改系统 DNS、hosts 或证书信任；system 策略可在 Windows 上显式接管指定网卡 DNS，并通过 rollback / AppHost 恢复。
 
 ### Steam 当前落地状态
 
@@ -80,7 +80,7 @@ stop / restore 恢复系统修改
 - AppHost Service 已在本机完成管理员安装、`health=ok`、named pipe RPC、普通用户 Hosts 闭环、真实中国网络 Steam 访问、`stop` / `restore` 和卸载主流程验证；仍建议补充 `install -> reboot -> no-admin start` 的单独重启 smoke 记录。
 - AppHost RPC 已迁移到 Windows named pipe，并增加 DACL、本机连接限制、pipe client PID 校验与客户端二进制路径校验；后续仍需继续评估用户会话绑定、审计日志和按需启动。
 - GitHub 已有 experimental skeleton provider，可通过 `providers.enabled` 显式启用；它不包含默认 outbound profile，也不承诺真实加速。
-- hosts 只能覆盖 exact 域名；DNSIntercept manual 已可覆盖 provider wildcard 与自定义规则，但只在 `mode: dns` 下显式启动，不自动改系统 DNS。`system` / `external` 策略仍是后续计划，不能默认改坏开发者环境。
+- hosts 只能覆盖 exact 域名；DNSIntercept manual 已可覆盖 provider wildcard 与自定义规则，但只在 `mode: dns` 下显式启动，不自动改系统 DNS。`system` 策略已支持 Windows 显式网卡 DNS 接管，要求 53 端口、loopback DNS server、显式 `dns_intercept.interfaces` 和 rollback；`external` 策略仍是后续计划，不能默认改坏开发者环境。
 - macOS / Linux Hosts 与证书安装未落地。
 - 桌面 installer、服务升级、日志位置、卸载清理和发布包还没有产品化。
 
@@ -267,7 +267,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 ### v0.7.2 - Windows System DNS 显式接管与恢复
 
-**状态：** 计划中
+**状态：** 代码与自动化验证已完成，等待真实 Windows system DNS smoke
 **范围：** Windows / Reliability / Security-Safety / Testing
 **目标：** 在用户显式选择 `dns_intercept.strategy: system` 时，通过 AppHost 受控修改系统 DNS，并保证 stop / restore 可还原。
 
@@ -280,20 +280,22 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 
 #### Tasks
 
-- [ ] 设计 `system_dns` rollback schema，记录每个受影响 interface 的原始 DNS 设置、DHCP/static 状态和应用时间。
-- [ ] AppHost 增加窄命令：`apply-system-dns`、`restore-system-dns`、`preflight-system-dns`，不接受任意命令或任意脚本。
-- [ ] `start --mode dns` 或等价配置在 `strategy: system` 下先完成 preflight，再启动 DNS server，再应用系统 DNS。
-- [ ] `stop` / `restore` 使用 rollback 恢复原 DNS；重复执行应安全幂等。
-- [ ] `status` 和 `system_change:` 输出 DNS apply / restore 的 interface、helper、结果和错误摘要。
-- [ ] 集成测试或可重复手动 smoke 覆盖 apply、stop、restore、AppHost 缺失、端口占用、崩溃后 restore。
+- [x] 设计 `system_dns` rollback schema，记录每个受影响 interface 的原始 DNS 设置、DHCP/static 状态和应用时间。
+- [x] AppHost 增加窄命令：`apply-system-dns`、`restore-system-dns`、`preflight-system-dns`，不接受任意命令或任意脚本。
+- [x] `start --mode dns` 或等价配置在 `strategy: system` 下先完成 preflight，再启动 DNS server，再应用系统 DNS。
+- [x] `stop` / `restore` 使用 rollback 恢复原 DNS；失败时 rollback 保留，可再次执行 `restore`。
+- [x] `status` 和 `system_change:` 输出 DNS preflight / apply 的 interface 数、目标 DNS 和 helper 信息。
+- [x] 单元测试覆盖 config、systemdns rollback、Windows PowerShell 后端脚本、AppHost 请求校验、Engine 启停顺序和 CLI restore 分发。
+- [ ] 真实 Windows smoke 覆盖 apply、stop、restore、AppHost 缺失、端口占用、崩溃后 restore。
 
 #### Acceptance Criteria
 
-- 不选择 `strategy: system` 时，库不会改系统 DNS。
-- 任何系统 DNS 修改前都必须已有 rollback 记录或可生成 rollback 记录。
-- `stop` / `restore` 后系统 DNS 回到启动前状态。
-- AppHost 缺失、权限不足、接口枚举失败或 DNS server 未启动时，不写入半成品系统 DNS。
-- 失败路径不应让开发者机器进入“DNS 指向本地但本地服务未运行”的状态；如果出现异常，文档提供可手动恢复命令。
+- [x] 不选择 `strategy: system` 时，库不会改系统 DNS。
+- [x] 任何系统 DNS 修改前都必须已有 rollback 记录或可生成 rollback 记录。
+- [x] `stop` / `restore` 会先恢复系统 DNS，再关闭本地 DNS server。
+- [x] AppHost 缺失、权限不足、接口枚举失败或 DNS server 未启动时，不应写入半成品系统 DNS。
+- [x] 失败路径会优先尝试恢复，且保留 rollback 供用户再次执行 `restore`。
+- [ ] 真实 Windows smoke 确认系统 DNS 回到启动前状态，并记录手动恢复命令。
 
 ---
 
@@ -464,9 +466,8 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 短期：
 
 - 补齐 `v0.6.4` Windows AppHost Service 单独重启自动拉起 smoke 记录。
-- 完成 `v0.7.1` DNSIntercept manual 高端口 smoke。
-- 完成 `v0.7.1` provider 架构真实 Windows smoke 回归。
-- 评估 `v0.7.2` 显式 system DNS 接管是否先于 Page Enhance 落地，确保系统 DNS 修改可还原。
+- 完成 `v0.7.2` DNSIntercept manual 高端口 smoke 和 Windows system DNS 显式接管 smoke。
+- 完成 provider 架构真实 Windows smoke 回归。
 - 进入 `v0.7.3` Page Enhance 透明 pipeline 设计，确保默认关闭且无隐藏跳过规则。
 - 继续把内部 `helper` 命名逐步收敛为更清晰的 AppHost / privileged request 语义。
 - 将 `v0.8.0` 独立 Go Library 抽取顺延到 DNSIntercept / Page Enhance 主能力边界验证之后。
@@ -496,7 +497,7 @@ v0.7 provider registry 落地后，DNSIntercept 和 Page Enhance 已调整为抽
 | v0.7.x 能力扩展污染 Provider 抽象 | Provider 同时承担系统修改、DNS 接管或页面改写执行职责，未来 Go library 边界变重 | Provider 只声明 rules/profile/probes/可选 enhancement metadata；DNS 接管属于 takeover，页面增强属于 reverse transform pipeline |
 | Steam 专用命名太深 | 通用 provider 重构成本上升 | v0.7 已完成 provider registry、配置迁移错误和 CLI 新参数；Go module / CLI 名称保留为实验仓库历史包袱 |
 | GitHub 过早承诺真实加速 | 误导用户并扩大维护面 | v0.7 只做 skeleton，占位和架构验证 |
-| hosts 无法覆盖 wildcard | 部分域名无法接管 | v0.7.1 先做 DNSIntercept manual/server 基础，v0.7.2 再做显式系统 DNS 接管和恢复 |
+| hosts 无法覆盖 wildcard | 部分域名无法接管 | 已实现 DNSIntercept manual/server 和显式 Windows system DNS 接管；仍需真实 system smoke 验证恢复 |
 | Root CA 信任风险 | 用户安全顾虑 | 显式安装 / 卸载、清晰文档、最小命令面、日志脱敏 |
 | 80 / 443 端口占用 | Hosts 模式启动失败 | 诊断命令、错误提示、高端口 smoke |
 | 复制 SteamTools 源码 | 许可证和维护风险 | 坚持 clean-room，只参考架构思想 |

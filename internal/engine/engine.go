@@ -23,6 +23,7 @@ import (
 	"github.com/gofurry/go-steam-core/internal/resolver"
 	"github.com/gofurry/go-steam-core/internal/reverse"
 	"github.com/gofurry/go-steam-core/internal/rules"
+	"github.com/gofurry/go-steam-core/internal/systemdns"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 )
@@ -34,7 +35,13 @@ var (
 	preflightHosts     = hosts.Preflight
 	applyHosts         = hosts.Apply
 	restoreHosts       = privilege.RestoreHosts
-	isCertInstalled    = func(ctx context.Context, cfg certstore.Config) (bool, error) {
+	preflightSystemDNS = privilege.PreflightSystemDNS
+	applySystemDNS     = privilege.ApplySystemDNS
+	restoreSystemDNS   = privilege.RestoreSystemDNS
+	newDNSIntercept    = func(cfg dnsintercept.Config, matcher *rules.Matcher, forwarder dnsintercept.Forwarder) (dnsInterceptServer, error) {
+		return dnsintercept.New(cfg, matcher, forwarder)
+	}
+	isCertInstalled = func(ctx context.Context, cfg certstore.Config) (bool, error) {
 		return certstore.New(cfg).IsInstalled(ctx)
 	}
 	ensureCertTrusted    = privilege.EnsureCertTrusted
@@ -45,6 +52,12 @@ var (
 		return dialer.ProbeHTTPS(ctx, targets, upstream.ProbeOptions{})
 	}
 )
+
+type dnsInterceptServer interface {
+	Start() error
+	Stop(ctx context.Context) error
+	Status() dnsintercept.Status
+}
 
 type SystemChange struct {
 	Component string `json:"component"`
@@ -91,7 +104,7 @@ type Engine struct {
 	pac              *pac.Server
 	pacURL           string
 	reverse          *reverse.Server
-	dnsIntercept     *dnsintercept.Server
+	dnsIntercept     dnsInterceptServer
 	certOK           bool
 	resolver         resolver.Config
 	upstreamProfiles int
@@ -149,7 +162,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	var pacServer *pac.Server
 	var pacURL string
 	var reverseServer *reverse.Server
-	var dnsServer *dnsintercept.Server
+	var dnsServer dnsInterceptServer
 	var certOK bool
 	var startupProbes []upstream.ProbeResult
 	var systemChanges []SystemChange
@@ -193,6 +206,18 @@ func (e *Engine) Start(ctx context.Context) error {
 	} else if e.cfg.Mode == config.ModeDNS {
 		certCfg := certstore.ConfigFromApp(e.cfg)
 		certManager := certstore.New(certCfg)
+		var systemDNSCfg systemdns.Config
+		if usesSystemDNS(e.cfg) {
+			systemDNSCfg, err = systemdns.ConfigFromApp(e.cfg)
+			if err != nil {
+				return fmt.Errorf("build system DNS config: %w", err)
+			}
+			preflight, err := preflightSystemDNS(ctx, systemDNSCfg)
+			if err != nil {
+				return fmt.Errorf("preflight system DNS: %w", err)
+			}
+			systemChanges = append(systemChanges, systemDNSChange("preflight", preflight))
+		}
 		probeTargets := provider.ProbeTargets(enabledProviders)
 		if directDialer, ok := dialer.(*upstream.DirectDialer); ok && usesDirectUpstream(e.cfg.Upstream.Type) && len(probeTargets) > 0 {
 			startupProbes = runStartupProbes(ctx, directDialer, probeTargets)
@@ -212,7 +237,7 @@ func (e *Engine) Start(ctx context.Context) error {
 			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("build DNS intercept forwarder: %w", err)
 		}
-		dnsServer, err = dnsintercept.New(dnsCfg, matcher, forwarder)
+		dnsServer, err = newDNSIntercept(dnsCfg, matcher, forwarder)
 		if err != nil {
 			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("build DNS intercept server: %w", err)
@@ -220,6 +245,19 @@ func (e *Engine) Start(ctx context.Context) error {
 		if err := dnsServer.Start(); err != nil {
 			_ = reverseServer.Stop(context.Background())
 			return fmt.Errorf("start DNS intercept: %w", err)
+		}
+		if usesSystemDNS(e.cfg) {
+			apply, err := applySystemDNS(ctx, systemDNSCfg)
+			if err != nil {
+				restoreErr := restoreSystemDNS(context.Background(), e.cfg.Runtime.RollbackPath)
+				_ = dnsServer.Stop(context.Background())
+				_ = reverseServer.Stop(context.Background())
+				if restoreErr != nil && !errors.Is(restoreErr, systemdns.ErrNoState) {
+					return fmt.Errorf("%w; system DNS restore after failed apply also failed: %v", err, restoreErr)
+				}
+				return err
+			}
+			systemChanges = append(systemChanges, systemDNSChange("apply", apply))
 		}
 	} else {
 		proxyServer = proxy.New(proxy.ConfigFromApp(e.cfg), matcher, dialer, e.logger)
@@ -317,6 +355,12 @@ func (e *Engine) Stop(ctx context.Context) error {
 			err = restoreErr
 		}
 	}
+	if e.cfg.Mode == config.ModeDNS && e.cfg.DNS.Strategy == config.DNSInterceptSystem {
+		restoreErr := restoreSystemDNS(ctx, e.cfg.Runtime.RollbackPath)
+		if restoreErr != nil && !errors.Is(restoreErr, systemdns.ErrNoState) {
+			err = restoreErr
+		}
+	}
 	if pacServer != nil {
 		if stopErr := pacServer.Stop(ctx); err == nil {
 			err = stopErr
@@ -378,6 +422,9 @@ func (e *Engine) Status() Status {
 	}
 	if e.dnsIntercept != nil {
 		dnsStatus := e.dnsIntercept.Status()
+		if e.cfg.DNS.Strategy == config.DNSInterceptSystem {
+			dnsStatus.SystemDNS = e.running
+		}
 		status.DNSIntercept = &dnsStatus
 	}
 	if e.lastErr != nil {
@@ -408,6 +455,10 @@ func requiresLoopSafeResolver(cfg config.Config) bool {
 
 func usesDirectUpstream(upstreamType string) bool {
 	return upstreamType == "" || upstreamType == config.UpstreamDirect
+}
+
+func usesSystemDNS(cfg config.Config) bool {
+	return cfg.Mode == config.ModeDNS && cfg.DNS.Strategy == config.DNSInterceptSystem
 }
 
 func (e *Engine) prepareHostsForStart(ctx context.Context, certManager *certstore.Manager, certCfg certstore.Config, hostsCfg hosts.Config, preferHelper bool) (privilege.PrepareHostsResult, error) {
@@ -514,6 +565,17 @@ func certTrustChange(trust certstore.TrustResult) SystemChange {
 		change.Detail += ",helper=elevated"
 	}
 	return change
+}
+
+func systemDNSChange(action string, result systemdns.Result) SystemChange {
+	detail := fmt.Sprintf("interfaces=%d", result.Interfaces)
+	if len(result.ServerIPs) > 0 {
+		detail += ",dns=" + strings.Join(result.ServerIPs, "|")
+	}
+	if result.ViaHelper {
+		detail += ",helper=elevated"
+	}
+	return SystemChange{Component: "system_dns", Action: action, Status: "ok", Detail: detail}
 }
 
 func ruleSetInfo(providers []provider.Provider, matcher *rules.Matcher) rules.RuleSetInfo {

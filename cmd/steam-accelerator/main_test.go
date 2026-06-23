@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +22,40 @@ func TestRestoreNoRollbackState(t *testing.T) {
 	}
 	if got := strings.TrimSpace(stdout.String()); got != "not modified" {
 		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestRestoreRollbackDispatchesSystemDNS(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollback.json")
+	if err := os.WriteFile(path, []byte(`{"kind":"system_dns","mode":"dns"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldHosts := restoreHostsRollback
+	oldDNS := restoreSystemDNSRollback
+	oldProxy := restoreSystemProxyRollback
+	defer func() {
+		restoreHostsRollback = oldHosts
+		restoreSystemDNSRollback = oldDNS
+		restoreSystemProxyRollback = oldProxy
+	}()
+	var restoredPath string
+	restoreHostsRollback = func(ctx context.Context, path string) error {
+		t.Fatalf("hosts restore should not be called")
+		return nil
+	}
+	restoreSystemDNSRollback = func(ctx context.Context, path string) error {
+		restoredPath = path
+		return nil
+	}
+	restoreSystemProxyRollback = func(ctx context.Context, path string) error {
+		t.Fatalf("system proxy restore should not be called")
+		return nil
+	}
+	if err := restoreRollback(context.Background(), path); err != nil {
+		t.Fatal(err)
+	}
+	if restoredPath != path {
+		t.Fatalf("restored path = %q, want %q", restoredPath, path)
 	}
 }
 

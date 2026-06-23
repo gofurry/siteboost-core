@@ -11,7 +11,7 @@ Language: [中文文档](./README_zh.md)
 
 steam-accelerator-core is an experimental Go-based local site acceleration core. It is designed to validate reusable network acceleration primitives for local desktop tools, sidecars, and a future standalone Go library.
 
-The current v0.7.1-dev line includes a provider registry and DNSIntercept manual mode. Steam is the default stable provider. GitHub is available only as an explicit experimental skeleton provider for architecture validation, not as a real acceleration promise. The runtime supports ProxyOnly, PAC, System Proxy, Windows-first Hosts reverse proxy, and manual DNSIntercept modes, generic provider matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected runtime control interface. Hosts + Direct mode uses built-in DoH defaults to avoid local hosts loopback and applies the enabled providers' outbound profiles. DNSIntercept manual mode starts a local UDP/TCP DNS server but does not modify system DNS, hosts, certificate trust, or any persistent system setting. Windows system writes use a Steam++-style AppHost Service path: install `SiteBoostCoreAppHost` once with administrator authorization, then normal PowerShell runs can request narrow root CA, hosts, and restore actions through the local named pipe `\\.\pipe\SiteBoostCoreAppHost`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
+The current v0.7.2-dev line includes a provider registry, DNSIntercept manual mode, and explicit Windows system DNS takeover with rollback. Steam is the default stable provider. GitHub is available only as an explicit experimental skeleton provider for architecture validation, not as a real acceleration promise. The runtime supports ProxyOnly, PAC, System Proxy, Windows-first Hosts reverse proxy, manual DNSIntercept, and Windows DNSIntercept system modes, generic provider matching, YAML configuration, configurable DNS resolution with cache and IP policy, direct/HTTP/SOCKS5 upstream dialing, local rollback state, a foreground CLI lifecycle, a local state file, and a token-protected runtime control interface. Hosts + Direct mode uses built-in DoH defaults to avoid local hosts loopback and applies the enabled providers' outbound profiles. DNSIntercept manual mode starts a local UDP/TCP DNS server but does not modify system DNS, hosts, certificate trust, or any persistent system setting. DNSIntercept system mode is Windows-only, explicit, interface-scoped, and restores DHCP/static DNS through rollback. Windows system writes use a Steam++-style AppHost Service path: install `SiteBoostCoreAppHost` once with administrator authorization, then normal PowerShell runs can request narrow root CA, hosts, system DNS, and restore actions through the local named pipe `\\.\pipe\SiteBoostCoreAppHost`. HTTP/SOCKS5 upstreams are optional enhancements, not the default acceleration prerequisite.
 
 This project references the network acceleration architecture ideas of Watt Toolkit / SteamTools, including local reverse proxy, PAC, system proxy, hosts mode, certificate handling, DNS, and outbound proxy modes. It does not include, copy, translate, or port SteamTools source code.
 
@@ -35,6 +35,7 @@ Current capabilities:
 - Hosts + Direct provider outbound profiles with ForwardDestination, TLS SNI, candidate IP, and original-domain fallback support.
 - Hosts + Direct startup probes for DoH resolution, TCP 443, TLS handshake, and lightweight HTTPS smoke status.
 - DNSIntercept manual mode with local UDP/TCP DNS server, target-domain mapping, non-target forwarding, response cache, status counters, and no automatic system DNS takeover.
+- Windows DNSIntercept system mode with explicit interface selection, AppHost allowlisted system DNS writes, rollback, and restore.
 - Outbound failure diagnostics with candidate IPs, TCP / TLS stages, and trimmed 502 error summaries.
 - Foreground `start`, `status`, `stop`, and `restore` CLI lifecycle.
 - Local runtime state file and token-protected loopback control API.
@@ -42,7 +43,7 @@ Current capabilities:
 Planned capabilities:
 
 - macOS/Linux Hosts and certificate-store support.
-- Windows system DNS takeover for DNSIntercept, VPN/TUN adapters, and deeper traffic capture modes.
+- VPN/TUN adapters and deeper traffic capture modes.
 - Restore lifecycle for system-modifying modes.
 
 Current repository foundation:
@@ -112,6 +113,8 @@ DNSIntercept manual mode should be tested on a high port first. It does not chan
 ```bash
 ./bin/steam-accelerator.exe start --mode dns --dns-listen 127.0.0.1:15353 --hosts-http 127.0.0.1:28080 --hosts-https 127.0.0.1:28443
 ```
+
+Windows DNSIntercept system mode requires YAML with `dns_intercept.strategy: system`, `listen_addr: "127.0.0.1:53"`, and explicit `dns_intercept.interfaces`. It changes the selected adapter DNS and should be tested with the documented smoke flow.
 
 Run the basic module example:
 
@@ -183,8 +186,10 @@ The implementation order is foundation-first:
 11. `v0.6.4`: Windows AppHost Service and named pipe IPC.
 12. `v0.7.0`: provider registry, Steam stable provider, and GitHub experimental skeleton.
 13. `v0.7.1`: DNSIntercept manual local DNS server.
-14. `v0.8.0`: public Go library extraction preparation.
-15. `v1.0.0`: stable API and integration release.
+14. `v0.7.2`: explicit Windows system DNS takeover and restore.
+15. `v0.7.3`: page enhancement transform pipeline.
+16. `v0.8.0`: public Go library extraction preparation.
+17. `v1.0.0`: stable API and integration release.
 
 See [ROADMAP.md](./ROADMAP.md) for the canonical Chinese plan.
 

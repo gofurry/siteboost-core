@@ -13,7 +13,7 @@ Current facts:
 - The remote repository is `gofurry/siteboost-core`.
 - The Go module is still `github.com/gofurry/go-steam-core`.
 - The CLI is still `steam-accelerator`.
-- `version.go` reports `v0.7.1-dev`.
+- `version.go` reports `v0.7.2-dev`.
 - The main branch contains Windows AppHost Service and named pipe IPC work.
 - Local real-machine validation has passed for AppHost health, named pipe RPC, the normal-user Hosts loop, China-network Steam access, `stop`, `restore`, and uninstall behavior. A dedicated reboot auto-start smoke is still recommended.
 
@@ -28,7 +28,7 @@ The core should be split around these concepts:
 - provider and rule packs
 - resolver and DoH
 - upstream and outbound profiles
-- takeover modes: ProxyOnly, PAC, System Proxy, Hosts, DNSIntercept manual; TUN/VPN is deferred to external libraries or separate integrations
+- takeover modes: ProxyOnly, PAC, System Proxy, Hosts, DNSIntercept manual, and explicit Windows DNSIntercept system takeover; TUN/VPN is deferred to external libraries or separate integrations
 - local reverse proxy
 - root CA and dynamic certificates
 - privilege boundary and restore
@@ -85,7 +85,9 @@ Implemented a DNSIntercept foundation that does not modify system DNS by default
 
 ### v0.7.2 - Explicit Windows System DNS Takeover and Restore
 
-Add `strategy: system` only after the manual DNS path is stable. System DNS changes must go through AppHost allowlisted commands, write rollback state before applying changes, restore on `stop` / `restore`, and avoid leaving the machine pointed at a dead local DNS server.
+**Status:** Code and automated validation completed; real Windows system-DNS smoke still recommended.
+
+Implemented explicit `strategy: system` for Windows DNSIntercept. It requires `mode: dns`, a loopback `:53` listener, and explicit `dns_intercept.interfaces`. System DNS changes go through AppHost allowlisted commands, write `system_dns` rollback state before applying changes, restore on `stop` / `restore`, and start/stop in an order that avoids leaving the machine pointed at a dead local DNS server. Manual smoke should still verify real adapter DNS restoration.
 
 ### v0.7.3 - Transparent Page Enhancement Pipeline
 

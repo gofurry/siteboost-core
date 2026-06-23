@@ -109,6 +109,7 @@ type DNSConfig struct {
 	Strategy          string   `yaml:"strategy"`
 	ListenAddr        string   `yaml:"listen_addr"`
 	AllowLAN          bool     `yaml:"allow_lan"`
+	Interfaces        []string `yaml:"interfaces"`
 	MapIPv4           string   `yaml:"map_ipv4"`
 	MapIPv6           string   `yaml:"map_ipv6"`
 	TTL               Duration `yaml:"ttl"`
@@ -540,11 +541,19 @@ func validateOutboundProfiles(profiles []OutboundProfileConfig) error {
 
 func validateDNSConfig(cfg *DNSConfig, mode string) error {
 	cfg.Strategy = normalizeDNSInterceptStrategy(cfg.Strategy)
+	cfg.Interfaces = dedupeStrings(trimStrings(cfg.Interfaces))
+	active := cfg.Enabled || mode == ModeDNS
 	switch cfg.Strategy {
 	case DNSInterceptManual:
-	case DNSInterceptSystem, DNSInterceptExternal:
-		if cfg.Enabled || mode == ModeDNS {
-			return fmt.Errorf("dns_intercept.strategy %q is planned but not implemented in v0.7.1; use %q", cfg.Strategy, DNSInterceptManual)
+	case DNSInterceptSystem:
+		if active {
+			if mode != ModeDNS {
+				return fmt.Errorf("dns_intercept.strategy %q requires mode %q", cfg.Strategy, ModeDNS)
+			}
+		}
+	case DNSInterceptExternal:
+		if active {
+			return fmt.Errorf("dns_intercept.strategy %q is planned but not implemented in v0.7.2; use %q or %q", cfg.Strategy, DNSInterceptManual, DNSInterceptSystem)
 		}
 	default:
 		return fmt.Errorf("unsupported dns_intercept.strategy %q", cfg.Strategy)
@@ -552,7 +561,7 @@ func validateDNSConfig(cfg *DNSConfig, mode string) error {
 	if cfg.Enabled && mode != ModeDNS {
 		return fmt.Errorf("dns_intercept.enabled requires mode %q", ModeDNS)
 	}
-	if !cfg.Enabled {
+	if !active {
 		return nil
 	}
 	if strings.TrimSpace(cfg.ListenAddr) == "" {
@@ -580,6 +589,35 @@ func validateDNSConfig(cfg *DNSConfig, mode string) error {
 	}
 	if cfg.TTL.Std() <= 0 {
 		return fmt.Errorf("dns_intercept ttl must be positive")
+	}
+	if cfg.Strategy == DNSInterceptSystem {
+		if err := validateDNSSystemConfig(cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDNSSystemConfig(cfg *DNSConfig) error {
+	host, port, err := net.SplitHostPort(cfg.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("invalid dns_intercept listen_addr: %w", err)
+	}
+	if port != "53" {
+		return fmt.Errorf("dns_intercept.strategy %q requires listen_addr port 53; use %q for high-port testing", DNSInterceptSystem, DNSInterceptManual)
+	}
+	if strings.EqualFold(strings.TrimSpace(host), "localhost") {
+		host = "127.0.0.1"
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("dns_intercept.strategy %q requires a loopback listen_addr host", DNSInterceptSystem)
+	}
+	if ip.To4() == nil {
+		return fmt.Errorf("dns_intercept.strategy %q currently supports IPv4 loopback only", DNSInterceptSystem)
+	}
+	if len(cfg.Interfaces) == 0 {
+		return fmt.Errorf("dns_intercept.strategy %q requires explicit dns_intercept.interfaces", DNSInterceptSystem)
 	}
 	return nil
 }
@@ -695,6 +733,23 @@ func trimStrings(values []string) []string {
 		}
 	}
 	return trimmed
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	deduped := values[:0]
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, value)
+	}
+	return deduped
 }
 
 func validateListenAddr(addr string, allowLAN bool) error {

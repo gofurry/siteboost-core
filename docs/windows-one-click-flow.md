@@ -1,6 +1,6 @@
 # Windows One-Click System Flow
 
-This document records the Windows Hosts-mode system-change boundary introduced in v0.6.4 and still used by the v0.7.1-dev provider architecture.
+This document records the Windows system-change boundary introduced in v0.6.4 and still used by the v0.7.2-dev provider and DNSIntercept architecture.
 
 ## Boundary
 
@@ -12,13 +12,14 @@ The core owns deterministic, limited system actions:
 - write the project-owned hosts marker block;
 - record rollback state and expose `system_change` diagnostics;
 - restore project-owned hosts changes with `stop` or `restore`;
+- explicitly take over and restore selected interface DNS only for `dns_intercept.strategy: system`;
 - uninstall the project root CA only through explicit `cert uninstall`.
 
 The core does not bypass UAC, enterprise policy, or file-system permissions. The recommended default path is to run `apphost install` once from an Administrator PowerShell, installing the `SiteBoostCoreAppHost` Windows Service. The service runs in a controlled privileged context. Later normal PowerShell runs send restricted system-change requests through the local Windows named pipe `\\.\pipe\SiteBoostCoreAppHost`.
 
 The privileged side exposes only narrow whitelisted commands and accepts no arbitrary shell execution, arbitrary file writes, proxy credentials, cookies, or user secrets.
 
-## v0.7.1-dev Behavior
+## v0.7.2-dev Behavior
 
 `cert.auto_install` defaults to `true`, and `cert.store_scope` defaults to `machine`. In Hosts mode:
 
@@ -27,6 +28,12 @@ The privileged side exposes only narrow whitelisted commands and accepts no arbi
 3. A normal process uses AppHost named pipe RPC to run `prepare-hosts-start`, performing root CA trust check/install, hosts preflight, and hosts write through the installed service.
 4. If `cert.auto_install` is false, startup stops with guidance to run `cert install`.
 5. `stop` / `restore` hosts recovery, plus machine-scope `cert install` / `cert uninstall`, also use AppHost from a normal process.
+
+In DNSIntercept system mode:
+
+1. `start --mode dns` with `dns_intercept.strategy: system` requires `listen_addr: 127.0.0.1:53` and explicit `dns_intercept.interfaces`.
+2. Startup runs `preflight-system-dns`, starts the local DNS server, writes `system_dns` rollback, then runs `apply-system-dns`.
+3. `stop` / `restore` runs `restore-system-dns` before the local DNS server is stopped.
 
 The default `machine` scope writes to `LocalMachine\Root`, which is the low-friction path for administrator-run Hosts mode and avoids the first-run confirmation commonly seen with `CurrentUser\Root`. Initial AppHost service installation still needs user-approved administrator authorization; this is explicit system authorization, not a silent bypass. Use `cert.store_scope: user` only when a current-user trust store is required.
 
@@ -56,6 +63,9 @@ The current AppHost contract is intentionally narrow:
 | `trust-root-ca` | certificate directory, store scope | trust result | idempotent |
 | `restore-hosts` | rollback path | restore result | project marker block only |
 | `untrust-root-ca` | certificate directory, store scope | uninstall result | explicit user action |
+| `preflight-system-dns` | loopback DNS server, interface selectors, rollback path | selected interface count | no system write |
+| `apply-system-dns` | loopback DNS server, interface selectors, rollback path | selected interface count | writes rollback before DNS change |
+| `restore-system-dns` | rollback path | restore result | restores DHCP/static DNS |
 | `apphost-health` | none | health result | pipe health check |
 
 Requests are passed through the Windows named pipe `\\.\pipe\SiteBoostCoreAppHost` and validate:

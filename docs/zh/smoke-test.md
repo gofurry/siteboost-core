@@ -245,11 +245,65 @@ dig @127.0.0.1 -p 15353 example.com A
 - `status` 包含 `dns_intercept: strategy=manual ... system_dns=false ... target=... forwarded=... cache_hits=... blocked=... errors=...`。
 - DNS manual 模式下不应出现新的 `system_change:` 行。
 
-高端口 DNS smoke 不能证明浏览器接管，因为 DNS 记录不能携带端口。浏览器级 DNSIntercept 测试需要反代监听 80 / 443，并让测试客户端显式使用本地 DNS server；v0.7.1 仍不会自动修改系统 DNS。
+高端口 DNS smoke 不能证明浏览器接管，因为 DNS 记录不能携带端口。浏览器级 DNSIntercept 测试需要反代监听 80 / 443，并让测试客户端显式使用本地 DNS server；如需自动接管系统 DNS，请使用下面的 system smoke。
+
+## DNSIntercept System Smoke
+
+该 smoke 会真实修改指定 Windows 网卡的 DNS server。先确认 AppHost 已安装并健康，再记录当前 DNS：
+
+```powershell
+.\bin\steam-accelerator.exe apphost status
+Get-DnsClientServerAddress -AddressFamily IPv4
+```
+
+创建临时配置，例如 `tmp\dns-system.yaml`，把 `interfaces` 改成你的网卡名称、index 或 GUID：
+
+```yaml
+mode: dns
+
+dns_intercept:
+  strategy: "system"
+  listen_addr: "127.0.0.1:53"
+  interfaces:
+    - "Wi-Fi"
+  map_ipv4: "127.0.0.1"
+  block_https_records: true
+
+hosts:
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+```
+
+启动并验证：
+
+```powershell
+.\bin\steam-accelerator.exe start --config .\tmp\dns-system.yaml --state .\tmp\dns-system-runtime.json
+.\bin\steam-accelerator.exe status --state .\tmp\dns-system-runtime.json
+Resolve-DnsName steamcommunity.com -Type A
+Resolve-DnsName example.com -Type A
+```
+
+期望行为：
+
+- `status` 包含 `dns_intercept: strategy=system ... system_dns=true ...`。
+- `status` 包含 `system_change: component=system_dns action=preflight status=ok ...` 和 `action=apply`。
+- `Get-DnsClientServerAddress -AddressFamily IPv4` 显示指定网卡 DNS 指向 `127.0.0.1`。
+- `Resolve-DnsName steamcommunity.com -Type A` 返回 `127.0.0.1`。
+- `Resolve-DnsName example.com -Type A` 仍能通过上游 resolver 解析。
+
+停止和恢复：
+
+```powershell
+.\bin\steam-accelerator.exe stop --state .\tmp\dns-system-runtime.json
+.\bin\steam-accelerator.exe restore --config .\tmp\dns-system.yaml
+Get-DnsClientServerAddress -AddressFamily IPv4
+```
+
+期望指定网卡 DNS 回到启动前的 DHCP 或静态 DNS。若 `stop` 过程中异常退出，rollback 会保留；修复问题后再次执行 `restore --config .\tmp\dns-system.yaml`。
 
 ## 期望输出
 
-版本命令应输出项目名、`v0.7.1-dev` 和模块路径。
+版本命令应输出项目名、`v0.7.2-dev` 和模块路径。
 
 basic 示例应输出项目名和模块路径。
 

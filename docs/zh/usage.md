@@ -58,9 +58,11 @@ providers:
 
 dns_intercept:
   enabled: false
-  strategy: "manual" # manual；system/external 是计划项，v0.7.1 尚未实现
+  strategy: "manual" # manual | system；external 仍是计划项
   listen_addr: "127.0.0.1:53"
   allow_lan: false
+  # strategy: system 时必须显式列出要接管 DNS 的 Windows interface 名称、index 或 GUID。
+  interfaces: []
   map_ipv4: "127.0.0.1"
   map_ipv6: ""
   ttl: "30s"
@@ -202,6 +204,26 @@ dig @127.0.0.1 -p 15353 example.com A
 如果没有安装 `dig`，可以使用任何支持自定义 server port 的 DNS 客户端。
 
 `status` 应显示 `dns_intercept: strategy=manual listen=... system_dns=false target=... forwarded=... cache_hits=... blocked=... errors=...`。目标 `A` / `AAAA` 记录会映射到本地反代地址；目标 `HTTPS` / `SVCB` 默认返回 NODATA，显式设置 `block_https_records: false` 后会转发；其他目标记录类型默认不转发；非目标记录会转发到显式 resolver 或避免自绕回的 DoH 默认上游。
+
+使用 Windows DNSIntercept system 模式：
+
+```yaml
+mode: dns
+
+dns_intercept:
+  strategy: "system"
+  listen_addr: "127.0.0.1:53"
+  interfaces:
+    - "Wi-Fi"
+  map_ipv4: "127.0.0.1"
+  block_https_records: true
+
+hosts:
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+```
+
+system 模式会真实修改指定 Windows 网卡的 DNS server，使其指向本地 `127.0.0.1`。它要求本地 DNS 监听 53 端口、必须显式指定 `dns_intercept.interfaces`，并通过 AppHost 或管理员权限执行；启动前会写入 `system_dns` rollback，`stop` / `restore` 会恢复原来的 DHCP 或静态 DNS。不要在未确认接口名和 rollback 路径前运行该模式。
 
 使用 DoH 与 Direct 出口：
 
@@ -364,4 +386,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS / Linux Hosts 与证书安装在 v0.7.1-dev 中仍明确不支持，会返回 unsupported。
+macOS / Linux Hosts 与证书安装在 v0.7.2-dev 中仍明确不支持，会返回 unsupported。

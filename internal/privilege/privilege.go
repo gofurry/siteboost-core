@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,16 +16,20 @@ import (
 	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/hosts"
+	"github.com/gofurry/go-steam-core/internal/systemdns"
 )
 
 const (
 	helperVersion = 1
 
-	CommandPrepareHostsStart = "prepare-hosts-start"
-	CommandTrustRootCA       = "trust-root-ca"
-	CommandUntrustRootCA     = "untrust-root-ca"
-	CommandRestoreHosts      = "restore-hosts"
-	CommandAppHostHealth     = "apphost-health"
+	CommandPrepareHostsStart  = "prepare-hosts-start"
+	CommandTrustRootCA        = "trust-root-ca"
+	CommandUntrustRootCA      = "untrust-root-ca"
+	CommandRestoreHosts       = "restore-hosts"
+	CommandPreflightSystemDNS = "preflight-system-dns"
+	CommandApplySystemDNS     = "apply-system-dns"
+	CommandRestoreSystemDNS   = "restore-system-dns"
+	CommandAppHostHealth      = "apphost-health"
 
 	defaultHelperTimeout = 2 * time.Minute
 )
@@ -37,14 +42,15 @@ type CertRequest struct {
 }
 
 type HelperRequest struct {
-	Version      int          `json:"version"`
-	Token        string       `json:"token"`
-	ParentPID    int          `json:"parent_pid"`
-	Command      string       `json:"command"`
-	Cert         CertRequest  `json:"cert,omitempty"`
-	Hosts        hosts.Config `json:"hosts,omitempty"`
-	RollbackPath string       `json:"rollback_path,omitempty"`
-	AutoInstall  bool         `json:"auto_install,omitempty"`
+	Version      int              `json:"version"`
+	Token        string           `json:"token"`
+	ParentPID    int              `json:"parent_pid"`
+	Command      string           `json:"command"`
+	Cert         CertRequest      `json:"cert,omitempty"`
+	Hosts        hosts.Config     `json:"hosts,omitempty"`
+	SystemDNS    systemdns.Config `json:"system_dns,omitempty"`
+	RollbackPath string           `json:"rollback_path,omitempty"`
+	AutoInstall  bool             `json:"auto_install,omitempty"`
 }
 
 type PrepareHostsResult struct {
@@ -54,10 +60,11 @@ type PrepareHostsResult struct {
 }
 
 type HelperResponse struct {
-	OK      bool                   `json:"ok"`
-	Error   string                 `json:"error,omitempty"`
-	Trust   *certstore.TrustResult `json:"trust,omitempty"`
-	Prepare *PrepareHostsResult    `json:"prepare,omitempty"`
+	OK        bool                   `json:"ok"`
+	Error     string                 `json:"error,omitempty"`
+	Trust     *certstore.TrustResult `json:"trust,omitempty"`
+	Prepare   *PrepareHostsResult    `json:"prepare,omitempty"`
+	SystemDNS *systemdns.Result      `json:"system_dns,omitempty"`
 }
 
 func ShouldUseHelper() bool {
@@ -157,6 +164,77 @@ func RestoreHostsElevated(ctx context.Context, rollbackPath string) error {
 	return err
 }
 
+func PreflightSystemDNS(ctx context.Context, cfg systemdns.Config) (systemdns.Result, error) {
+	if ShouldUseHelper() {
+		return PreflightSystemDNSElevated(ctx, cfg)
+	}
+	result, err := systemdns.Preflight(ctx, cfg)
+	if err != nil && shouldRetrySystemChangeWithHelper(err) {
+		return PreflightSystemDNSElevated(ctx, cfg)
+	}
+	return result, err
+}
+
+func PreflightSystemDNSElevated(ctx context.Context, cfg systemdns.Config) (systemdns.Result, error) {
+	resp, err := runPrivilegedRequest(ctx, HelperRequest{
+		Command:   CommandPreflightSystemDNS,
+		SystemDNS: cfg,
+	})
+	if err != nil {
+		return systemdns.Result{}, err
+	}
+	if resp.SystemDNS == nil {
+		return systemdns.Result{}, fmt.Errorf("elevated helper did not return system DNS result")
+	}
+	resp.SystemDNS.ViaHelper = true
+	return *resp.SystemDNS, nil
+}
+
+func ApplySystemDNS(ctx context.Context, cfg systemdns.Config) (systemdns.Result, error) {
+	if ShouldUseHelper() {
+		return ApplySystemDNSElevated(ctx, cfg)
+	}
+	result, err := systemdns.Apply(ctx, cfg)
+	if err != nil && shouldRetrySystemChangeWithHelper(err) {
+		return ApplySystemDNSElevated(ctx, cfg)
+	}
+	return result, err
+}
+
+func ApplySystemDNSElevated(ctx context.Context, cfg systemdns.Config) (systemdns.Result, error) {
+	resp, err := runPrivilegedRequest(ctx, HelperRequest{
+		Command:   CommandApplySystemDNS,
+		SystemDNS: cfg,
+	})
+	if err != nil {
+		return systemdns.Result{}, err
+	}
+	if resp.SystemDNS == nil {
+		return systemdns.Result{}, fmt.Errorf("elevated helper did not return system DNS result")
+	}
+	resp.SystemDNS.ViaHelper = true
+	return *resp.SystemDNS, nil
+}
+
+func RestoreSystemDNS(ctx context.Context, rollbackPath string) error {
+	if ShouldUseHelper() {
+		return RestoreSystemDNSElevated(ctx, rollbackPath)
+	}
+	_, err := systemdns.Restore(ctx, rollbackPath)
+	if err != nil && shouldRetrySystemChangeWithHelper(err) {
+		return RestoreSystemDNSElevated(ctx, rollbackPath)
+	}
+	return err
+}
+
+func RestoreSystemDNSElevated(ctx context.Context, rollbackPath string) error {
+	_, err := runPrivilegedRequest(ctx, HelperRequest{
+		Command:      CommandRestoreSystemDNS,
+		RollbackPath: rollbackPath,
+	})
+	return err
+}
+
 func runPrivilegedRequest(ctx context.Context, req HelperRequest) (HelperResponse, error) {
 	if runtime.GOOS == "windows" {
 		return runAppHostRequest(ctx, req)
@@ -234,6 +312,27 @@ func executeHelperRequest(ctx context.Context, req HelperRequest) (HelperRespons
 			return HelperResponse{}, err
 		}
 		return HelperResponse{OK: true}, nil
+	case CommandPreflightSystemDNS:
+		result, err := systemdns.Preflight(ctx, req.SystemDNS)
+		if err != nil {
+			return HelperResponse{}, err
+		}
+		result.ViaHelper = true
+		return HelperResponse{OK: true, SystemDNS: &result}, nil
+	case CommandApplySystemDNS:
+		result, err := systemdns.Apply(ctx, req.SystemDNS)
+		if err != nil {
+			return HelperResponse{}, err
+		}
+		result.ViaHelper = true
+		return HelperResponse{OK: true, SystemDNS: &result}, nil
+	case CommandRestoreSystemDNS:
+		result, err := systemdns.Restore(ctx, req.RollbackPath)
+		if err != nil {
+			return HelperResponse{}, err
+		}
+		result.ViaHelper = true
+		return HelperResponse{OK: true, SystemDNS: &result}, nil
 	default:
 		return HelperResponse{}, fmt.Errorf("unsupported helper command %q", req.Command)
 	}
@@ -316,6 +415,10 @@ func validatePrivilegedRequest(req HelperRequest) error {
 		return validateCertRequest(req.Cert)
 	case CommandRestoreHosts:
 		return validateRollbackPath(req.RollbackPath)
+	case CommandPreflightSystemDNS, CommandApplySystemDNS:
+		return validateSystemDNSConfigForHelper(req.SystemDNS)
+	case CommandRestoreSystemDNS:
+		return validateRollbackPath(req.RollbackPath)
 	default:
 		return fmt.Errorf("unsupported helper command %q", req.Command)
 	}
@@ -350,6 +453,30 @@ func validateHostsConfigForHelper(cfg hosts.Config) error {
 	for _, entry := range cfg.Entries {
 		if strings.TrimSpace(entry.IP) == "" || strings.TrimSpace(entry.Host) == "" {
 			return fmt.Errorf("hosts entries cannot contain empty IP or host")
+		}
+	}
+	return nil
+}
+
+func validateSystemDNSConfigForHelper(cfg systemdns.Config) error {
+	if err := validateRollbackPath(cfg.RollbackPath); err != nil {
+		return err
+	}
+	if len(cfg.Interfaces) == 0 {
+		return fmt.Errorf("system DNS interfaces are required")
+	}
+	for _, iface := range cfg.Interfaces {
+		if strings.TrimSpace(iface) == "" {
+			return fmt.Errorf("system DNS interfaces cannot contain empty values")
+		}
+	}
+	if len(cfg.ServerIPs) == 0 {
+		return fmt.Errorf("system DNS server IPs are required")
+	}
+	for _, server := range cfg.ServerIPs {
+		ip := net.ParseIP(strings.TrimSpace(server))
+		if ip == nil || !ip.IsLoopback() || ip.To4() == nil {
+			return fmt.Errorf("system DNS server IP %q must be an IPv4 loopback address", server)
 		}
 	}
 	return nil

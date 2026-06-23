@@ -58,9 +58,11 @@ providers:
 
 dns_intercept:
   enabled: false
-  strategy: "manual" # manual; system/external are planned but not implemented in v0.7.1
+  strategy: "manual" # manual | system; external is still planned
   listen_addr: "127.0.0.1:53"
   allow_lan: false
+  # strategy: system must explicitly list Windows interface names, indexes, or GUIDs.
+  interfaces: []
   map_ipv4: "127.0.0.1"
   map_ipv6: ""
   ttl: "30s"
@@ -203,6 +205,26 @@ dig @127.0.0.1 -p 15353 example.com A
 If `dig` is not installed, use any DNS client that can target a custom server port.
 
 `status` should show `dns_intercept: strategy=manual listen=... system_dns=false target=... forwarded=... cache_hits=... blocked=... errors=...`. Target `A`/`AAAA` records map to the local reverse proxy address. Target `HTTPS`/`SVCB` records return NODATA by default; set `block_https_records: false` to forward them explicitly. Other target record types are not forwarded. Non-target records are forwarded to the configured resolver or loop-safe DoH defaults.
+
+Use Windows DNSIntercept system mode:
+
+```yaml
+mode: dns
+
+dns_intercept:
+  strategy: "system"
+  listen_addr: "127.0.0.1:53"
+  interfaces:
+    - "Wi-Fi"
+  map_ipv4: "127.0.0.1"
+  block_https_records: true
+
+hosts:
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+```
+
+System mode really changes DNS servers for the selected Windows interfaces so they point at local `127.0.0.1`. It requires a local DNS listener on port 53, explicit `dns_intercept.interfaces`, and AppHost or administrator privileges. Startup writes `system_dns` rollback state first; `stop` / `restore` restores the previous DHCP or static DNS state. Do not run this mode before confirming the interface name and rollback path.
 
 Use DoH with direct outbound dialing:
 
@@ -365,4 +387,4 @@ go run ./cmd/steam-accelerator status --state ./tmp/runtime.json
 go run ./cmd/steam-accelerator stop --state ./tmp/runtime.json
 ```
 
-macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.1-dev.
+macOS/Linux Hosts and certificate-store setup remain explicitly unsupported in v0.7.2-dev.

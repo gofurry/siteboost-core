@@ -13,9 +13,12 @@ import (
 
 	"github.com/gofurry/go-steam-core/internal/certstore"
 	"github.com/gofurry/go-steam-core/internal/config"
+	"github.com/gofurry/go-steam-core/internal/dnsintercept"
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/privilege"
 	"github.com/gofurry/go-steam-core/internal/provider"
+	"github.com/gofurry/go-steam-core/internal/rules"
+	"github.com/gofurry/go-steam-core/internal/systemdns"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
 	"github.com/miekg/dns"
@@ -344,6 +347,88 @@ func TestEngineDNSModeStartsManualServerWithoutSystemWrites(t *testing.T) {
 	defer stopCancel()
 	if err := eng.Stop(stopCtx); err != nil {
 		t.Fatalf("stop: %v", err)
+	}
+}
+
+func TestEngineDNSSystemStrategyAppliesAndRestoresSystemDNS(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = config.ModeDNS
+	cfg.Hosts.HTTPListenAddr = "127.0.0.1:0"
+	cfg.Hosts.HTTPSListenAddr = "127.0.0.1:0"
+	cfg.DNS.Strategy = config.DNSInterceptSystem
+	cfg.DNS.ListenAddr = "127.0.0.1:53"
+	cfg.DNS.Interfaces = []string{"Wi-Fi"}
+	cfg.Cert.Dir = t.TempDir()
+	cfg.Runtime.RollbackPath = t.TempDir() + "/rollback.json"
+
+	var sequence []string
+	restoreDNS := replaceSystemDNSHooks(
+		func(ctx context.Context, cfg systemdns.Config) (systemdns.Result, error) {
+			sequence = append(sequence, "preflight")
+			if len(cfg.Interfaces) != 1 || cfg.Interfaces[0] != "Wi-Fi" {
+				t.Fatalf("system DNS interfaces = %#v", cfg.Interfaces)
+			}
+			if len(cfg.ServerIPs) != 1 || cfg.ServerIPs[0] != "127.0.0.1" {
+				t.Fatalf("system DNS server IPs = %#v", cfg.ServerIPs)
+			}
+			return systemdns.Result{Interfaces: 1, ServerIPs: cfg.ServerIPs}, nil
+		},
+		func(ctx context.Context, cfg systemdns.Config) (systemdns.Result, error) {
+			sequence = append(sequence, "apply")
+			return systemdns.Result{Interfaces: 1, ServerIPs: cfg.ServerIPs}, nil
+		},
+		func(ctx context.Context, path string) error {
+			sequence = append(sequence, "restore")
+			if path != cfg.Runtime.RollbackPath {
+				t.Fatalf("restore path = %q, want %q", path, cfg.Runtime.RollbackPath)
+			}
+			return nil
+		},
+	)
+	defer restoreDNS()
+	restoreDNSIntercept := replaceDNSInterceptHook(func(dnsCfg dnsintercept.Config, matcher *rules.Matcher, forwarder dnsintercept.Forwarder) (dnsInterceptServer, error) {
+		return &fakeDNSInterceptServer{
+			status: dnsintercept.Status{Strategy: dnsCfg.Strategy, ListenAddr: dnsCfg.ListenAddr},
+			onStart: func() {
+				sequence = append(sequence, "dns_start")
+			},
+			onStop: func() {
+				sequence = append(sequence, "dns_stop")
+			},
+		}, nil
+	})
+	defer restoreDNSIntercept()
+	restoreProbe := replaceStartupProbeHook(func(ctx context.Context, dialer *upstream.DirectDialer, targets []upstream.ProbeTarget) []upstream.ProbeResult {
+		return nil
+	})
+	defer restoreProbe()
+
+	eng, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := eng.Status()
+	if status.DNSIntercept == nil || !status.DNSIntercept.SystemDNS {
+		t.Fatalf("system DNS status missing: %#v", status.DNSIntercept)
+	}
+	if !hasSystemChange(status.SystemChanges, "system_dns", "preflight", "ok") ||
+		!hasSystemChange(status.SystemChanges, "system_dns", "apply", "ok") {
+		t.Fatalf("system DNS changes missing: %#v", status.SystemChanges)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := eng.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	want := []string{"preflight", "dns_start", "apply", "restore", "dns_stop"}
+	if strings.Join(sequence, ",") != strings.Join(want, ",") {
+		t.Fatalf("sequence = %#v, want %#v", sequence, want)
 	}
 }
 
@@ -745,6 +830,28 @@ func replaceHostsHooks(preflight func(context.Context, hosts.Config) error, appl
 	}
 }
 
+func replaceSystemDNSHooks(preflight func(context.Context, systemdns.Config) (systemdns.Result, error), apply func(context.Context, systemdns.Config) (systemdns.Result, error), restore func(context.Context, string) error) func() {
+	oldPreflight := preflightSystemDNS
+	oldApply := applySystemDNS
+	oldRestore := restoreSystemDNS
+	preflightSystemDNS = preflight
+	applySystemDNS = apply
+	restoreSystemDNS = restore
+	return func() {
+		preflightSystemDNS = oldPreflight
+		applySystemDNS = oldApply
+		restoreSystemDNS = oldRestore
+	}
+}
+
+func replaceDNSInterceptHook(hook func(dnsintercept.Config, *rules.Matcher, dnsintercept.Forwarder) (dnsInterceptServer, error)) func() {
+	oldNew := newDNSIntercept
+	newDNSIntercept = hook
+	return func() {
+		newDNSIntercept = oldNew
+	}
+}
+
 func hasSystemChange(changes []SystemChange, component, action, status string) bool {
 	for _, change := range changes {
 		if change.Component == component && change.Action == action && change.Status == status {
@@ -760,6 +867,30 @@ func replaceStartupProbeHook(probe func(context.Context, *upstream.DirectDialer,
 	return func() {
 		runStartupProbes = oldProbe
 	}
+}
+
+type fakeDNSInterceptServer struct {
+	status  dnsintercept.Status
+	onStart func()
+	onStop  func()
+}
+
+func (s *fakeDNSInterceptServer) Start() error {
+	if s.onStart != nil {
+		s.onStart()
+	}
+	return nil
+}
+
+func (s *fakeDNSInterceptServer) Stop(context.Context) error {
+	if s.onStop != nil {
+		s.onStop()
+	}
+	return nil
+}
+
+func (s *fakeDNSInterceptServer) Status() dnsintercept.Status {
+	return s.status
 }
 
 func startEngineTestDNSServer(t *testing.T) (string, func()) {

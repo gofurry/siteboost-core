@@ -75,6 +75,20 @@ func TestValidateFillsDefaultDoHServers(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsExplicitSystemDNS(t *testing.T) {
+	cfg := Default()
+	cfg.Mode = ModeDNS
+	cfg.DNS.Strategy = DNSInterceptSystem
+	cfg.DNS.ListenAddr = "127.0.0.1:53"
+	cfg.DNS.Interfaces = []string{" Wi-Fi ", "Wi-Fi", "Ethernet"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if len(cfg.DNS.Interfaces) != 2 || cfg.DNS.Interfaces[0] != "Wi-Fi" || cfg.DNS.Interfaces[1] != "Ethernet" {
+		t.Fatalf("interfaces = %#v", cfg.DNS.Interfaces)
+	}
+}
+
 func TestLoadFileYAML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`
@@ -324,10 +338,28 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			},
 		},
 		{
-			name: "dns system strategy not implemented",
+			name: "dns system strategy requires interfaces",
 			mutate: func(cfg *Config) {
 				cfg.Mode = ModeDNS
 				cfg.DNS.Strategy = DNSInterceptSystem
+			},
+		},
+		{
+			name: "dns system strategy requires port 53",
+			mutate: func(cfg *Config) {
+				cfg.Mode = ModeDNS
+				cfg.DNS.Strategy = DNSInterceptSystem
+				cfg.DNS.ListenAddr = "127.0.0.1:15353"
+				cfg.DNS.Interfaces = []string{"Wi-Fi"}
+			},
+		},
+		{
+			name: "dns system strategy requires loopback",
+			mutate: func(cfg *Config) {
+				cfg.Mode = ModeDNS
+				cfg.DNS.Strategy = DNSInterceptSystem
+				cfg.DNS.ListenAddr = "192.0.2.10:53"
+				cfg.DNS.Interfaces = []string{"Wi-Fi"}
 			},
 		},
 		{

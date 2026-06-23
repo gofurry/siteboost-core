@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofurry/go-steam-core/internal/config"
 	"github.com/gofurry/go-steam-core/internal/hosts"
+	"github.com/gofurry/go-steam-core/internal/systemdns"
 )
 
 func TestValidateHelperRequestAcceptsPrepareHostsStart(t *testing.T) {
@@ -119,6 +120,44 @@ func TestValidateHelperRequestAcceptsProjectSuffixRollbackPath(t *testing.T) {
 	}
 }
 
+func TestValidateHelperRequestAcceptsSystemDNS(t *testing.T) {
+	req := validSystemDNSRequest(CommandApplySystemDNS)
+	if err := validateHelperRequest(req, "token", 1234); err != nil {
+		t.Fatalf("validateHelperRequest() error = %v", err)
+	}
+}
+
+func TestValidateHelperRequestAcceptsRestoreSystemDNS(t *testing.T) {
+	req := HelperRequest{
+		Version:      helperVersion,
+		Token:        "token",
+		ParentPID:    1234,
+		Command:      CommandRestoreSystemDNS,
+		RollbackPath: config.DefaultRollbackPath(),
+	}
+	if err := validateHelperRequest(req, "token", 1234); err != nil {
+		t.Fatalf("validateHelperRequest() error = %v", err)
+	}
+}
+
+func TestValidateHelperRequestRejectsSystemDNSNonLoopbackServer(t *testing.T) {
+	req := validSystemDNSRequest(CommandPreflightSystemDNS)
+	req.SystemDNS.ServerIPs = []string{"192.0.2.53"}
+	err := validateHelperRequest(req, "token", 1234)
+	if err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("validateHelperRequest() error = %v, want loopback rejection", err)
+	}
+}
+
+func TestValidateHelperRequestRejectsSystemDNSEmptyInterfaces(t *testing.T) {
+	req := validSystemDNSRequest(CommandApplySystemDNS)
+	req.SystemDNS.Interfaces = nil
+	err := validateHelperRequest(req, "token", 1234)
+	if err == nil || !strings.Contains(err.Error(), "interfaces") {
+		t.Fatalf("validateHelperRequest() error = %v, want interfaces rejection", err)
+	}
+}
+
 func validPrepareRequest() HelperRequest {
 	return HelperRequest{
 		Version:   helperVersion,
@@ -139,5 +178,19 @@ func validPrepareRequest() HelperRequest {
 			}},
 		},
 		AutoInstall: true,
+	}
+}
+
+func validSystemDNSRequest(command string) HelperRequest {
+	return HelperRequest{
+		Version:   helperVersion,
+		Token:     "token",
+		ParentPID: 1234,
+		Command:   command,
+		SystemDNS: systemdns.Config{
+			RollbackPath: config.DefaultRollbackPath(),
+			Interfaces:   []string{"Wi-Fi"},
+			ServerIPs:    []string{"127.0.0.1"},
+		},
 	}
 }

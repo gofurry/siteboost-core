@@ -23,8 +23,15 @@ import (
 	"github.com/gofurry/go-steam-core/internal/hosts"
 	"github.com/gofurry/go-steam-core/internal/privilege"
 	runtimecontrol "github.com/gofurry/go-steam-core/internal/runtime"
+	"github.com/gofurry/go-steam-core/internal/systemdns"
 	"github.com/gofurry/go-steam-core/internal/systemproxy"
 	"github.com/gofurry/go-steam-core/internal/upstream"
+)
+
+var (
+	restoreHostsRollback       = privilege.RestoreHosts
+	restoreSystemDNSRollback   = privilege.RestoreSystemDNS
+	restoreSystemProxyRollback = systemproxy.Restore
 )
 
 func main() {
@@ -314,7 +321,7 @@ func runRestore(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Runtime.StopTimeout.Std())
 	defer cancel()
 	err = restoreRollback(ctx, cfg.Runtime.RollbackPath)
-	if errors.Is(err, systemproxy.ErrNoState) || errors.Is(err, hosts.ErrNoState) {
+	if errors.Is(err, systemproxy.ErrNoState) || errors.Is(err, hosts.ErrNoState) || errors.Is(err, systemdns.ErrNoState) {
 		fmt.Fprintln(stdout, "not modified")
 		return nil
 	}
@@ -547,9 +554,12 @@ func restoreRollback(ctx context.Context, path string) error {
 		return fmt.Errorf("parse rollback state: %w", err)
 	}
 	if meta.Kind == "hosts" || meta.Mode == config.ModeHosts {
-		return privilege.RestoreHosts(ctx, path)
+		return restoreHostsRollback(ctx, path)
 	}
-	return systemproxy.Restore(ctx, path)
+	if meta.Kind == systemdns.StateKind || meta.Mode == config.ModeDNS {
+		return restoreSystemDNSRollback(ctx, path)
+	}
+	return restoreSystemProxyRollback(ctx, path)
 }
 
 func visitedFlags(fs *flag.FlagSet) map[string]bool {

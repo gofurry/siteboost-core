@@ -245,11 +245,65 @@ Expected behavior:
 - `status` includes `dns_intercept: strategy=manual ... system_dns=false ... target=... forwarded=... cache_hits=... blocked=... errors=...`.
 - `system_change:` should not appear for DNS manual mode.
 
-High-port DNS smoke does not prove browser interception, because DNS records cannot carry ports. Browser-level DNSIntercept testing requires the reverse proxy on 80 / 443 and a client explicitly configured to use the local DNS server; v0.7.1 still does not modify system DNS automatically.
+High-port DNS smoke does not prove browser interception, because DNS records cannot carry ports. Browser-level DNSIntercept testing requires the reverse proxy on 80 / 443 and a client explicitly configured to use the local DNS server. Use the system smoke below when you explicitly want Windows system DNS takeover.
+
+## DNSIntercept System Smoke
+
+This smoke really changes DNS servers for the selected Windows interface. Confirm AppHost is installed and healthy, then record the current DNS state:
+
+```powershell
+.\bin\steam-accelerator.exe apphost status
+Get-DnsClientServerAddress -AddressFamily IPv4
+```
+
+Create a temporary config such as `tmp\dns-system.yaml`, replacing `interfaces` with your interface name, index, or GUID:
+
+```yaml
+mode: dns
+
+dns_intercept:
+  strategy: "system"
+  listen_addr: "127.0.0.1:53"
+  interfaces:
+    - "Wi-Fi"
+  map_ipv4: "127.0.0.1"
+  block_https_records: true
+
+hosts:
+  http_listen_addr: "127.0.0.1:80"
+  https_listen_addr: "127.0.0.1:443"
+```
+
+Start and verify:
+
+```powershell
+.\bin\steam-accelerator.exe start --config .\tmp\dns-system.yaml --state .\tmp\dns-system-runtime.json
+.\bin\steam-accelerator.exe status --state .\tmp\dns-system-runtime.json
+Resolve-DnsName steamcommunity.com -Type A
+Resolve-DnsName example.com -Type A
+```
+
+Expected behavior:
+
+- `status` includes `dns_intercept: strategy=system ... system_dns=true ...`.
+- `status` includes `system_change: component=system_dns action=preflight status=ok ...` and `action=apply`.
+- `Get-DnsClientServerAddress -AddressFamily IPv4` shows the selected interface DNS pointing at `127.0.0.1`.
+- `Resolve-DnsName steamcommunity.com -Type A` returns `127.0.0.1`.
+- `Resolve-DnsName example.com -Type A` still resolves through the upstream resolver.
+
+Stop and restore:
+
+```powershell
+.\bin\steam-accelerator.exe stop --state .\tmp\dns-system-runtime.json
+.\bin\steam-accelerator.exe restore --config .\tmp\dns-system.yaml
+Get-DnsClientServerAddress -AddressFamily IPv4
+```
+
+The selected interface DNS should return to its previous DHCP or static DNS state. If shutdown fails, rollback remains on disk; fix the platform error and run `restore --config .\tmp\dns-system.yaml` again.
 
 ## Expected Output
 
-The version command should print project name, `v0.7.1-dev`, and module path.
+The version command should print project name, `v0.7.2-dev`, and module path.
 
 The basic example should print the project name and module path.
 

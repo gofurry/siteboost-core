@@ -15,7 +15,7 @@
 - 远端仓库已经改为 `gofurry/siteboost-core`。
 - Go module 仍是 `github.com/gofurry/go-steam-core`。
 - CLI 仍是 `steam-accelerator`。
-- `version.go` 已是 `v0.7.1-dev`。
+- `version.go` 已是 `v0.7.2-dev`。
 - 主干代码已包含 Windows AppHost Service 与 named pipe IPC：
   - `apphost install|start|stop|status|uninstall|run`。
   - 服务名：`SiteBoostCoreAppHost`。
@@ -29,7 +29,7 @@
 
 当前 Steam 能力已经比较完整：
 
-- ProxyOnly / PAC / System Proxy / Windows Hosts / DNSIntercept manual 五种模式。
+- ProxyOnly / PAC / System Proxy / Windows Hosts / DNSIntercept manual / Windows DNSIntercept system 模式。
 - Hosts + DoH 默认闭环。
 - Windows Root CA 自动检查 / 安装。
 - Windows hosts 写入与 rollback。
@@ -138,7 +138,23 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 
 ### v0.7.2 - Windows System DNS 显式接管与恢复
 
+**状态：** 代码与自动化验证已完成，等待真实 Windows system DNS smoke。
+
 目标是在 `manual` 路径稳定后，为 `dns_intercept.strategy: system` 增加 AppHost 白名单系统 DNS 修改能力。任何系统 DNS 改动都必须先有 rollback，`stop` / `restore` 后必须恢复，失败时不能把开发者机器留在“系统 DNS 指向本地但服务未运行”的状态。
+
+已完成：
+
+- 新增 `internal/systemdns`，负责 Windows DNS 接口快照、rollback schema、apply 和 restore。
+- `strategy: system` 要求 `mode: dns`、`listen_addr` 为 loopback `:53`、显式 `dns_intercept.interfaces`。
+- AppHost 增加 `preflight-system-dns`、`apply-system-dns`、`restore-system-dns` 三个白名单命令。
+- Engine 启动顺序为 preflight -> DNS server start -> apply system DNS；停止时先 restore system DNS，再关闭 DNS server。
+- CLI `restore` 可识别 `system_dns` rollback 并恢复。
+- `status` 会显示 `dns_intercept ... system_dns=true` 和 `system_change: component=system_dns ...`。
+- 自动化测试覆盖配置、systemdns rollback、Windows PowerShell 后端、AppHost 校验、Engine 顺序和 CLI restore 分发。
+
+仍需补充：
+
+- 真实 Windows system DNS smoke：显式指定网卡，启动后验证 DNS server 接管、浏览器访问、`stop` / `restore` 后网卡 DNS 回到原状态。
 
 ### v0.7.3 - JS 注入与页面增强透明 Pipeline
 
@@ -206,6 +222,6 @@ v0.7 完成后，路线调整为：DNSIntercept 和 Page Enhance 会在抽取开
 8. `internal/upstream/profile.go`
 9. `cmd/steam-accelerator/main.go`
 
-最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是补做 v0.7.1 DNSIntercept manual 高端口手动 smoke、默认 Steam Hosts + DoH + AppHost 回归 smoke，以及 AppHost 真实重启自动拉起 smoke。随后再进入 Windows system DNS 显式接管或 Page Enhance 透明 pipeline 的设计验证。
+最重要的下一步不是继续加 Steam 域名，也不是做 TUN/VPN 或 GitHub 真实加速，而是补做 v0.7.2 DNSIntercept manual 高端口手动 smoke、Windows system DNS 显式接管 smoke、默认 Steam Hosts + DoH + AppHost 回归 smoke，以及 AppHost 真实重启自动拉起 smoke。随后再进入 Page Enhance 透明 pipeline 的设计验证。
 
 正式通用 Go library 不在本仓库内直接完成；它应在本仓库验证充分后另起仓库维护。

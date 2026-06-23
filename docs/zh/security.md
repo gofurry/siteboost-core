@@ -12,6 +12,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - `start --mode hosts` 在 `cert.auto_install` 为 true 时会把 Root CA 检查/安装纳入启动流程，并限制在配置的 Windows Root store。默认 `cert.store_scope: machine`；普通 Windows 进程需要系统写入时会通过已安装的 AppHost named pipe 完成，`user` 作为兼容退路。核心不会绕过 UAC、企业策略，也不会接受任意系统修改命令。
 - `cert install` 和自动安装流程都会先检查本项目 Root CA 是否已存在，避免重复执行安装动作。
 - 默认不修改 hosts，必须显式启动 `mode: hosts`。
+- 默认不修改系统 DNS；只有显式 `mode: dns` 且 `dns_intercept.strategy: system` 时才会接管指定 Windows 网卡 DNS。
 - 默认不暴露公网代理入口。
 - 日志不记录 Cookie、Authorization、代理密码、token 或完整敏感 URL。
 
@@ -22,6 +23,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - PAC。
 - System Proxy。
 - Hosts。
+- DNSIntercept system。
 - 本地 Root CA 安装。
 - HTTPS Reverse Proxy。
 
@@ -32,7 +34,7 @@ steam-accelerator-core 面向本地运行，默认安全边界如下：
 - 支持独立 `restore`。
 - 文档写明手动恢复方式。
 - 只修改项目拥有的配置项或 hosts 标记区块。
-- AppHost 必须保持窄命令面。v0.7.1-dev AppHost 仍只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca` 和 health 请求，通过 Windows named pipe 传输，带 DACL，平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`，随机 token 非空校验、pipe client PID 与请求父进程 PID 绑定、客户端二进制路径校验，限制默认 hosts 路径与项目 runtime / cert 目录，并对请求设置超时。
+- AppHost 必须保持窄命令面。v0.7.2-dev AppHost 只接受 `prepare-hosts-start`、`trust-root-ca`、`restore-hosts`、`untrust-root-ca`、`preflight-system-dns`、`apply-system-dns`、`restore-system-dns` 和 health 请求，通过 Windows named pipe 传输，带 DACL，平台支持时启用 `PIPE_REJECT_REMOTE_CLIENTS`，随机 token 非空校验、pipe client PID 与请求父进程 PID 绑定、客户端二进制路径校验，限制默认 hosts 路径、loopback system DNS server、显式 interface selector 与项目 runtime / cert 目录，并对请求设置超时。
 
 ## 证书风险
 
